@@ -45,8 +45,8 @@ struct Args {
     #[clap(short = 'x', long = "sparsify", default_value = "1.0")]
     sparsify: f64,
 
-    /// Filtering mode: "1:1" (one-to-one), "1:N" (one-to-many), or "N:N" (many-to-many)
-    #[clap(short = 'm', long = "mode", default_value = "N:N")]
+    /// Filtering mode: "1:1", "1:∞"/"map" (plane sweep), or "N:N" (no filtering)
+    #[clap(short = 'm', long = "mode", default_value = "1:∞")]
     mode: String,
 
     /// Keep all fragment mappings (no merge)
@@ -120,10 +120,10 @@ fn main() -> Result<()> {
     // Parse filtering mode
     let (filter_mode, max_per_query, max_per_target) = match args.mode.as_str() {
         "1:1" => (FilterMode::OneToOne, Some(1), Some(1)),
-        "1:N" => (FilterMode::OneToMany, Some(1), args.mappings),
+        "1:∞" | "1:inf" | "1:N" | "map" => (FilterMode::OneToMany, Some(1), args.mappings),
         "N:N" => (FilterMode::ManyToMany, args.mappings, args.mappings),
         _ => {
-            eprintln!("Invalid mode: {}. Use '1:1', '1:N', or 'N:N'", args.mode);
+            eprintln!("Invalid mode: {}. Use '1:1', '1:∞' (or '1:inf', 'map'), or 'N:N'", args.mode);
             std::process::exit(1);
         }
     };
