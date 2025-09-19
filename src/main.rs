@@ -3,6 +3,7 @@ mod paf;
 mod filter;
 mod filter_stream;
 mod filter_scaffold;
+mod union_find;
 
 use anyhow::Result;
 use clap::Parser;

@@ -1,0 +1,113 @@
+--- a/src/map/include/mappingFilter.hpp
++++ b/src/map/include/mappingFilter.hpp
+@@ -840,6 +840,10 @@ static void filterByScaffolds(MappingResultsVector_t& readMappings,
+                                  std::shared_ptr<std::atomic<size_t>> scaffold_completed_work = nullptr)
+     {
+         if (param.scaffold_gap <= 0) return;
++
++        // INSTRUMENTATION: Log input mappings
++        std::cerr << "[SCAFFOLD_TRACE] Input: " << readMappings.size() << " mappings for query "
++                  << idManager.getSequenceName(querySeqId) << std::endl;
+
+         // Add timing for expensive scaffold operations
+         auto scaffold_start = std::chrono::high_resolution_clock::now();
+@@ -856,10 +860,24 @@ static void filterByScaffolds(MappingResultsVector_t& readMappings,
+         // Step 2: Merge to identify chains (this is expensive)
+         auto merge_start = std::chrono::high_resolution_clock::now();
+         auto mergedChains = mergeMappingsInRange(scaffoldMappings, scaffoldParam.chain_gap, scaffoldParam, progress, querySeqId, queryLen);
++
++        // INSTRUMENTATION: Log merged chains
++        std::cerr << "[SCAFFOLD_TRACE] After merging with gap=" << scaffoldParam.chain_gap
++                  << ": " << mergedChains.size() << " chains" << std::endl;
++        for (size_t i = 0; i < mergedChains.size(); ++i) {
++            const auto& c = mergedChains[i];
++            std::cerr << "[SCAFFOLD_TRACE]   Chain[" << i << "]: ref=" << idManager.getSequenceName(c.refSeqId)
++                      << " q=" << c.queryStartPos << "-" << c.queryEndPos()
++                      << " r=" << c.refStartPos << "-" << c.refEndPos()
++                      << " len=" << c.blockLength << " sketches=" << c.conservedSketches << std::endl;
++        }
++
+         auto merge_end = std::chrono::high_resolution_clock::now();
+         auto merge_duration = std::chrono::duration_cast<std::chrono::milliseconds>(merge_end - merge_start);
+
+         // Step 3: Filter merged chains by length
++        size_t before_length_filter = mergedChains.size();
+         mergedChains.erase(
+             std::remove_if(mergedChains.begin(), mergedChains.end(),
+                 [&](const MappingResult& m) { return m.blockLength < param.scaffold_min_length; }),
+             mergedChains.end());
++        std::cerr << "[SCAFFOLD_TRACE] After length filter (min=" << param.scaffold_min_length
++                  << "): " << before_length_filter << " -> " << mergedChains.size() << " chains" << std::endl;
+
+         // Step 4: Apply plane sweep filter to the merged chains to remove off-diagonal/weaker scaffold chains
+         if (!mergedChains.empty() && (param.filterMode == filter::MAP || param.filterMode == filter::ONETOONE)) {
++            size_t before_sweep = mergedChains.size();
+             MappingResultsVector_t filteredChains;
+             // Use scaffold-specific overlap threshold for more aggressive filtering
+             Parameters scaffoldFilterParam = param;
+@@ -880,6 +900,14 @@ static void filterByScaffolds(MappingResultsVector_t& readMappings,
+             filterByGroup(mergedChains, filteredChains, param.numMappingsForScaffold - 1,
+                          false, idManager, scaffoldFilterParam, progress);
+             mergedChains = std::move(filteredChains);
++            std::cerr << "[SCAFFOLD_TRACE] After plane sweep: " << before_sweep << " -> " << mergedChains.size() << " chains" << std::endl;
++            for (size_t i = 0; i < mergedChains.size(); ++i) {
++                const auto& c = mergedChains[i];
++                std::cerr << "[SCAFFOLD_TRACE]   Scaffold[" << i << "]: ref=" << idManager.getSequenceName(c.refSeqId)
++                          << " q=" << c.queryStartPos << "-" << c.queryEndPos()
++                          << " r=" << c.refStartPos << "-" << c.refEndPos()
++                          << " len=" << c.blockLength << std::endl;
++            }
+         }
+
+         // Step 5: Collect original mappings that fall within the bounds of our filtered, high-quality scaffold chains.
+@@ -898,6 +926,8 @@ static void filterByScaffolds(MappingResultsVector_t& readMappings,
+             }
+         }
+
++        std::cerr << "[SCAFFOLD_TRACE] Anchors identified: " << allAnchorMappings.size() << " mappings" << std::endl;
++
+         // Use allAnchorMappings as anchors for the rest of the function
+         auto& anchors = allAnchorMappings;
+
+@@ -978,9 +1008,22 @@ static void filterByScaffolds(MappingResultsVector_t& readMappings,
+                 auto nn = anchor_kdtree.findKNearest(p, 1);
+                 if (nn.empty()) {
+                     dist_to_nearest_anchor[i] = std::numeric_limits<float>::infinity();
+                 } else {
+                     dist_to_nearest_anchor[i] = nn[0].second;
++                    // INSTRUMENTATION: Log distance for mappings that might be rescued
++                    if (nn[0].second <= max_dist && nn[0].second > 0) {
++                        const auto& anchor = anchors[nn[0].first];
++                        std::cerr << "[SCAFFOLD_TRACE] Mapping[" << i << "] distance=" << nn[0].second
++                                  << " to anchor q=" << anchor.queryStartPos << "-" << anchor.queryEndPos()
++                                  << " r=" << anchor.refStartPos << "-" << anchor.refEndPos()
++                                  << " (mapping: q=" << m.queryStartPos << "-" << m.queryEndPos()
++                                  << " r=" << m.refStartPos << "-" << m.refEndPos() << ")" << std::endl;
++                    }
+                 }
+             }
+         };
+@@ -996,12 +1039,23 @@ static void filterByScaffolds(MappingResultsVector_t& readMappings,
+         MappingResultsVector_t keepers;
+         float max_dist = static_cast<float>(param.scaffold_max_deviation);
+
++        int anchors_kept = 0;
++        int rescued = 0;
+         for (size_t i = 0; i < readMappings.size(); ++i) {
+             if (dist_to_nearest_anchor[i] <= max_dist) {
+                 keepers.push_back(readMappings[i]);
++                // Check if this is an anchor or rescued
++                bool is_anchor = std::find_if(anchors.begin(), anchors.end(), [&](const MappingResult& a) {
++                    return a.queryStartPos == readMappings[i].queryStartPos &&
++                           a.refStartPos == readMappings[i].refStartPos;
++                }) != anchors.end();
++                if (is_anchor) anchors_kept++; else rescued++;
+             }
+         }
+
++        std::cerr << "[SCAFFOLD_TRACE] Final: " << readMappings.size() << " -> " << keepers.size()
++                  << " (anchors=" << anchors_kept << ", rescued=" << rescued << ")" << std::endl;
++
+         readMappings = std::move(keepers);
+
+         // Report total scaffold filtering time if significant

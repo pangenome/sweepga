@@ -141,9 +141,9 @@ impl StreamFilter {
             (self.keep_self || m.query_name != m.target_name)
         });
 
-        // 2. Apply plane sweep FIRST (like wfmash does for external seeds)
-        // This removes overlapping/weaker mappings before scaffold filtering
-        if self.config.filter_mode != FilterMode::ManyToMany {
+        // 2. Apply plane sweep ONLY if scaffold filtering is disabled
+        // When scaffold filtering is enabled, it handles all the filtering
+        if self.config.min_scaffold_length == 0 && self.config.filter_mode != FilterMode::ManyToMany {
             eprintln!("[PLANE_SWEEP_TRACE] Before plane sweep: {} mappings", metadata.len());
             let plane_swept = self.apply_plane_sweep_to_mappings(&metadata)?;
             eprintln!("[PLANE_SWEEP_TRACE] After plane sweep: {} mappings", plane_swept.len());
@@ -157,29 +157,37 @@ impl StreamFilter {
         // 3. Apply scaffold filtering (wfmash's filterByScaffolds)
         if self.config.min_scaffold_length > 0 {
             // Step 1: Merge mappings with scaffold_gap to create chains
-            eprintln!("[SCAFFOLD_TRACE] Input: {} mappings", metadata.len());
+            // eprintln!("[SCAFFOLD_TRACE] Input: {} mappings", metadata.len());
 
-            let merged_chains = self.merge_mappings_into_chains(&metadata, self.config.scaffold_gap)?;
-            eprintln!("[SCAFFOLD_TRACE] After merging with gap={}: {} chains",
-                      self.config.scaffold_gap, merged_chains.len());
+            // Use chain_gap for initial merging, not scaffold_gap
+            // This prevents creating massive genome-spanning chains
+            let merged_chains = self.merge_mappings_into_chains(&metadata, self.config.chain_gap)?;
+            // eprintln!("[SCAFFOLD_TRACE] After merging with gap={}: {} chains",
+            //           self.config.chain_gap, merged_chains.len());
 
             // Step 2: Filter chains by minimum scaffold length
             let mut filtered_chains: Vec<MergedChain> = merged_chains
                 .into_iter()
                 .filter(|chain| chain.total_length >= self.config.min_scaffold_length)
                 .collect();
-            eprintln!("[SCAFFOLD_TRACE] After length filter (min={}): {} chains",
-                      self.config.min_scaffold_length, filtered_chains.len());
+            // eprintln!("[SCAFFOLD_TRACE] After length filter (min={}): {} chains",
+            //           self.config.min_scaffold_length, filtered_chains.len());
+            // for (i, chain) in filtered_chains.iter().enumerate() {
+            //     eprintln!("[SCAFFOLD_TRACE]   Chain[{}]: q={}-{} r={}-{} len={}",
+            //               i, chain.query_start, chain.query_end,
+            //               chain.target_start, chain.target_end, chain.total_length);
+            // }
 
             // Step 3: Apply plane sweep to remove overlapping/weaker chains
-            filtered_chains = self.plane_sweep_filter_chains(filtered_chains)?;
+            // For scaffolds, we keep ALL non-overlapping chains (like -n inf)
+            filtered_chains = self.plane_sweep_keep_all_non_overlapping(filtered_chains)?;
 
-            eprintln!("[SCAFFOLD_TRACE] After plane sweep: {} chains", filtered_chains.len());
-            for (i, chain) in filtered_chains.iter().enumerate() {
-                eprintln!("[SCAFFOLD_TRACE]   Scaffold[{}]: q={}-{} r={}-{} len={}",
-                          i, chain.query_start, chain.query_end,
-                          chain.target_start, chain.target_end, chain.total_length);
-            }
+            // eprintln!("[SCAFFOLD_TRACE] After plane sweep: {} chains", filtered_chains.len());
+            // for (i, chain) in filtered_chains.iter().enumerate() {
+            //     eprintln!("[SCAFFOLD_TRACE]   Scaffold[{}]: q={}-{} r={}-{} len={}",
+            //               i, chain.query_start, chain.query_end,
+            //               chain.target_start, chain.target_end, chain.total_length);
+            // }
 
             // Step 4: Identify anchors - original mappings that fall WITHIN scaffold bounds
             // This is the KEY FIX: check which originals are within scaffolds, not just chain members!
@@ -197,7 +205,7 @@ impl StreamFilter {
                     }
                 }
             }
-            eprintln!("[SCAFFOLD_TRACE] Anchors identified: {} mappings", anchor_ranks.len());
+            // eprintln!("[SCAFFOLD_TRACE] Anchors identified: {} mappings", anchor_ranks.len());
 
             // Map ranks to indices in all_original_mappings
             let mut rank_to_idx = HashMap::new();
@@ -258,8 +266,8 @@ impl StreamFilter {
             // Count anchors vs rescued
             let anchor_count = anchor_ranks.len();
             let rescued_count = kept_mappings.len() - anchor_count;
-            eprintln!("[SCAFFOLD_TRACE] Final: {} -> {} (anchors={}, rescued={})",
-                      metadata.len(), kept_mappings.len(), anchor_count, rescued_count);
+            // eprintln!("[SCAFFOLD_TRACE] Final: {} -> {} (anchors={}, rescued={})",
+            //           metadata.len(), kept_mappings.len(), anchor_count, rescued_count);
 
             // Build result map directly from kept mappings (no additional filtering!)
             let mut passing = HashMap::new();
@@ -291,6 +299,8 @@ impl StreamFilter {
 
     /// Merge mappings into chains using wfmash's union-find approach
     fn merge_mappings_into_chains(&self, metadata: &[RecordMeta], max_gap: u32) -> Result<Vec<MergedChain>> {
+        use crate::union_find::UnionFind;
+
         // Group by (query, target, strand) - this is like wfmash's refSeqId grouping
         // Store the original rank, not the position in metadata array
         let mut groups: HashMap<(String, String, char), Vec<(usize, usize)>> = HashMap::new();
@@ -307,45 +317,86 @@ impl StreamFilter {
             let mut sorted_indices = indices.clone();
             sorted_indices.sort_by_key(|&(_rank, idx)| metadata[idx].query_start);
 
-            // Simple chaining: connect mappings within max_gap distance
-            let mut chains: Vec<Vec<(usize, usize)>> = Vec::new();
-            let mut current_chain = vec![sorted_indices[0]];
+            // Use union-find for transitive chaining (like wfmash)
+            let mut uf = UnionFind::new(sorted_indices.len());
 
-            for &(rank, idx) in &sorted_indices[1..] {
-                let (_last_rank, last_idx) = *current_chain.last().unwrap();
+            // Check pairs for potential chaining, but stop when too far
+            for i in 0..sorted_indices.len() {
+                let (_rank_i, idx_i) = sorted_indices[i];
 
-                // Calculate distances (similar to wfmash's q_dist and r_dist)
-                let q_gap = if metadata[idx].query_start > metadata[last_idx].query_end {
-                    metadata[idx].query_start - metadata[last_idx].query_end
-                } else {
-                    0  // Overlapping
-                };
+                // Look ahead until we find a mapping too far away in query
+                for j in (i+1)..sorted_indices.len() {
+                    let (_rank_j, idx_j) = sorted_indices[j];
 
-                let r_gap = if strand == '+' {
-                    if metadata[idx].target_start > metadata[last_idx].target_end {
-                        metadata[idx].target_start - metadata[last_idx].target_end
-                    } else {
-                        0  // Overlapping
+                    // If this mapping starts too far away in query, stop looking
+                    // This prevents creating genome-spanning chains
+                    if metadata[idx_j].query_start > metadata[idx_i].query_end + max_gap {
+                        break; // Too far, no point checking further mappings
                     }
-                } else {
-                    // Reverse strand
-                    if metadata[last_idx].target_start > metadata[idx].target_end {
-                        metadata[last_idx].target_start - metadata[idx].target_end
+
+                    // Calculate distances (similar to wfmash's q_dist and r_dist)
+                    // Note: wfmash allows small overlaps (up to windowLength/5)
+                    let q_gap = if metadata[idx_j].query_start >= metadata[idx_i].query_end {
+                        metadata[idx_j].query_start - metadata[idx_i].query_end
+                    } else if metadata[idx_i].query_end > metadata[idx_j].query_start {
+                        // Small overlap allowed
+                        let overlap = metadata[idx_i].query_end - metadata[idx_j].query_start;
+                        // Allow overlaps up to max_gap/5 (like wfmash's windowLength/5)
+                        if overlap <= max_gap / 5 {
+                            0  // Treat small overlap as valid
+                        } else {
+                            max_gap + 1  // Too much overlap, don't chain
+                        }
                     } else {
                         0
-                    }
-                };
+                    };
 
-                // Chain if both gaps are within threshold
-                if q_gap <= max_gap && r_gap <= max_gap {
-                    current_chain.push((rank, idx));
-                } else {
-                    // Start new chain
-                    chains.push(current_chain);
-                    current_chain = vec![(rank, idx)];
+                    let r_gap = if strand == '+' {
+                        if metadata[idx_j].target_start >= metadata[idx_i].target_end {
+                            metadata[idx_j].target_start - metadata[idx_i].target_end
+                        } else if metadata[idx_i].target_end > metadata[idx_j].target_start {
+                            // Small overlap allowed
+                            let overlap = metadata[idx_i].target_end - metadata[idx_j].target_start;
+                            if overlap <= max_gap / 5 {
+                                0
+                            } else {
+                                max_gap + 1
+                            }
+                        } else {
+                            0
+                        }
+                    } else {
+                        // Reverse strand
+                        if metadata[idx_i].target_start >= metadata[idx_j].target_end {
+                            metadata[idx_i].target_start - metadata[idx_j].target_end
+                        } else if metadata[idx_j].target_end > metadata[idx_i].target_start {
+                            let overlap = metadata[idx_j].target_end - metadata[idx_i].target_start;
+                            if overlap <= max_gap / 5 {
+                                0
+                            } else {
+                                max_gap + 1
+                            }
+                        } else {
+                            0
+                        }
+                    };
+
+                    // Chain if both gaps are within threshold (allowing transitive connections)
+                    if q_gap <= max_gap && r_gap <= max_gap {
+                        uf.union(i, j);
+                    }
                 }
             }
-            chains.push(current_chain);
+
+            // Extract chains from union-find sets
+            let sets = uf.get_sets();
+            let chains: Vec<Vec<(usize, usize)>> = sets.into_iter()
+                .map(|set_indices| {
+                    set_indices.into_iter()
+                        .map(|i| sorted_indices[i])
+                        .collect()
+                })
+                .collect();
 
             // Create merged chains from groups of mappings
             for chain_indices in chains {
@@ -411,45 +462,121 @@ impl StreamFilter {
     }
 
     /// Apply plane sweep to raw mappings (before scaffold filtering)
+    /// This should keep ALL non-overlapping mappings, not just top N
     fn apply_plane_sweep_to_mappings(&self, mappings: &[RecordMeta]) -> Result<Vec<RecordMeta>> {
         if mappings.is_empty() {
             return Ok(Vec::new());
         }
 
-        // Sort mappings by score (block_length) in descending order
-        let mut sorted_mappings = mappings.to_vec();
-        sorted_mappings.sort_by_key(|m| std::cmp::Reverse(m.block_length));
+        // For initial plane sweep, we want to keep ALL non-overlapping mappings
+        // This is equivalent to -n inf in wfmash
+        // We only remove mappings that significantly overlap with better ones
 
-        let mut kept: Vec<RecordMeta> = Vec::new();
-        let overlap_threshold = self.config.overlap_threshold;
+        // Group by target sequence for independent plane sweep
+        let mut by_target: std::collections::HashMap<String, Vec<RecordMeta>> = std::collections::HashMap::new();
+        for mapping in mappings {
+            by_target.entry(mapping.target_name.clone()).or_insert_with(Vec::new).push(mapping.clone());
+        }
 
-        for mapping in sorted_mappings {
-            let mut should_keep = true;
+        let mut all_kept = Vec::new();
 
-            // Check overlap with already kept mappings
-            for kept_mapping in &kept {
-                let q_overlap = Self::calculate_overlap(
-                    mapping.query_start, mapping.query_end,
-                    kept_mapping.query_start, kept_mapping.query_end
-                );
-                let t_overlap = Self::calculate_overlap(
-                    mapping.target_start, mapping.target_end,
-                    kept_mapping.target_start, kept_mapping.target_end
-                );
+        for (_target, target_mappings) in by_target {
+            // Sort by score (block_length) in descending order
+            let mut sorted = target_mappings;
+            sorted.sort_by_key(|m| std::cmp::Reverse(m.block_length));
 
-                // If either query or target overlaps too much with a better mapping, skip
-                if q_overlap > overlap_threshold || t_overlap > overlap_threshold {
-                    should_keep = false;
-                    break;
+            let mut kept_for_target: Vec<RecordMeta> = Vec::new();
+            let overlap_threshold = self.config.overlap_threshold;
+
+            for mapping in sorted {
+                let mut should_keep = true;
+
+                // Only check overlap with mappings on same strand
+                for kept_mapping in &kept_for_target {
+                    if mapping.strand != kept_mapping.strand {
+                        continue; // Different strands don't compete
+                    }
+
+                    let q_overlap = Self::calculate_overlap(
+                        mapping.query_start, mapping.query_end,
+                        kept_mapping.query_start, kept_mapping.query_end
+                    );
+                    let t_overlap = Self::calculate_overlap(
+                        mapping.target_start, mapping.target_end,
+                        kept_mapping.target_start, kept_mapping.target_end
+                    );
+
+                    // Only skip if BOTH query and target overlap significantly
+                    // This allows inversions and repeats to coexist
+                    if q_overlap > overlap_threshold && t_overlap > overlap_threshold {
+                        should_keep = false;
+                        break;
+                    }
+                }
+
+                if should_keep {
+                    kept_for_target.push(mapping);
                 }
             }
 
-            if should_keep {
-                kept.push(mapping);
-            }
+            all_kept.extend(kept_for_target);
         }
 
-        Ok(kept)
+        // Sort back by original rank to preserve order
+        all_kept.sort_by_key(|m| m.rank);
+
+        Ok(all_kept)
+    }
+
+    /// Keep all non-overlapping chains (for scaffold filtering with -n inf behavior)
+    fn plane_sweep_keep_all_non_overlapping(&self, chains: Vec<MergedChain>) -> Result<Vec<MergedChain>> {
+        // Group chains by query
+        let mut by_query: HashMap<String, Vec<MergedChain>> = HashMap::new();
+        for chain in chains {
+            by_query.entry(chain.query_name.clone()).or_insert_with(Vec::new).push(chain);
+        }
+
+        let mut filtered = Vec::new();
+
+        for (_query, mut query_chains) in by_query {
+            // Sort by total length (descending) to prioritize longer chains
+            query_chains.sort_by(|a, b| b.total_length.cmp(&a.total_length));
+
+            let mut kept: Vec<MergedChain> = Vec::new();
+
+            for chain in query_chains {
+                let mut has_significant_overlap = false;
+
+                // Check overlap with already kept chains
+                for existing in &kept {
+                    let overlap_start = chain.query_start.max(existing.query_start);
+                    let overlap_end = chain.query_end.min(existing.query_end);
+
+                    if overlap_start < overlap_end {
+                        let overlap_len = overlap_end - overlap_start;
+                        let chain_len = chain.query_end - chain.query_start;
+                        let existing_len = existing.query_end - existing.query_start;
+                        let min_len = chain_len.min(existing_len);
+
+                        // Use scaffold_overlap_threshold to determine significant overlap
+                        let overlap_frac = overlap_len as f64 / min_len as f64;
+                        if overlap_frac > self.config.scaffold_overlap_threshold {
+                            has_significant_overlap = true;
+                            break;
+                        }
+                    }
+                }
+
+                // Keep chain if it doesn't significantly overlap with any existing
+                if !has_significant_overlap {
+                    kept.push(chain);
+                }
+            }
+
+            filtered.extend(kept);
+        }
+
+        Ok(filtered)
     }
 
     fn plane_sweep_filter_chains(&self, chains: Vec<MergedChain>) -> Result<Vec<MergedChain>> {
