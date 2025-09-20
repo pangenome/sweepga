@@ -78,6 +78,10 @@ struct Args {
     #[clap(long = "self")]
     keep_self: bool,
 
+    /// Output scaffold chains only (for debugging)
+    #[clap(long = "scaffolds-only")]
+    scaffolds_only: bool,
+
     /// Quiet mode (no progress output)
     #[clap(long = "quiet")]
     quiet: bool,
@@ -182,7 +186,9 @@ fn main() -> Result<()> {
     };
 
     // Apply stream-based filtering
-    let filter = StreamFilter::new(config).with_keep_self(args.keep_self);
+    let filter = StreamFilter::new(config)
+        .with_keep_self(args.keep_self)
+        .with_scaffolds_only(args.scaffolds_only);
     filter.filter_paf(&input_path, &output_path)?;
 
     // If output was to stdout, copy temp file to stdout
