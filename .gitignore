@@ -5,3 +5,13 @@ deps/
 *.swo
 *~
 .DS_Store
+# Test outputs
+test_data/*.paf
+test_data/*.png
+test_data/*.fai
+*.paf
+*.png
+
+# Except the input test files we want to keep
+!test_data/chrV.fastga.paf
+!test_data/chrV.wfmash.paf
