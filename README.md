@@ -55,7 +55,7 @@ The main parameters control scaffold identification and rescue distance:
 
 `-D/--scaffold-dist` sets the maximum Euclidean distance for rescue (default 100000). Mappings further than this from any scaffold anchor are discarded.
 
-`-m/--mode` controls the filtering strategy: "1:∞" (default) keeps all non-overlapping mappings per query position, "1:1" keeps only the best per query-target pair, "N:N" disables plane sweep filtering.
+`-m/--mode` controls the filtering strategy: "1:∞" (default) keeps all non-overlapping mappings per query position, "1:1" keeps only the best per query-target pair, "N:N" or equivalently "∞:∞" disables plane sweep filtering.
 
 ## Example: varying rescue distance
 
