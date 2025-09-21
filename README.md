@@ -1,157 +1,93 @@
 # SweepGA
 
-Fast genome alignment filtering using plane sweep algorithm with scaffold-based rescue.
+PAF filtering using Euclidean distance to scaffold anchors.
 
-## Overview
+## What it does
 
-SweepGA is a Rust implementation of sophisticated PAF (Pairwise mApping Format) filtering algorithms inspired by wfmash. It applies plane sweep filtering to genome alignments and uses a scaffold-based rescue mechanism to retain biologically relevant mappings near high-confidence anchors.
+SweepGA filters genome alignment PAF files by identifying large scaffold alignments and rescuing nearby mappings based on Euclidean distance. The tool first finds high-confidence scaffold chains through merging and plane sweep filtering, then retains any mapping within a specified Euclidean distance threshold of these anchors.
 
-## Key Features
+The algorithm works in three phases. First, it merges nearby mappings into chains using union-find, where mappings are chained if they're within a gap threshold in both query and target coordinates. Second, it identifies scaffold chains that exceed a minimum length threshold and removes overlapping scaffolds through plane sweep. Third, it rescues non-scaffold mappings by calculating their Euclidean distance to scaffold anchors in query-target coordinate space, keeping those within the distance threshold.
 
-- **Plane sweep filtering**: Efficiently removes overlapping/weaker alignments
-- **Scaffold-based rescue**: Retains mappings within a specified distance of high-confidence scaffold anchors
-- **Cross-strand rescue**: Mappings on opposite strands can be rescued if near scaffold anchors
-- **Union-find chaining**: Groups nearby mappings into coherent chains
-- **Multiple filtering modes**: 1:1, 1:∞ (default), and N:N filtering strategies
-- **Stream processing**: Efficient handling of large PAF files
+The Euclidean distance is calculated between mapping center points: for a mapping M and scaffold anchor S, the distance is sqrt((M_query_center - S_query_center)² + (M_target_center - S_target_center)²). This allows rescue across strands, so reverse complement mappings near forward strand scaffolds are retained.
 
 ## Installation
 
-### Prerequisites
-- Rust 1.70 or later
-- Cargo
+Requires Rust 1.70+. Clone and build:
 
-### Build from source
 ```bash
 git clone https://github.com/pangenome/sweepga.git
 cd sweepga
 cargo build --release
 ```
 
-The binary will be at `target/release/sweepga`.
+## Usage with FASTGA
 
-## Quick Demo
-
-Using FASTGA with S. cerevisiae data:
+FASTGA generates all-vs-all genome alignments in PAF format with full CIGAR strings (pafxm style). These alignments typically need filtering to remove redundant and weak mappings. Here's a complete workflow:
 
 ```bash
-# First, run FASTGA to generate initial mappings
+# Generate all-vs-all alignments with FASTGA
 cd deps/FASTGA
 cargo build --release
-./target/release/fastga -t 8 ../../data/scerevisiae8.fa > ../../scerevisiae8.paf
+./target/release/fastga -t 8 ../../data/scerevisiae8.fa > ../../scerevisiae8.raw.paf
 
-# Apply SweepGA filtering with default parameters
+# The raw output contains all discovered mappings with CIGAR strings
+head -n1 ../../scerevisiae8.raw.paf
+# S288C#1#chrI    230218  1748    2170    +    SK1#1#chrI    228864  1742    2164    422    422    60    NM:i:0    cg:Z:422M
+
+# Apply scaffold-based filtering (default: scaffolds >10kb, rescue within 100kb)
 cd ../..
-./target/release/sweepga < scerevisiae8.paf > scerevisiae8.filtered.paf
+./target/release/sweepga < scerevisiae8.raw.paf > scerevisiae8.filtered.paf
 
-# Check the results
-echo "Input mappings: $(wc -l < scerevisiae8.paf)"
-echo "Filtered mappings: $(wc -l < scerevisiae8.filtered.paf)"
-echo "Scaffold anchors: $(grep -c 'st:Z:scaffold' scerevisiae8.filtered.paf)"
-echo "Rescued mappings: $(grep -c 'st:Z:rescued' scerevisiae8.filtered.paf)"
+# Each output mapping is annotated with its filter status
+grep "st:Z:" scerevisiae8.filtered.paf | head -n3
+# Shows mappings tagged as st:Z:scaffold or st:Z:rescued
 ```
 
-## Usage
+The default parameters work well for most eukaryotic genomes: scaffold mass of 10kb identifies major syntenic blocks, scaffold jump of 100kb allows chaining across typical intergenic distances, and rescue distance of 100kb captures local rearrangements and smaller homologous features near the main alignments.
+
+## Parameters
+
+The main parameters control scaffold identification and rescue distance:
+
+`-S/--scaffold-mass` sets the minimum length for a chain to be considered a scaffold anchor (default 10000). Smaller values create more anchors but may include repetitive elements.
+
+`-j/--scaffold-jump` sets the maximum gap for merging mappings into scaffold chains (default 100000). This controls how scattered mappings can be while still being considered part of the same scaffold.
+
+`-D/--scaffold-dist` sets the maximum Euclidean distance for rescue (default 100000). Mappings further than this from any scaffold anchor are discarded.
+
+`-m/--mode` controls the filtering strategy: "1:∞" (default) keeps all non-overlapping mappings per query position, "1:1" keeps only the best per query-target pair, "N:N" disables plane sweep filtering.
+
+## Example: varying rescue distance
+
+The rescue distance dramatically affects output. Using a yeast chromosome V alignment:
 
 ```bash
-sweepga [OPTIONS] < input.paf > output.paf
+# Very tight - only mappings within 10kb of scaffolds
+./target/release/sweepga -D 10000 < chrV.paf > chrV.strict.paf
+# Result: 32 mappings retained
+
+# Default - biological features near main alignments
+./target/release/sweepga -D 100000 < chrV.paf > chrV.default.paf
+# Result: 71 mappings retained
+
+# Permissive - may include distant paralogs
+./target/release/sweepga -D 300000 < chrV.paf > chrV.loose.paf
+# Result: 115 mappings retained
 ```
 
-### Key Options
+The scaffold jump parameter has less effect when scaffolds are already well-separated, which is common in finished genomes. The rescue mechanism is strand-agnostic: a reverse strand mapping 50kb from a forward strand scaffold will be rescued if within the distance threshold.
 
-#### Scaffold Parameters
-- `-S, --scaffold-mass <N>`: Minimum scaffold length [default: 10000]
-- `-j, --scaffold-jump <N>`: Maximum gap for chaining into scaffolds [default: 100000]
-- `-D, --scaffold-dist <N>`: Maximum distance from scaffold for rescue [default: 100000]
+## Algorithm details
 
-#### Filtering Parameters
-- `-m, --mode <MODE>`: Filtering mode: "1:1", "1:∞"/"map" (default), or "N:N"
-- `-n, --mappings <N>`: Maximum mappings per segment (for 1:N mode)
-- `-l, --block-length <N>`: Minimum block length [default: 0]
-- `-O, --overlap <RATIO>`: Maximum overlap ratio [default: 0.95]
+The implementation follows wfmash's filterByScaffolds approach. Mappings are first grouped by query-target pair and sorted by query position. Union-find merges mappings where both query and target gaps are below the threshold, allowing small overlaps up to gap/5. The resulting chains are filtered by length to identify scaffolds.
 
-#### Other Options
-- `-c, --chain-jump <N>`: Chain gap distance [default: 2000]
-- `--no-merge`: Keep fragment mappings separate (don't merge)
-- `--self`: Keep self-mappings (excluded by default)
-- `--no-filter`: Disable all filtering
-- `--quiet`: Suppress progress output
+Plane sweep removes overlapping scaffolds by maintaining a list of non-overlapping chains per query sequence, rejecting new chains that overlap existing ones by more than the overlap threshold (default 95%). This ensures scaffold anchors don't overlap significantly.
 
-### Example Commands
+The rescue phase calculates Euclidean distance from each non-scaffold mapping to all scaffold anchors on the same target sequence. The distance uses mapping center points in 2D space where axes are query and target positions. Any mapping within the distance threshold of at least one anchor is rescued, regardless of strand orientation.
 
-```bash
-# Basic filtering with default parameters (1:∞ mode)
-sweepga < input.paf > output.paf
-
-# Strict 1:1 filtering
-sweepga -m 1:1 < input.paf > output.paf
-
-# Adjust scaffold parameters for tighter clustering
-sweepga -S 5000 -j 50000 -D 50000 < input.paf > output.paf
-
-# Keep all mappings (no filtering) but still annotate scaffolds
-sweepga --no-filter < input.paf > output.paf
-
-# Debug scaffolds only (outputs synthetic PAF for scaffold chains)
-sweepga --scaffolds-only < input.paf > scaffolds.paf
-```
-
-## Algorithm Details
-
-### 1. Scaffold Identification
-- Merges nearby mappings into chains using union-find
-- Identifies chains exceeding minimum scaffold length
-- Applies plane sweep to remove overlapping scaffolds
-
-### 2. Rescue Mechanism
-- Calculates Euclidean distance from non-scaffold mappings to scaffold anchors
-- Rescues mappings within threshold distance
-- Works across strands (forward/reverse mappings can be rescued by any scaffold)
-
-### 3. Output Annotation
-Each mapping in the output includes a status tag:
-- `st:Z:scaffold` - Part of a scaffold anchor
-- `st:Z:rescued` - Rescued due to proximity to scaffold
-- `st:Z:unassigned` - Passed filters but not scaffolded/rescued
-
-## Comparison with wfmash
-
-SweepGA implements the same core filtering algorithms as wfmash's `filterByScaffolds`:
-- Compatible chain merging with union-find
-- Same distance calculations for rescue
-- Equivalent plane sweep implementation
-
-Key differences:
-- Rust implementation (vs C++ for wfmash)
-- Stream processing of PAF records
-- Simplified interface focused on filtering
-
-## Development
-
-### Running tests
-```bash
-cargo test
-```
-
-### Building with debug symbols
-```bash
-cargo build
-```
+Output preserves the original PAF records with an added tag indicating filter status: st:Z:scaffold for scaffold anchors, st:Z:rescued for rescued mappings. This allows downstream tools to distinguish high-confidence syntenic anchors from nearby features.
 
 ## Citation
 
-If you use SweepGA in your research, please cite:
-
-```
-SweepGA: Fast genome alignment filtering with scaffold-based rescue
+SweepGA: PAF filtering using Euclidean distance to scaffold anchors
 https://github.com/pangenome/sweepga
-```
-
-## License
-
-MIT
-
-## Authors
-
-- Erik Garrison
-- Implementations based on algorithms from wfmash by Andrea Guarracino and the Pangenome Consortium
