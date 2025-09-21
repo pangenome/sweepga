@@ -25,22 +25,21 @@ cargo build --release
 FASTGA generates all-vs-all genome alignments in PAF format with full CIGAR strings (pafxm style). These alignments typically need filtering to remove redundant and weak mappings. Here's a complete workflow:
 
 ```bash
-# Generate all-vs-all alignments with FASTGA
-cd deps/FASTGA
-cargo build --release
-./target/release/fastga -t 8 ../../data/scerevisiae8.fa > ../../scerevisiae8.raw.paf
+# Generate all-vs-all alignments with FASTGA (use -T8 for 8 threads, -pafx for PAF with CIGAR)
+fastga -T8 -pafx data/scerevisiae8.fa > data/scerevisiae8.raw.paf
+# Generates 50,959 raw mappings
 
 # The raw output contains all discovered mappings with CIGAR strings
-head -n1 ../../scerevisiae8.raw.paf
-# S288C#1#chrI    230218  1748    2170    +    SK1#1#chrI    228864  1742    2164    422    422    60    NM:i:0    cg:Z:422M
+head -n1 data/scerevisiae8.raw.paf
+# SGDref#1#chrI  230218  0  2641  -  SGDref#1#chrIV  1531933  1522805  1525422  2341  2692  255  dv:f:.1135  df:i:351  cg:Z:6=1D2=1X1I6=...
 
 # Apply scaffold-based filtering (default: scaffolds >10kb, rescue within 100kb)
-cd ../..
-./target/release/sweepga < scerevisiae8.raw.paf > scerevisiae8.filtered.paf
+./target/release/sweepga < data/scerevisiae8.raw.paf > data/scerevisiae8.filtered.paf
+# Reduces to 27,940 mappings: 336 scaffolds + 27,604 rescued
 
-# Each output mapping is annotated with its filter status
-grep "st:Z:" scerevisiae8.filtered.paf | head -n3
-# Shows mappings tagged as st:Z:scaffold or st:Z:rescued
+# Check the breakdown
+grep -c "st:Z:scaffold" data/scerevisiae8.filtered.paf  # 336 scaffold anchors
+grep -c "st:Z:rescued" data/scerevisiae8.filtered.paf   # 27,604 rescued mappings
 ```
 
 The default parameters work well for most eukaryotic genomes: scaffold mass of 10kb identifies major syntenic blocks, scaffold jump of 100kb allows chaining across typical intergenic distances, and rescue distance of 100kb captures local rearrangements and smaller homologous features near the main alignments.
@@ -81,7 +80,7 @@ The scaffold jump parameter has less effect when scaffolds are already well-sepa
 
 The implementation follows wfmash's filterByScaffolds approach. Mappings are first grouped by query-target pair and sorted by query position. Union-find merges mappings where both query and target gaps are below the threshold, allowing small overlaps up to gap/5. The resulting chains are filtered by length to identify scaffolds.
 
-Plane sweep works by sweeping a plane across the query axis and keeping the top-N best mappings at each position. For the default "1:∞" mode, this keeps all non-overlapping mappings; for "1:1" it keeps only the single best mapping per query-target pair. Mappings are considered overlapping if they share more than the overlap threshold (default 95%) of their query spans.
+Plane sweep works by sweeping a plane across the query axis and keeping the top-N best mappings at each position based on their score (block length). For the default "1:∞" mode, this keeps all non-overlapping mappings at each query position; for "1:1" it keeps only the single best mapping per query-target pair. The overlap threshold parameter (default 0.95) can be used to filter mappings that are mostly contained within better scoring ones, though setting it to 1.0 effectively disables this filter.
 
 The rescue phase calculates Euclidean distance from each non-scaffold mapping to all scaffold anchors on the same target sequence. The distance uses mapping center points in 2D space where axes are query and target positions. Any mapping within the distance threshold of at least one anchor is rescued, regardless of strand orientation.
 
