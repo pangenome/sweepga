@@ -81,7 +81,7 @@ The scaffold jump parameter has less effect when scaffolds are already well-sepa
 
 The implementation follows wfmash's filterByScaffolds approach. Mappings are first grouped by query-target pair and sorted by query position. Union-find merges mappings where both query and target gaps are below the threshold, allowing small overlaps up to gap/5. The resulting chains are filtered by length to identify scaffolds.
 
-Plane sweep removes overlapping scaffolds by maintaining a list of non-overlapping chains per query sequence, rejecting new chains that overlap existing ones by more than the overlap threshold (default 95%). This ensures scaffold anchors don't overlap significantly.
+Plane sweep works by sweeping a plane across the query axis and keeping the top-N best mappings at each position. For the default "1:∞" mode, this keeps all non-overlapping mappings; for "1:1" it keeps only the single best mapping per query-target pair. Mappings are considered overlapping if they share more than the overlap threshold (default 95%) of their query spans.
 
 The rescue phase calculates Euclidean distance from each non-scaffold mapping to all scaffold anchors on the same target sequence. The distance uses mapping center points in 2D space where axes are query and target positions. Any mapping within the distance threshold of at least one anchor is rescued, regardless of strand orientation.
 
