@@ -22,17 +22,30 @@ pub fn filter_by_scaffolds(
     aux_data: &[MappingAux],
     config: &FilterConfig,
 ) -> Result<(Vec<Mapping>, Vec<MappingAux>)> {
-    if config.min_scaffold_length == 0 || mappings.is_empty() {
-        return Ok((mappings.to_vec(), aux_data.to_vec()));
+    // For backwards compatibility, use the same mappings for both anchor and rescue
+    filter_by_scaffolds_with_rescue(mappings, aux_data, mappings, aux_data, config)
+}
+
+/// Scaffold filtering with separate anchor and rescue sets
+/// Identifies scaffolds from filtered_mappings but rescues from raw_mappings
+pub fn filter_by_scaffolds_with_rescue(
+    filtered_mappings: &[Mapping],  // Use these to identify scaffolds
+    filtered_aux: &[MappingAux],
+    raw_mappings: &[Mapping],       // Rescue mappings from this set
+    raw_aux: &[MappingAux],
+    config: &FilterConfig,
+) -> Result<(Vec<Mapping>, Vec<MappingAux>)> {
+    if config.min_scaffold_length == 0 || filtered_mappings.is_empty() {
+        return Ok((raw_mappings.to_vec(), raw_aux.to_vec()));
     }
 
-    eprintln!("[SCAFFOLD_TRACE] Input: {} mappings", mappings.len());
+    eprintln!("[SCAFFOLD_TRACE] Identifying scaffolds from {} filtered mappings, rescuing from {} raw mappings",
+              filtered_mappings.len(), raw_mappings.len());
 
-    // Group mappings by query-ref CHROMOSOME pair (not prefix pair)
-    // This allows us to identify scaffolds per chromosome within a prefix pair
+    // Group FILTERED mappings by query-ref CHROMOSOME pair to identify scaffolds
     let mut groups: HashMap<(i32, u32), Vec<usize>> = HashMap::new();
-    for (i, mapping) in mappings.iter().enumerate() {
-        let key = (aux_data[i].query_seq_id, mapping.ref_seq_id);
+    for (i, mapping) in filtered_mappings.iter().enumerate() {
+        let key = (filtered_aux[i].query_seq_id, mapping.ref_seq_id);
         groups.entry(key).or_insert_with(Vec::new).push(i);
     }
 
@@ -45,29 +58,29 @@ pub fn filter_by_scaffolds(
     for ((query_id, ref_id), mut indices) in groups {
         // Get the actual chromosome names for debugging
         let query_name = if !indices.is_empty() {
-            &aux_data[indices[0]].query_name
+            &filtered_aux[indices[0]].query_name
         } else {
             "unknown"
         };
         let ref_name = if !indices.is_empty() {
-            &aux_data[indices[0]].ref_name
+            &filtered_aux[indices[0]].ref_name
         } else {
             "unknown"
         };
 
-        eprintln!("[SCAFFOLD_TRACE] Processing {} (id={}) vs {} (id={}): {} mappings",
+        eprintln!("[SCAFFOLD_TRACE] Processing {} (id={}) vs {} (id={}): {} filtered mappings",
                   query_name, query_id, ref_name, ref_id, indices.len());
 
         // Sort by position
-        indices.sort_by_key(|&i| (mappings[i].ref_start_pos, mappings[i].query_start_pos));
+        indices.sort_by_key(|&i| (filtered_mappings[i].ref_start_pos, filtered_mappings[i].query_start_pos));
 
-        // Keep original mappings for this group
-        let original_mappings: Vec<(usize, Mapping, MappingAux)> = indices.iter()
-            .map(|&i| (i, mappings[i], aux_data[i].clone()))
+        // Collect FILTERED mappings for scaffold identification
+        let filtered_for_scaffolds: Vec<(usize, Mapping, MappingAux)> = indices.iter()
+            .map(|&i| (i, filtered_mappings[i], filtered_aux[i].clone()))
             .collect();
 
-        // Step 1: Build merged chains
-        let merged_chains = merge_into_chains(&original_mappings, config.scaffold_gap);
+        // Step 1: Build merged chains FROM FILTERED MAPPINGS
+        let merged_chains = merge_into_chains(&filtered_for_scaffolds, config.scaffold_gap);
 
         eprintln!("[SCAFFOLD_TRACE] After merging with gap={}: {} chains",
                   config.scaffold_gap, merged_chains.len());
@@ -95,9 +108,9 @@ pub fn filter_by_scaffolds(
                       chain.ref_start, chain.ref_end, chain.total_length);
         }
 
-        // Step 4: Identify anchors - original mappings within scaffold bounds
+        // Step 4: Identify anchors - FILTERED mappings within scaffold bounds
         let mut anchor_indices = Vec::new();
-        for &(orig_idx, ref orig_mapping, _) in &original_mappings {
+        for &(orig_idx, ref orig_mapping, _) in &filtered_for_scaffolds {
             for scaffold in &filtered_scaffolds {
                 if orig_mapping.ref_seq_id == scaffold.ref_seq_id &&
                    orig_mapping.is_reverse() == scaffold.is_reverse &&
@@ -111,45 +124,71 @@ pub fn filter_by_scaffolds(
             }
         }
 
-        eprintln!("[SCAFFOLD_TRACE] Anchors identified: {} mappings", anchor_indices.len());
+        eprintln!("[SCAFFOLD_TRACE] Anchors identified: {} mappings from filtered set", anchor_indices.len());
 
-        // Step 5: Calculate distances and rescue nearby mappings
+        // Step 5: NOW RESCUE FROM RAW MAPPINGS
+        // Collect all raw mappings for this chromosome pair
+        let mut raw_indices_for_pair = Vec::new();
+        for (i, mapping) in raw_mappings.iter().enumerate() {
+            if raw_aux[i].query_seq_id == query_id && mapping.ref_seq_id == ref_id {
+                raw_indices_for_pair.push(i);
+            }
+        }
+
+        eprintln!("[SCAFFOLD_TRACE] Found {} raw mappings for this chromosome pair to consider for rescue",
+                  raw_indices_for_pair.len());
+
+        // Collect anchor mappings from FILTERED set for distance calculation
+        let anchor_mappings: Vec<&Mapping> = anchor_indices.iter()
+            .map(|&idx| &filtered_mappings[idx])
+            .collect();
+
+        // Calculate distances and rescue nearby mappings FROM RAW SET
         let mut kept_indices = Vec::new();
         let mut kept_aux = Vec::new();
 
-        // Add all anchors
-        for &idx in &anchor_indices {
-            kept_indices.push(idx);
-            let mut aux = aux_data[idx].clone();
-            aux.chain_status = ChainStatus::Scaffold;
-            kept_aux.push(aux);
-        }
-
-        // Check non-anchors for rescue
+        // Check each raw mapping
         let mut rescued_count = 0;
-        for &(orig_idx, ref orig_mapping, _) in &original_mappings {
-            if anchor_indices.contains(&orig_idx) {
-                continue; // Already an anchor
+        let mut anchor_count = 0;
+
+        for &raw_idx in &raw_indices_for_pair {
+            let raw_mapping = &raw_mappings[raw_idx];
+
+            // Check if this raw mapping is actually one of the anchors
+            // (it might be in both filtered and raw sets)
+            let is_anchor = anchor_mappings.iter().any(|anchor| {
+                anchor.query_start_pos == raw_mapping.query_start_pos &&
+                anchor.ref_start_pos == raw_mapping.ref_start_pos &&
+                anchor.block_length == raw_mapping.block_length
+            });
+
+            if is_anchor {
+                // This is an anchor
+                kept_indices.push(raw_idx);
+                let mut aux = raw_aux[raw_idx].clone();
+                aux.chain_status = ChainStatus::Scaffold;
+                kept_aux.push(aux);
+                anchor_count += 1;
+                continue;
             }
 
             // Calculate Euclidean distance to nearest anchor
             let mut min_distance = f64::INFINITY;
-            for &anchor_idx in &anchor_indices {
-                let anchor = &mappings[anchor_idx];
+            for anchor in &anchor_mappings {
 
                 // Calculate midpoints
-                let orig_q_mid = orig_mapping.query_start_pos as f64 +
-                                (orig_mapping.block_length as f64 / 2.0);
-                let orig_r_mid = orig_mapping.ref_start_pos as f64 +
-                                (orig_mapping.block_length as f64 / 2.0);
+                let raw_q_mid = raw_mapping.query_start_pos as f64 +
+                               (raw_mapping.block_length as f64 / 2.0);
+                let raw_r_mid = raw_mapping.ref_start_pos as f64 +
+                               (raw_mapping.block_length as f64 / 2.0);
                 let anchor_q_mid = anchor.query_start_pos as f64 +
                                   (anchor.block_length as f64 / 2.0);
                 let anchor_r_mid = anchor.ref_start_pos as f64 +
                                   (anchor.block_length as f64 / 2.0);
 
                 // Euclidean distance
-                let q_diff = orig_q_mid - anchor_q_mid;
-                let r_diff = orig_r_mid - anchor_r_mid;
+                let q_diff = raw_q_mid - anchor_q_mid;
+                let r_diff = raw_r_mid - anchor_r_mid;
                 let distance = (q_diff * q_diff + r_diff * r_diff).sqrt();
 
                 min_distance = min_distance.min(distance);
@@ -157,37 +196,37 @@ pub fn filter_by_scaffolds(
 
             // Rescue if within threshold
             if min_distance <= config.scaffold_max_deviation as f64 {
-                kept_indices.push(orig_idx);
-                let mut aux = aux_data[orig_idx].clone();
+                kept_indices.push(raw_idx);
+                let mut aux = raw_aux[raw_idx].clone();
                 aux.chain_status = ChainStatus::Rescued;
                 kept_aux.push(aux);
                 rescued_count += 1;
 
                 eprintln!("[SCAFFOLD_TRACE] Mapping[{}] distance={:.0} rescued",
-                          orig_idx, min_distance);
+                          raw_idx, min_distance);
             }
         }
 
         eprintln!("[SCAFFOLD_TRACE] Final for group: {} -> {} (anchors={}, rescued={})",
-                  original_mappings.len(), kept_indices.len(),
-                  anchor_indices.len(), rescued_count);
+                  raw_indices_for_pair.len(), kept_indices.len(),
+                  anchor_count, rescued_count);
 
         all_kept_indices.extend(kept_indices);
         all_kept_aux.extend(kept_aux);
     }
 
-    // Build final result preserving original order
+    // Build final result from RAW mappings
     let mut result_mappings = Vec::new();
     let mut result_aux = Vec::new();
 
     for (i, aux) in all_kept_aux.into_iter().enumerate() {
         let idx = all_kept_indices[i];
-        result_mappings.push(mappings[idx]);
+        result_mappings.push(raw_mappings[idx]);
         result_aux.push(aux);
     }
 
-    eprintln!("[SCAFFOLD_TRACE] Final: {} -> {} mappings",
-              mappings.len(), result_mappings.len());
+    eprintln!("[SCAFFOLD_TRACE] Final: {} raw -> {} kept mappings",
+              raw_mappings.len(), result_mappings.len());
 
     Ok((result_mappings, result_aux))
 }

@@ -148,6 +148,12 @@ impl FilterEngine {
 
     /// Apply filters to a single prefix pair group
     fn apply_filters_to_group(&mut self) -> Result<()> {
+        // Keep a copy of the original raw mappings for scaffold rescue
+        // This is crucial - wfmash identifies scaffolds from filtered mappings
+        // but rescues from the original raw mappings
+        let raw_mappings = self.mappings.clone();
+        let raw_aux = self.aux_data.clone();
+
         // 1. Merge mappings (unless disabled)
         if !self.config.no_merge {
             self.merge_mappings()?;
@@ -156,18 +162,8 @@ impl FilterEngine {
         // 2. Filter weak mappings
         self.filter_weak_mappings()?;
 
-        // 3. Apply scaffold filtering (always on by default now)
-        if self.config.min_scaffold_length > 0 {
-            let (filtered_mappings, filtered_aux) = filter_scaffold::filter_by_scaffolds(
-                &self.mappings,
-                &self.aux_data,
-                &self.config,
-            )?;
-            self.mappings = filtered_mappings;
-            self.aux_data = filtered_aux;
-        }
-
-        // 4. Apply filtering mode
+        // 3. Apply filtering mode BEFORE scaffold identification
+        // This determines which mappings become scaffold anchors
         match self.config.filter_mode {
             FilterMode::OneToOne => {
                 self.one_to_one_filter()?;
@@ -184,9 +180,22 @@ impl FilterEngine {
             }
         }
 
-        // 5. Apply sparsification if requested
+        // 4. Apply sparsification if requested
         if self.config.sparsity < 1.0 {
             self.sparsify_mappings()?;
+        }
+
+        // 5. Apply scaffold filtering using BOTH filtered (for anchors) and raw (for rescue)
+        if self.config.min_scaffold_length > 0 {
+            let (filtered_mappings, filtered_aux) = filter_scaffold::filter_by_scaffolds_with_rescue(
+                &self.mappings,  // Use filtered mappings to identify scaffolds
+                &self.aux_data,
+                &raw_mappings,   // But rescue from raw mappings
+                &raw_aux,
+                &self.config,
+            )?;
+            self.mappings = filtered_mappings;
+            self.aux_data = filtered_aux;
         }
 
         Ok(())
