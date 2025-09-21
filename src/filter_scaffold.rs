@@ -16,6 +16,7 @@ struct ScaffoldChain {
 }
 
 /// Scaffold filtering implementation matching wfmash's algorithm
+/// This version identifies scaffolds per chromosome pair, not per prefix pair
 pub fn filter_by_scaffolds(
     mappings: &[Mapping],
     aux_data: &[MappingAux],
@@ -27,20 +28,35 @@ pub fn filter_by_scaffolds(
 
     eprintln!("[SCAFFOLD_TRACE] Input: {} mappings", mappings.len());
 
-    // Group mappings by query-ref pair
+    // Group mappings by query-ref CHROMOSOME pair (not prefix pair)
+    // This allows us to identify scaffolds per chromosome within a prefix pair
     let mut groups: HashMap<(i32, u32), Vec<usize>> = HashMap::new();
     for (i, mapping) in mappings.iter().enumerate() {
         let key = (aux_data[i].query_seq_id, mapping.ref_seq_id);
         groups.entry(key).or_insert_with(Vec::new).push(i);
     }
 
+    eprintln!("[SCAFFOLD_TRACE] Grouped into {} chromosome pairs", groups.len());
+
     let mut all_kept_indices = Vec::new();
     let mut all_kept_aux = Vec::new();
 
-    // Process each query-ref group
+    // Process each query-ref chromosome pair independently
     for ((query_id, ref_id), mut indices) in groups {
-        eprintln!("[SCAFFOLD_TRACE] Processing query {} vs ref {}: {} mappings",
-                  query_id, ref_id, indices.len());
+        // Get the actual chromosome names for debugging
+        let query_name = if !indices.is_empty() {
+            &aux_data[indices[0]].query_name
+        } else {
+            "unknown"
+        };
+        let ref_name = if !indices.is_empty() {
+            &aux_data[indices[0]].ref_name
+        } else {
+            "unknown"
+        };
+
+        eprintln!("[SCAFFOLD_TRACE] Processing {} (id={}) vs {} (id={}): {} mappings",
+                  query_name, query_id, ref_name, ref_id, indices.len());
 
         // Sort by position
         indices.sort_by_key(|&i| (mappings[i].ref_start_pos, mappings[i].query_start_pos));
@@ -204,13 +220,17 @@ fn merge_into_chains(
             }
             Some(ref mut chain) => {
                 // Check if can extend current chain
-                let ref_gap = mapping.ref_start_pos.saturating_sub(chain.ref_end);
-                let query_gap = mapping.query_start_pos.saturating_sub(chain.query_end);
+                // Calculate gaps (can be negative for overlaps)
+                let ref_gap = mapping.ref_start_pos as i64 - chain.ref_end as i64;
+                let query_gap = mapping.query_start_pos as i64 - chain.query_end as i64;
+
+                // Allow small overlaps up to max_gap/5 (matching wfmash)
+                let allowed_overlap = (max_gap / 5) as i64;
 
                 if mapping.ref_seq_id == chain.ref_seq_id &&
                    mapping.is_reverse() == chain.is_reverse &&
-                   ref_gap <= max_gap &&
-                   query_gap <= max_gap {
+                   ref_gap >= -allowed_overlap && ref_gap <= max_gap as i64 &&
+                   query_gap >= -allowed_overlap && query_gap <= max_gap as i64 {
                     // Extend chain
                     chain.query_end = mapping.query_end_pos();
                     chain.ref_end = mapping.ref_end_pos();

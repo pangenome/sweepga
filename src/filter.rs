@@ -12,6 +12,7 @@ pub enum FilterMode {
 }
 
 /// Filter configuration matching wfmash parameters
+#[derive(Clone)]
 pub struct FilterConfig {
     pub chain_gap: u32,           // -c/--chain-jump
     pub min_block_length: u32,    // -l/--block-length
@@ -25,6 +26,8 @@ pub struct FilterConfig {
     pub min_scaffold_length: u32, // -S/--scaffold-mass
     pub scaffold_overlap_threshold: f64, // --scaffold-overlap
     pub scaffold_max_deviation: u32, // -D/--scaffold-dist
+    pub prefix_delimiter: char,   // -Y/--group-prefix (default '#')
+    pub skip_prefix: bool,         // Whether to group by prefix
 }
 
 impl Default for FilterConfig {
@@ -42,7 +45,22 @@ impl Default for FilterConfig {
             min_scaffold_length: 10000,  // Default to scaffold filtering
             scaffold_overlap_threshold: 0.5,
             scaffold_max_deviation: 100000,  // wfmash default
+            prefix_delimiter: '#',  // Default PanSN delimiter
+            skip_prefix: true,      // Group by prefix by default
         }
+    }
+}
+
+/// Extract prefix from sequence name using delimiter
+/// For "genome#haplotype#contig", returns "genome#haplotype#"
+fn extract_prefix(seq_name: &str, delimiter: char) -> String {
+    // Find the last occurrence of the delimiter
+    if let Some(last_pos) = seq_name.rfind(delimiter) {
+        // Include the delimiter in the prefix
+        seq_name[..=last_pos].to_string()
+    } else {
+        // No delimiter found, use the whole name as prefix
+        seq_name.to_string()
     }
 }
 
@@ -62,8 +80,74 @@ impl FilterEngine {
         }
     }
 
+    /// Group mappings by query-target prefix pairs
+    fn group_by_prefix_pairs(&self) -> HashMap<(String, String), Vec<usize>> {
+        let mut groups: HashMap<(String, String), Vec<usize>> = HashMap::new();
+
+        for (i, (mapping, aux)) in self.mappings.iter().zip(self.aux_data.iter()).enumerate() {
+            let query_prefix = if self.config.skip_prefix {
+                extract_prefix(&aux.query_name, self.config.prefix_delimiter)
+            } else {
+                aux.query_name.clone()
+            };
+
+            let target_prefix = if self.config.skip_prefix {
+                extract_prefix(&aux.ref_name, self.config.prefix_delimiter)
+            } else {
+                aux.ref_name.clone()
+            };
+
+            groups.entry((query_prefix, target_prefix))
+                .or_insert_with(Vec::new)
+                .push(i);
+        }
+
+        groups
+    }
+
     /// Apply full filtering pipeline in order (matching wfmash)
+    /// Now groups by query-target prefix pairs and filters each group independently
     pub fn apply_filters(&mut self) -> Result<()> {
+        // Group mappings by query-target prefix pairs
+        let groups = self.group_by_prefix_pairs();
+
+        // Collect results from each group
+        let mut all_mappings = Vec::new();
+        let mut all_aux = Vec::new();
+
+        for ((query_prefix, target_prefix), indices) in groups {
+            // Extract mappings for this prefix pair
+            let mut group_mappings: Vec<Mapping> = indices.iter()
+                .map(|&i| self.mappings[i].clone())
+                .collect();
+            let mut group_aux: Vec<MappingAux> = indices.iter()
+                .map(|&i| self.aux_data[i].clone())
+                .collect();
+
+            // Create a temporary filter engine for this group
+            let mut group_engine = FilterEngine {
+                mappings: group_mappings,
+                aux_data: group_aux,
+                config: self.config.clone(),
+            };
+
+            // Apply filters to this group
+            group_engine.apply_filters_to_group()?;
+
+            // Collect filtered results
+            all_mappings.extend(group_engine.mappings);
+            all_aux.extend(group_engine.aux_data);
+        }
+
+        // Replace with filtered results
+        self.mappings = all_mappings;
+        self.aux_data = all_aux;
+
+        Ok(())
+    }
+
+    /// Apply filters to a single prefix pair group
+    fn apply_filters_to_group(&mut self) -> Result<()> {
         // 1. Merge mappings (unless disabled)
         if !self.config.no_merge {
             self.merge_mappings()?;

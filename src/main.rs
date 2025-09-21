@@ -147,6 +147,8 @@ fn main() -> Result<()> {
         min_scaffold_length: args.scaffold_mass,
         scaffold_overlap_threshold: args.scaffold_overlap,
         scaffold_max_deviation: args.scaffold_dist,
+        prefix_delimiter: '#',  // Default PanSN delimiter
+        skip_prefix: true,      // Group by prefix by default
     };
 
     // Progress indicator
