@@ -269,8 +269,8 @@ impl StreamFilter {
                         if let Some(&anchor_idx) = rank_to_idx.get(&anchor_rank) {
                             let anchor = &all_original_mappings[anchor_idx];
 
-                            // Only consider anchors on same target and strand
-                            if anchor.target_name != mapping.target_name || anchor.strand != mapping.strand {
+                            // Only consider anchors on same target
+                            if anchor.target_name != mapping.target_name {
                                 continue;
                             }
 

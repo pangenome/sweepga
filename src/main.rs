@@ -164,25 +164,32 @@ fn main() -> Result<()> {
     };
 
     // Handle stdin/stdout if paths not specified
-    let input_path = if let Some(ref path) = args.input {
-        path.clone()
+    // Keep temp files in scope so they don't get deleted
+    let (_input_temp, input_path) = if let Some(ref path) = args.input {
+        (None, path.clone())
     } else {
         // Write stdin to temp file
         use std::io::{self, BufRead, Write};
-        let mut temp_file = tempfile::NamedTempFile::new()?;
+        let temp = tempfile::NamedTempFile::new()?;
         let stdin = io::stdin();
-        for line in stdin.lock().lines() {
-            writeln!(temp_file, "{}", line?)?;
+        {
+            let mut writer = std::io::BufWriter::new(&temp);
+            for line in stdin.lock().lines() {
+                writeln!(writer, "{}", line?)?;
+            }
+            writer.flush()?;
         }
-        temp_file.path().to_str().unwrap().to_string()
+        let path = temp.path().to_str().unwrap().to_string();
+        (Some(temp), path)
     };
 
-    let output_path = if let Some(ref path) = args.output {
-        path.clone()
+    let (_output_temp, output_path) = if let Some(ref path) = args.output {
+        (None, path.clone())
     } else {
         // Use temp file then copy to stdout
         let temp = tempfile::NamedTempFile::new()?;
-        temp.path().to_str().unwrap().to_string()
+        let path = temp.path().to_str().unwrap().to_string();
+        (Some(temp), path)
     };
 
     // Apply stream-based filtering
