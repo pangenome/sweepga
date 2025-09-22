@@ -1,8 +1,10 @@
 use anyhow::Result;
+use rayon::prelude::*;
 use std::collections::{HashMap, HashSet};
 use std::fs::File;
 use std::io::{BufRead, BufReader, BufWriter, Write};
 use std::path::Path;
+use std::sync::Mutex;
 
 use crate::mapping::ChainStatus;
 
@@ -216,17 +218,23 @@ impl PafFilter {
 
             eprintln!("[MAPPING_FILTER] Grouped into {} prefix pairs", prefix_groups.len());
 
-            // Apply filtering within each prefix pair
-            metadata = Vec::new();
-            for ((_q_prefix, _t_prefix), group) in prefix_groups {
-                eprintln!("[MAPPING_FILTER] Processing group with {} mappings", group.len());
-                let filtered = match self.config.mapping_filter_mode {
-                    FilterMode::OneToOne => self.filter_one_to_one_within_group(group)?,
-                    FilterMode::OneToMany => self.apply_plane_sweep_to_mappings(&group)?,
-                    FilterMode::ManyToMany => group,
-                };
-                metadata.extend(filtered);
-            }
+            // Apply filtering within each prefix pair IN PARALLEL
+            let filtered_groups: Vec<Vec<RecordMeta>> = prefix_groups
+                .into_par_iter()
+                .map(|((_q_prefix, _t_prefix), group)| {
+                    let group_size = group.len();
+                    let filtered = match self.config.mapping_filter_mode {
+                        FilterMode::OneToOne => self.filter_one_to_one_within_group(group),
+                        FilterMode::OneToMany => self.apply_plane_sweep_to_mappings(&group),
+                        FilterMode::ManyToMany => Ok(group),
+                    };
+                    eprintln!("[MAPPING_FILTER] Processed group with {} mappings", group_size);
+                    filtered.unwrap_or_else(|_| Vec::new())
+                })
+                .collect();
+
+            // Combine all filtered groups
+            metadata = filtered_groups.into_iter().flatten().collect();
             eprintln!("[MAPPING_FILTER] After filtering: {} mappings", metadata.len());
         }
 
@@ -646,22 +654,23 @@ impl PafFilter {
 
         eprintln!("[SCAFFOLD_FILTER] Grouped scaffolds into {} prefix pairs", prefix_groups.len());
 
-        let mut all_filtered = Vec::new();
+        // Apply filtering within each prefix pair IN PARALLEL
+        let filtered_groups: Vec<Vec<MergedChain>> = prefix_groups
+            .into_par_iter()
+            .map(|((_q_prefix, _t_prefix), group)| {
+                let group_size = group.len();
+                let filtered = match self.config.scaffold_filter_mode {
+                    FilterMode::OneToOne => self.scaffold_one_to_one_filter(group),
+                    FilterMode::OneToMany => self.scaffold_one_to_many_filter(group),
+                    FilterMode::ManyToMany => Ok(group),  // No filtering
+                };
+                eprintln!("[SCAFFOLD_FILTER] Processed prefix group with {} scaffolds", group_size);
+                filtered.unwrap_or_else(|_| Vec::new())
+            })
+            .collect();
 
-        // Apply filtering within each prefix pair
-        for ((_q_prefix, _t_prefix), group) in prefix_groups {
-            eprintln!("[SCAFFOLD_FILTER] Processing prefix group with {} scaffolds", group.len());
-
-            let filtered = match self.config.scaffold_filter_mode {
-                FilterMode::OneToOne => self.scaffold_one_to_one_filter(group)?,
-                FilterMode::OneToMany => self.scaffold_one_to_many_filter(group)?,
-                FilterMode::ManyToMany => group,  // No filtering
-            };
-
-            all_filtered.extend(filtered);
-        }
-
-        Ok(all_filtered)
+        // Combine all filtered groups
+        Ok(filtered_groups.into_iter().flatten().collect())
     }
 
     /// Apply 1:1 filtering to scaffold chains (best per query and per target)

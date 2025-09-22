@@ -83,8 +83,8 @@ struct Args {
     #[clap(long = "quiet")]
     quiet: bool,
 
-    /// Number of threads
-    #[clap(short = 't', long = "threads", default_value = "1")]
+    /// Number of threads for parallel processing
+    #[clap(short = 't', long = "threads", default_value = "8")]
     threads: usize,
 }
 
