@@ -1,16 +1,13 @@
 mod mapping;
 mod paf;
-mod filter;
-mod filter_stream;
-mod filter_scaffold;
+mod paf_filter;
 mod union_find;
 
 use anyhow::Result;
 use clap::Parser;
 use indicatif::{ProgressBar, ProgressStyle};
 
-use crate::filter::{FilterConfig, FilterMode};
-use crate::filter_stream::StreamFilter;
+use crate::paf_filter::{PafFilter, FilterConfig, FilterMode};
 
 /// SweepGA - Fast genome alignment with sophisticated filtering
 ///
@@ -137,9 +134,12 @@ fn main() -> Result<()> {
     let config = FilterConfig {
         chain_gap: args.chain_jump,
         min_block_length: args.block_length,
-        filter_mode,
-        max_per_query,
-        max_per_target,
+        mapping_filter_mode: filter_mode,
+        mapping_max_per_query: max_per_query,
+        mapping_max_per_target: max_per_target,
+        scaffold_filter_mode: FilterMode::OneToOne, // Default scaffold filtering
+        scaffold_max_per_query: Some(1),
+        scaffold_max_per_target: Some(1),
         overlap_threshold: args.overlap,
         sparsity: args.sparsify,
         no_merge: args.no_merge,
@@ -194,8 +194,8 @@ fn main() -> Result<()> {
         (Some(temp), path)
     };
 
-    // Apply stream-based filtering
-    let filter = StreamFilter::new(config)
+    // Apply filtering
+    let filter = PafFilter::new(config)
         .with_keep_self(args.keep_self)
         .with_scaffolds_only(args.scaffolds_only);
     filter.filter_paf(&input_path, &output_path)?;
