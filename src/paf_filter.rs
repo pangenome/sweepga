@@ -277,30 +277,28 @@ impl PafFilter {
 
         // Debug: [SCAFFOLD_TRACE] After plane sweep on scaffolds
 
-        // If scaffolds_only mode, return just the scaffold chains
+        // If scaffolds_only mode, return the actual mappings that form scaffolds
         if self.scaffolds_only {
             let mut scaffold_mappings = HashMap::new();
-            for (idx, chain) in filtered_chains.iter().enumerate() {
-                // Create a synthetic mapping for each scaffold chain
-                let meta = RecordMeta {
-                    rank: idx,  // Use sequential ranks for scaffolds
-                    query_name: chain.query_name.clone(),
-                    query_start: chain.query_start,
-                    query_end: chain.query_end,
-                    target_name: chain.target_name.clone(),  // Use the chain's target name directly
-                    target_start: chain.target_start,
-                    target_end: chain.target_end,
-                    strand: chain.strand,
-                    block_length: chain.total_length,
-                    identity: 1.0,
-                    chain_id: None,
-                    chain_status: ChainStatus::Scaffold,
-                    discard: false,
-                    overlapped: false,
-                };
 
-                scaffold_mappings.insert(idx, meta);
+            // Build a map from rank to metadata for quick lookup
+            let mut rank_to_meta: HashMap<usize, &RecordMeta> = HashMap::new();
+            for meta in &metadata {
+                rank_to_meta.insert(meta.rank, meta);
             }
+
+            // Collect all member mappings from scaffold chains
+            for chain in &filtered_chains {
+                for &member_rank in &chain.member_indices {
+                    // member_indices contains ranks of original mappings
+                    if let Some(meta) = rank_to_meta.get(&member_rank) {
+                        let mut scaffold_meta = (*meta).clone();
+                        scaffold_meta.chain_status = ChainStatus::Scaffold;
+                        scaffold_mappings.insert(member_rank, scaffold_meta);
+                    }
+                }
+            }
+
             return Ok(scaffold_mappings);
         }
 
@@ -1137,32 +1135,8 @@ impl PafFilter {
         let output_file = File::create(output_path)?;
         let mut writer = BufWriter::new(output_file);
 
-        // If scaffolds_only mode, write synthetic PAF lines
-        if self.scaffolds_only {
-            // Sort by rank to maintain order
-            let mut sorted: Vec<_> = passing.iter().collect();
-            sorted.sort_by_key(|(rank, _)| *rank);
-
-            for (_rank, meta) in sorted {
-                // Write synthetic PAF line for scaffold
-                writeln!(writer, "{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\tst:Z:scaffold",
-                    meta.query_name,
-                    583092,  // Hardcoded query length for chrV - would need proper tracking
-                    meta.query_start,
-                    meta.query_end,
-                    meta.strand,
-                    meta.target_name,
-                    576784,  // Hardcoded target length for chrV - would need proper tracking
-                    meta.target_start,
-                    meta.target_end,
-                    meta.block_length,  // matches
-                    meta.block_length,  // block length
-                    255  // mapping quality
-                )?;
-            }
-            writer.flush()?;
-            return Ok(());
-        }
+        // Scaffolds_only mode is now handled the same as normal mode
+        // since we're returning actual mappings, not synthetic records
 
         // Normal mode - read input and filter
         let input_file = File::open(input_path)?;
