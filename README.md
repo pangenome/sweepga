@@ -22,10 +22,18 @@ cargo build --release
 
 ## Usage with FASTGA
 
-FASTGA generates all-vs-all genome alignments in PAF format with full CIGAR strings (pafxm style). These alignments typically need filtering to remove redundant and weak mappings. Here's a complete workflow:
+FASTGA generates all-vs-all genome alignments in PAF format with full CIGAR strings. These alignments typically need filtering to remove redundant and weak mappings. Basic usage:
 
 ```bash
-# Generate all-vs-all alignments with FASTGA (use -T8 for 8 threads, -pafx for PAF with CIGAR)
+# Generate alignments with FASTGA and filter with SweepGA
+fastga -pafm data/scerevisiae8.fa data/scerevisiae8.fa > data/scerevisiae8.raw.paf
+sweepga -i data/scerevisiae8.raw.paf -o data/scerevisiae8.filtered.paf
+```
+
+### Complete example workflow
+
+```bash
+# Generate all-vs-all alignments with FASTGA (use -T8 for 8 threads, -pafx for PAF with extended CIGAR)
 fastga -T8 -pafx data/scerevisiae8.fa > data/scerevisiae8.raw.paf
 # Generates 50,959 raw mappings
 
@@ -34,7 +42,7 @@ head -n1 data/scerevisiae8.raw.paf
 # SGDref#1#chrI  230218  0  2641  -  SGDref#1#chrIV  1531933  1522805  1525422  2341  2692  255  dv:f:.1135  df:i:351  cg:Z:6=1D2=1X1I6=...
 
 # Apply scaffold-based filtering (default: scaffolds >10kb, rescue within 100kb)
-./target/release/sweepga < data/scerevisiae8.raw.paf > data/scerevisiae8.filtered.paf
+sweepga -i data/scerevisiae8.raw.paf -o data/scerevisiae8.filtered.paf
 # Reduces to 27,940 mappings: 336 scaffolds + 27,604 rescued
 
 # Check the breakdown
