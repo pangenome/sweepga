@@ -221,7 +221,7 @@ impl PafFilter {
                     .push(record);
             }
 
-            eprintln!("[MAPPING_FILTER] Grouped into {} prefix pairs", prefix_groups.len());
+            // Debug: [MAPPING_FILTER] Grouped into prefix pairs
 
             // Apply filtering within each prefix pair IN PARALLEL
             let filtered_groups: Vec<Vec<RecordMeta>> = prefix_groups
@@ -233,14 +233,14 @@ impl PafFilter {
                         FilterMode::OneToMany => self.apply_plane_sweep_to_mappings(&group),
                         FilterMode::ManyToMany => Ok(group),
                     };
-                    eprintln!("[MAPPING_FILTER] Processed group with {} mappings", group_size);
+                    // Debug: [MAPPING_FILTER] Processed group
                     filtered.unwrap_or_else(|_| Vec::new())
                 })
                 .collect();
 
             // Combine all filtered groups
             metadata = filtered_groups.into_iter().flatten().collect();
-            eprintln!("[MAPPING_FILTER] After filtering: {} mappings", metadata.len());
+            // Debug: [MAPPING_FILTER] After filtering
         }
 
         // If no scaffold filtering, we're done - return the plane-swept mappings
@@ -257,26 +257,24 @@ impl PafFilter {
         // then rescue from ALL ORIGINAL mappings
 
         // Step 1: Create scaffolds from the plane-swept mappings
-        eprintln!("[SCAFFOLD_TRACE] Creating scaffolds from {} plane-swept mappings", metadata.len());
+        // Debug: [SCAFFOLD_TRACE] Creating scaffolds from plane-swept mappings
 
         // Use scaffold_gap for merging into scaffolds (per CLAUDE.md)
         let merged_chains = self.merge_mappings_into_chains(&metadata, self.config.scaffold_gap)?;
-        eprintln!("[SCAFFOLD_TRACE] After merging with gap={}: {} chains",
-                  self.config.scaffold_gap, merged_chains.len());
+        // Debug: [SCAFFOLD_TRACE] After merging with gap
 
         // Step 2: Filter chains by minimum scaffold length
         let mut filtered_chains: Vec<MergedChain> = merged_chains
             .into_iter()
             .filter(|chain| chain.total_length >= self.config.min_scaffold_length)
             .collect();
-        eprintln!("[SCAFFOLD_TRACE] After length filter (min={}): {} chains",
-                  self.config.min_scaffold_length, filtered_chains.len());
+        // Debug: [SCAFFOLD_TRACE] After length filter
 
         // Step 3: Apply plane sweep to scaffolds based on scaffold_filter_mode
         // Default: 1:1 filtering (best scaffold per query-target pair)
         filtered_chains = self.apply_scaffold_plane_sweep(filtered_chains)?;
 
-        eprintln!("[SCAFFOLD_TRACE] After plane sweep on scaffolds: {} chains", filtered_chains.len());
+        // Debug: [SCAFFOLD_TRACE] After plane sweep on scaffolds
 
         // If scaffolds_only mode, return just the scaffold chains
         if self.scaffolds_only {
@@ -320,8 +318,7 @@ impl PafFilter {
                 anchor_ranks.insert(member_rank);
             }
         }
-        eprintln!("[SCAFFOLD_TRACE] Anchors identified: {} mappings (members of {} scaffold chains)",
-                  anchor_ranks.len(), filtered_chains.len());
+        // Debug: [SCAFFOLD_TRACE] Anchors identified
 
         // Map ranks to indices in all_original_mappings
         let mut rank_to_idx = HashMap::new();
@@ -423,8 +420,7 @@ impl PafFilter {
         // Count anchors vs rescued
         let anchor_count = anchor_ranks.len();
         let rescued_count = kept_mappings.len() - anchor_count;
-        eprintln!("[SCAFFOLD_TRACE] Final: {} original -> {} kept (anchors={}, rescued={})",
-                  all_original_mappings.len(), kept_mappings.len(), anchor_count, rescued_count);
+        // Debug: [SCAFFOLD_TRACE] Final rescue statistics
 
         // Build result map directly from kept mappings
         let mut passing = HashMap::new();
@@ -798,7 +794,7 @@ impl PafFilter {
                 .push(chain);
         }
 
-        eprintln!("[SCAFFOLD_FILTER] Grouped scaffolds into {} prefix pairs", prefix_groups.len());
+        // Debug: [SCAFFOLD_FILTER] Grouped scaffolds into prefix pairs
 
         // Apply filtering within each prefix pair IN PARALLEL
         let filtered_groups: Vec<Vec<MergedChain>> = prefix_groups
@@ -810,7 +806,7 @@ impl PafFilter {
                     FilterMode::OneToMany => self.scaffold_one_to_many_filter(group),
                     FilterMode::ManyToMany => Ok(group),  // No filtering
                 };
-                eprintln!("[SCAFFOLD_FILTER] Processed prefix group with {} scaffolds", group_size);
+                // Debug: [SCAFFOLD_FILTER] Processed prefix group
                 filtered.unwrap_or_else(|_| Vec::new())
             })
             .collect();

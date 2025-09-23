@@ -23,48 +23,40 @@ struct Args {
     #[clap(short = 'o', long = "output")]
     output: Option<String>,
 
-    /// Chain jump (gap) distance [2000]
-    #[clap(short = 'c', long = "chain-jump", default_value = "2000")]
-    chain_jump: u32,
-
     /// Minimum block length [0]
-    #[clap(short = 'l', long = "block-length", default_value = "0")]
+    #[clap(short = 'b', long = "block-length", default_value = "0")]
     block_length: u32,
 
-    /// Maximum mappings per segment (controls "many" in filtering modes)
-    #[clap(short = 'n', long = "mappings")]
-    mappings: Option<usize>,
-
-    /// Maximum overlap ratio [0.95]
-    #[clap(short = 'O', long = "overlap", default_value = "0.95")]
+    /// Maximum overlap ratio for plane sweep filtering [0.95]
+    #[clap(short = 'p', long = "overlap", default_value = "0.95")]
     overlap: f64,
 
     /// Keep this fraction of mappings [1.0]
     #[clap(short = 'x', long = "sparsify", default_value = "1.0")]
     sparsify: f64,
 
-    /// Filtering mode: "1:1", "1:∞"/"1"/"map" (plane sweep), or "N:N"/"N" (no filtering)
-    #[clap(short = 'm', long = "mode", default_value = "1")]
-    mode: String,
+    /// Primary mapping filter: "1:1", "1:N"/"1", "N:1", "N:N"/"N" (default: no filtering)
+    #[clap(short = 'm', long = "mapping-filter", default_value = "N:N")]
+    mapping_filter: String,
 
-    /// Keep all fragment mappings (no merge)
-    #[clap(short = 'M', long = "no-merge")]
-    no_merge: bool,
+    /// Scaffold chain filter: "1:1", "1:N"/"1", "N:1", "N:N"/"N", or specific like "10:5"
+    #[clap(short = 'n', long = "scaffold-filter", default_value = "1:N")]
+    scaffold_filter: String,
 
     /// Scaffold jump (gap) distance [100000]
     #[clap(short = 'j', long = "scaffold-jump", default_value = "100000")]
     scaffold_jump: u32,
 
     /// Minimum scaffold length [10000]
-    #[clap(short = 'S', long = "scaffold-mass", default_value = "10000")]
+    #[clap(short = 's', long = "scaffold-mass", default_value = "10000")]
     scaffold_mass: u32,
 
     /// Scaffold chain overlap threshold [0.5]
-    #[clap(long = "scaffold-overlap", default_value = "0.5")]
+    #[clap(short = 'O', long = "scaffold-overlap", default_value = "0.5")]
     scaffold_overlap: f64,
 
     /// Maximum distance from scaffold anchor [100000]
-    #[clap(short = 'D', long = "scaffold-dist", default_value = "100000")]
+    #[clap(short = 'd', long = "scaffold-dist", default_value = "100000")]
     scaffold_dist: u32,
 
     /// Disable all filtering
@@ -86,6 +78,37 @@ struct Args {
     /// Number of threads for parallel processing
     #[clap(short = 't', long = "threads", default_value = "8")]
     threads: usize,
+}
+
+fn parse_filter_mode(mode: &str, filter_type: &str) -> (FilterMode, Option<usize>, Option<usize>) {
+    match mode.to_lowercase().as_str() {
+        "1:1" => (FilterMode::OneToOne, Some(1), Some(1)),
+        "1" | "1:n" | "1:∞" => (FilterMode::OneToMany, Some(1), None),
+        "n:1" | "∞:1" => (FilterMode::ManyToMany, None, Some(1)),  // N:1 is ManyToMany with target limit
+        "n" | "n:n" | "∞" | "∞:∞" => (FilterMode::ManyToMany, None, None),
+        s if s.contains(':') => {
+            // Parse custom like "10:5"
+            let parts: Vec<&str> = s.split(':').collect();
+            if parts.len() == 2 {
+                let per_query = parts[0].parse::<usize>().ok();
+                let per_target = parts[1].parse::<usize>().ok();
+                if per_query.is_some() || per_target.is_some() {
+                    let mode = match (per_query, per_target) {
+                        (Some(1), Some(1)) => FilterMode::OneToOne,
+                        (Some(1), _) => FilterMode::OneToMany,
+                        _ => FilterMode::ManyToMany,  // Any other combination uses ManyToMany
+                    };
+                    return (mode, per_query, per_target);
+                }
+            }
+            eprintln!("Warning: Invalid {} filter '{}', using default N:N", filter_type, s);
+            (FilterMode::ManyToMany, None, None)
+        }
+        _ => {
+            eprintln!("Warning: Invalid {} filter '{}', using default N:N", filter_type, mode);
+            (FilterMode::ManyToMany, None, None)
+        }
+    }
 }
 
 fn main() -> Result<()> {
@@ -119,30 +142,25 @@ fn main() -> Result<()> {
         return Ok(());
     }
 
-    // Parse filtering mode
-    let (filter_mode, max_per_query, max_per_target) = match args.mode.as_str() {
-        "1:1" => (FilterMode::OneToOne, Some(1), Some(1)),
-        "1" | "1:∞" | "1:inf" | "1:N" | "map" => (FilterMode::OneToMany, Some(1), args.mappings),
-        "N" | "N:N" => (FilterMode::ManyToMany, args.mappings, args.mappings),
-        _ => {
-            eprintln!("Invalid mode: {}. Use '1:1', '1' (or '1:∞', '1:inf', 'map'), or 'N' (or 'N:N')", args.mode);
-            std::process::exit(1);
-        }
-    };
+    // Parse mapping filter mode
+    let (mapping_filter_mode, mapping_max_per_query, mapping_max_per_target) = parse_filter_mode(&args.mapping_filter, "mapping");
+
+    // Parse scaffold filter mode
+    let (scaffold_filter_mode, scaffold_max_per_query, scaffold_max_per_target) = parse_filter_mode(&args.scaffold_filter, "scaffold");
 
     // Set up filter configuration
     let config = FilterConfig {
-        chain_gap: args.chain_jump,
+        chain_gap: 2000, // Default chain gap (was removed from CLI)
         min_block_length: args.block_length,
-        mapping_filter_mode: filter_mode,
-        mapping_max_per_query: max_per_query,
-        mapping_max_per_target: max_per_target,
-        scaffold_filter_mode: FilterMode::OneToMany, // Default scaffold filtering (like wfmash)
-        scaffold_max_per_query: None,  // No limit - keep all non-overlapping scaffolds
-        scaffold_max_per_target: None,  // No limit on targets
+        mapping_filter_mode,
+        mapping_max_per_query,
+        mapping_max_per_target,
+        scaffold_filter_mode,
+        scaffold_max_per_query,
+        scaffold_max_per_target,
         overlap_threshold: args.overlap,
         sparsity: args.sparsify,
-        no_merge: args.no_merge,
+        no_merge: true, // Never merge primary mappings (CIGAR strings become invalid)
         scaffold_gap: args.scaffold_jump,
         min_scaffold_length: args.scaffold_mass,
         scaffold_overlap_threshold: args.scaffold_overlap,
