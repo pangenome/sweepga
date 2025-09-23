@@ -15,7 +15,7 @@ use crate::paf_filter::{PafFilter, FilterConfig, FilterMode};
 #[derive(Parser, Debug)]
 #[clap(author, version, about, long_about = None)]
 struct Args {
-    /// Input PAF file (stdin if not specified)
+    /// Input PAF file
     #[clap(short = 'i', long = "input")]
     input: Option<String>,
 
@@ -40,7 +40,7 @@ struct Args {
     mapping_filter: String,
 
     /// Scaffold chain filter: "1:1", "1:N"/"1", "N:1", "N:N"/"N", or specific like "10:5"
-    #[clap(short = 'n', long = "scaffold-filter", default_value = "1:N")]
+    #[clap(short = 'n', long = "scaffold-filter", default_value = "1:1")]
     scaffold_filter: String,
 
     /// Scaffold jump (gap) distance [100000]
@@ -114,6 +114,13 @@ fn parse_filter_mode(mode: &str, filter_type: &str) -> (FilterMode, Option<usize
 fn main() -> Result<()> {
     let args = Args::parse();
 
+    // If no input specified, print help and exit
+    if args.input.is_none() && !args.no_filter {
+        use clap::CommandFactory;
+        Args::command().print_help()?;
+        std::process::exit(0);
+    }
+
     // Set up rayon thread pool
     rayon::ThreadPoolBuilder::new()
         .num_threads(args.threads)
@@ -183,24 +190,13 @@ fn main() -> Result<()> {
         None
     };
 
-    // Handle stdin/stdout if paths not specified
-    // Keep temp files in scope so they don't get deleted
-    let (_input_temp, input_path) = if let Some(ref path) = args.input {
-        (None, path.clone())
+    // Input path is required (unless --no-filter)
+    let input_path = if let Some(ref path) = args.input {
+        path.clone()
     } else {
-        // Write stdin to temp file
-        use std::io::{self, BufRead, Write};
-        let temp = tempfile::NamedTempFile::new()?;
-        let stdin = io::stdin();
-        {
-            let mut writer = std::io::BufWriter::new(&temp);
-            for line in stdin.lock().lines() {
-                writeln!(writer, "{}", line?)?;
-            }
-            writer.flush()?;
-        }
-        let path = temp.path().to_str().unwrap().to_string();
-        (Some(temp), path)
+        // This shouldn't happen due to earlier check, but handle it gracefully
+        eprintln!("Error: Input file is required");
+        std::process::exit(1);
     };
 
     let (_output_temp, output_path) = if let Some(ref path) = args.output {
