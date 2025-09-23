@@ -40,7 +40,7 @@ struct Args {
     mapping_filter: String,
 
     /// Scaffold chain filter: "1:1", "1:N"/"1", "N:1", "N:N"/"N", or specific like "10:5"
-    #[clap(short = 'n', long = "scaffold-filter", default_value = "1:1")]
+    #[clap(short = 'n', long = "scaffold-filter", default_value = "1:N")]
     scaffold_filter: String,
 
     /// Scaffold jump (gap) distance [100000]
@@ -157,7 +157,7 @@ fn main() -> Result<()> {
 
     // Set up filter configuration
     let config = FilterConfig {
-        chain_gap: 2000, // Default chain gap (was removed from CLI)
+        chain_gap: args.scaffold_jump, // Use scaffold_jump for merging into chains
         min_block_length: args.block_length,
         mapping_filter_mode,
         mapping_max_per_query,

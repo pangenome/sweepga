@@ -258,32 +258,34 @@ impl PafFilter {
         // then rescue from ALL ORIGINAL mappings
 
         // Step 1: Create scaffolds from the plane-swept mappings
-        // Debug: [SCAFFOLD_TRACE] Creating scaffolds from plane-swept mappings
+        eprintln!("[SCAFFOLD_TRACE] Creating scaffolds from {} plane-swept mappings", metadata.len());
 
         // Use scaffold_gap for merging into scaffolds (per CLAUDE.md)
         let merged_chains = self.merge_mappings_into_chains(&metadata, self.config.scaffold_gap)?;
-        // Debug: [SCAFFOLD_TRACE] After merging with gap
+        eprintln!("[SCAFFOLD_TRACE] After merging with gap={}: {} chains",
+                  self.config.scaffold_gap, merged_chains.len());
 
         // Step 2: Filter chains by minimum scaffold length
         let mut filtered_chains: Vec<MergedChain> = merged_chains
             .into_iter()
             .filter(|chain| chain.total_length >= self.config.min_scaffold_length)
             .collect();
-        // Debug: [SCAFFOLD_TRACE] After length filter
+        eprintln!("[SCAFFOLD_TRACE] After length filter (min={}): {} chains",
+                  self.config.min_scaffold_length, filtered_chains.len());
 
         // Step 3: Apply plane sweep to scaffolds based on scaffold_filter_mode
         // Default: 1:1 filtering (best scaffold per query-target pair)
         filtered_chains = self.apply_scaffold_plane_sweep(filtered_chains)?;
-
-        // Debug: [SCAFFOLD_TRACE] After plane sweep on scaffolds
+        eprintln!("[SCAFFOLD_TRACE] After plane sweep on scaffolds: {} chains", filtered_chains.len());
 
         // If scaffolds_only mode, return the actual mappings that form scaffolds
         if self.scaffolds_only {
             let mut scaffold_mappings = HashMap::new();
 
-            // Build a map from rank to metadata for quick lookup
+            // Build a map from rank to original metadata for quick lookup
+            // Use all_original_mappings since member_indices refers to original ranks
             let mut rank_to_meta: HashMap<usize, &RecordMeta> = HashMap::new();
-            for meta in &metadata {
+            for meta in &all_original_mappings {
                 rank_to_meta.insert(meta.rank, meta);
             }
 
@@ -780,14 +782,16 @@ impl PafFilter {
         let mut prefix_groups: HashMap<(String, String), Vec<MergedChain>> = HashMap::new();
 
         for chain in chains {
-            let query_prefix = self.extract_prefix(&chain.query_name);
-            let target_prefix = self.extract_prefix(&chain.target_name);
-            prefix_groups.entry((query_prefix, target_prefix))
+            // For scaffold filtering, use full chromosome names, not just prefixes
+            // This ensures we keep scaffolds per chromosome pair, not per genome pair
+            let query_key = chain.query_name.clone();
+            let target_key = chain.target_name.clone();
+            prefix_groups.entry((query_key, target_key))
                 .or_insert_with(Vec::new)
                 .push(chain);
         }
 
-        // Debug: [SCAFFOLD_FILTER] Grouped scaffolds into prefix pairs
+        eprintln!("[SCAFFOLD_FILTER] Grouped scaffolds into {} prefix pairs", prefix_groups.len());
 
         // Apply filtering within each prefix pair IN PARALLEL
         let filtered_groups: Vec<Vec<MergedChain>> = prefix_groups
