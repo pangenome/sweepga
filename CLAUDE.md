@@ -1,5 +1,13 @@
 # SweepGA Filtering Algorithm
 
+## CRITICAL: Git Commit Rules
+
+**NEVER use `git add -A` or `git add .`**
+- Only add specific source files you've modified
+- Never commit test data, FASTA files, PAF files, or intermediate results
+- Always use: `git add src/specific_file.rs tests/specific_test.rs`
+- All test data should be generated from data/scerevisiae8.fa.gz
+
 ## Core Algorithm (Corrected Implementation)
 
 The filtering process follows this exact sequence:
