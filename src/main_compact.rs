@@ -1,4 +1,5 @@
 mod compact_filter;
+mod plane_sweep_exact;
 
 use anyhow::Result;
 use clap::Parser;
@@ -20,8 +21,8 @@ struct Args {
     #[clap(short = 'b', long = "block-length", default_value = "0")]
     block_length: u32,
 
-    /// Filter specification: "N" (no filter), "1:1", "1", etc.
-    #[clap(short = 'm', long = "filter", default_value = "N")]
+    /// Filter specification: "1:1" (default), "1", "many:1", etc.
+    #[clap(short = 'n', long = "filter", default_value = "1:1")]
     filter: String,
 
     /// Overlap threshold [0.95]
@@ -43,10 +44,20 @@ struct Args {
     /// Debug mode - just read and write without filtering
     #[clap(long = "debug")]
     debug: bool,
+
+    /// Old mapping filter flag (deprecated, use -n instead)
+    #[clap(short = 'm', long = "mapping-filter", hide = true)]
+    old_filter: Option<String>,
 }
 
 fn main() -> Result<()> {
-    let args = Args::parse();
+    let mut args = Args::parse();
+
+    // Handle old -m flag for backwards compatibility
+    if let Some(old_filter) = args.old_filter {
+        eprintln!("Note: -m is deprecated, using value for -n");
+        args.filter = old_filter;
+    }
 
     // Create compact filter
     let mut filter = CompactPafFilter::new(

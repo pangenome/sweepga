@@ -1,8 +1,7 @@
 use anyhow::{Result, bail};
-use std::collections::{HashMap, BTreeSet};
+use std::collections::HashMap;
 use std::fs::File;
-use std::io::{BufRead, BufReader, BufWriter, Seek, SeekFrom, Write};
-use std::cmp::Ordering;
+use std::io::{BufRead, BufReader, BufWriter, Write};
 
 /// Compact mapping record - only numerical data (32-40 bytes)
 #[repr(C)]
@@ -296,28 +295,36 @@ impl CompactPafFilter {
     }
 }
 
-/// Parse filter specification
+/// Parse filter specification with easter eggs!
 fn parse_filter_spec(spec: &str) -> (Option<usize>, Option<usize>) {
-    let spec = spec.trim();
+    let spec = spec.trim().to_lowercase();
 
-    if spec == "N" || spec == "N:N" {
-        return (None, None);
+    // Check if it's an "unlimited" specification (easter eggs!)
+    fn is_unlimited(s: &str) -> bool {
+        matches!(s, "n" | "inf" | "infinite" | "∞" | "infinity" |
+                    "unlimited" | "many" | "all" | "*")
     }
 
+    // Handle single value (applies to query axis only)
     if !spec.contains(':') {
-        if let Ok(n) = spec.parse::<usize>() {
-            return (Some(n), None);
+        if is_unlimited(&spec) {
+            return (None, None);  // No filtering
         }
+        if let Ok(n) = spec.parse::<usize>() {
+            return (Some(n), None);  // Keep N per query
+        }
+        return (None, None);  // Default to no filtering if unparseable
     }
 
+    // Handle M:N format
     if let Some((query_part, target_part)) = spec.split_once(':') {
-        let query_limit = if query_part == "N" {
+        let query_limit = if is_unlimited(query_part) {
             None
         } else {
             query_part.parse::<usize>().ok()
         };
 
-        let target_limit = if target_part == "N" {
+        let target_limit = if is_unlimited(target_part) {
             None
         } else {
             target_part.parse::<usize>().ok()
@@ -326,196 +333,62 @@ fn parse_filter_spec(spec: &str) -> (Option<usize>, Option<usize>) {
         return (query_limit, target_limit);
     }
 
+    // Default: no filtering
     (None, None)
 }
 
-/// Event for plane sweep
-#[derive(Debug, Clone)]
-struct Event {
-    position: u32,
-    event_type: u8,  // 0=begin, 1=end
-    mapping_idx: usize,
-}
 
-/// Mapping order for BST
-#[derive(Clone, Debug)]
-struct MappingOrder {
-    idx: usize,
-    score: f64,
-    start_pos: u32,
-}
-
-impl PartialEq for MappingOrder {
-    fn eq(&self, other: &Self) -> bool {
-        self.idx == other.idx
-    }
-}
-
-impl Eq for MappingOrder {}
-
-impl PartialOrd for MappingOrder {
-    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        Some(self.cmp(other))
-    }
-}
-
-impl Ord for MappingOrder {
-    fn cmp(&self, other: &Self) -> Ordering {
-        // Order by score (descending), then start position
-        other.score.partial_cmp(&self.score)
-            .unwrap_or(Ordering::Equal)
-            .then_with(|| self.start_pos.cmp(&other.start_pos))
-    }
-}
-
-/// Apply plane sweep to a group of mappings
+/// Apply plane sweep to a group of mappings using exact algorithm
 fn apply_plane_sweep_to_group(
-    mut mappings: Vec<&mut CompactMapping>,
+    mappings: Vec<&mut CompactMapping>,
     query_limit: Option<usize>,
     target_limit: Option<usize>,
     overlap_threshold: f64,
 ) -> Vec<usize> {
+    use crate::plane_sweep_exact::{PlaneSweepMapping, plane_sweep_query, plane_sweep_target, plane_sweep_both};
+
     if mappings.is_empty() {
         return Vec::new();
     }
 
-    // Mark all as discarded initially
-    for mapping in &mut mappings {
-        mapping.flags = 1;  // discard flag
-    }
-
-    // Apply query axis filtering
-    if let Some(limit) = query_limit {
-        if limit > 0 {
-            plane_sweep_query(&mut mappings, limit, overlap_threshold);
-        }
-    }
-
-    // Apply target axis filtering
-    if let Some(limit) = target_limit {
-        if limit > 0 {
-            plane_sweep_target(&mut mappings, limit, overlap_threshold);
-        }
-    }
-
-    // Collect indices of kept mappings
-    mappings.iter()
+    // Convert to PlaneSweepMapping format
+    let mut plane_sweep_mappings: Vec<PlaneSweepMapping> = mappings.iter()
         .enumerate()
-        .filter(|(_, m)| m.flags == 0)  // not discarded
-        .map(|(idx, _)| idx)
-        .collect()
+        .map(|(idx, m)| PlaneSweepMapping {
+            idx,
+            query_start: m.query_start,
+            query_end: m.query_end,
+            target_start: m.target_start,
+            target_end: m.target_end,
+            identity: (m.identity as f64) / 10000.0,  // Convert from scaled
+            flags: 0,
+        })
+        .collect();
+
+    // Apply filtering based on limits
+    let kept_indices = match (query_limit, target_limit) {
+        (Some(q), Some(t)) if q > 0 && t > 0 => {
+            // Both axes
+            let secondaries_q = if q > 1 { q - 1 } else { 0 };
+            let secondaries_t = if t > 1 { t - 1 } else { 0 };
+            plane_sweep_both(&mut plane_sweep_mappings, secondaries_q, secondaries_t, overlap_threshold)
+        }
+        (Some(q), _) if q > 0 => {
+            // Query axis only
+            let secondaries = if q > 1 { q - 1 } else { 0 };
+            plane_sweep_query(&mut plane_sweep_mappings, secondaries, overlap_threshold)
+        }
+        (_, Some(t)) if t > 0 => {
+            // Target axis only
+            let secondaries = if t > 1 { t - 1 } else { 0 };
+            plane_sweep_target(&mut plane_sweep_mappings, secondaries, overlap_threshold)
+        }
+        _ => {
+            // No filtering
+            (0..mappings.len()).collect()
+        }
+    };
+
+    kept_indices
 }
 
-/// Plane sweep on query axis
-fn plane_sweep_query(mappings: &mut [&mut CompactMapping], limit: usize, overlap_threshold: f64) {
-    // Create events
-    let mut events = Vec::with_capacity(mappings.len() * 2);
-    for (idx, mapping) in mappings.iter().enumerate() {
-        events.push(Event {
-            position: mapping.query_start,
-            event_type: 0,  // begin
-            mapping_idx: idx,
-        });
-        events.push(Event {
-            position: mapping.query_end,
-            event_type: 1,  // end
-            mapping_idx: idx,
-        });
-    }
-
-    // Sort events
-    events.sort_by_key(|e| (e.position, e.event_type));
-
-    // Plane sweep with BST
-    let mut active = BTreeSet::new();
-    let mut i = 0;
-
-    while i < events.len() {
-        let current_pos = events[i].position;
-
-        // Process all events at current position
-        let mut j = i;
-        while j < events.len() && events[j].position == current_pos {
-            let event = &events[j];
-            let mapping_order = MappingOrder {
-                idx: event.mapping_idx,
-                score: mappings[event.mapping_idx].score(),
-                start_pos: mappings[event.mapping_idx].query_start,
-            };
-
-            if event.event_type == 0 {  // begin
-                active.insert(mapping_order);
-            } else {  // end
-                active.remove(&mapping_order);
-            }
-            j += 1;
-        }
-
-        // Mark best mappings as good
-        let mut kept = 0;
-        for mapping_order in &active {
-            if kept >= limit {
-                break;
-            }
-            mappings[mapping_order.idx].flags = 0;  // not discarded
-            kept += 1;
-        }
-
-        i = j;
-    }
-}
-
-/// Plane sweep on target axis
-fn plane_sweep_target(mappings: &mut [&mut CompactMapping], limit: usize, overlap_threshold: f64) {
-    // Similar to query axis but using target coordinates
-    let mut events = Vec::with_capacity(mappings.len() * 2);
-    for (idx, mapping) in mappings.iter().enumerate() {
-        events.push(Event {
-            position: mapping.target_start,
-            event_type: 0,
-            mapping_idx: idx,
-        });
-        events.push(Event {
-            position: mapping.target_end,
-            event_type: 1,
-            mapping_idx: idx,
-        });
-    }
-
-    events.sort_by_key(|e| (e.position, e.event_type));
-
-    let mut active = BTreeSet::new();
-    let mut i = 0;
-
-    while i < events.len() {
-        let current_pos = events[i].position;
-
-        let mut j = i;
-        while j < events.len() && events[j].position == current_pos {
-            let event = &events[j];
-            let mapping_order = MappingOrder {
-                idx: event.mapping_idx,
-                score: mappings[event.mapping_idx].score(),
-                start_pos: mappings[event.mapping_idx].target_start,
-            };
-
-            if event.event_type == 0 {
-                active.insert(mapping_order);
-            } else {
-                active.remove(&mapping_order);
-            }
-            j += 1;
-        }
-
-        let mut kept = 0;
-        for mapping_order in &active {
-            if kept >= limit {
-                break;
-            }
-            mappings[mapping_order.idx].flags = 0;
-            kept += 1;
-        }
-
-        i = j;
-    }
-}
