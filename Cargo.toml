@@ -13,5 +13,17 @@ indicatif = "0.17"
 tempfile = "3.8"
 ordered-float = "4.0"
 
+[[bin]]
+name = "sweepga"
+path = "src/main_compact.rs"
+
+[[bin]]
+name = "sweepga-old"
+path = "src/main.rs"
+
+[[bin]]
+name = "sweepga-simple"
+path = "src/main_simple.rs"
+
 [dev-dependencies]
 pretty_assertions = "1.4"

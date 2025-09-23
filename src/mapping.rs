@@ -58,11 +58,13 @@ impl Mapping {
     }
 
     pub fn identity(&self) -> f64 {
-        self.nuc_identity as f64 / 100.0
+        // nuc_identity stores 0-10000 for 0.00-100.00%
+        self.nuc_identity as f64 / 10000.0 * 100.0  // Return as percentage
     }
 
     pub fn set_identity(&mut self, identity: f64) {
-        self.nuc_identity = (identity * 100.0).round() as u16;
+        // identity is 0.0-1.0, store as 0-10000
+        self.nuc_identity = (identity * 10000.0).round() as u16;
     }
 
     pub fn ref_end_pos(&self) -> u32 {
@@ -134,6 +136,52 @@ pub struct PafRecord {
 }
 
 impl PafRecord {
+    /// Calculate identity from CIGAR string using mutually gapped metric
+    /// Returns (matches, total_positions) where:
+    /// - matches: number of '=' operations in CIGAR
+    /// - total_positions: matches + mismatches + insertions + deletions
+    pub fn calculate_cigar_identity(&self) -> Option<f64> {
+        if let Some(ref cigar) = self.cigar {
+            let mut matches = 0u32;
+            let mut mismatches = 0u32;
+            let mut insertions = 0u32;
+            let mut deletions = 0u32;
+
+            let mut num_str = String::new();
+
+            for ch in cigar.chars() {
+                if ch.is_ascii_digit() {
+                    num_str.push(ch);
+                } else {
+                    let count = num_str.parse::<u32>().unwrap_or(1);
+                    num_str.clear();
+
+                    match ch {
+                        '=' => matches += count,      // Match
+                        'X' => mismatches += count,    // Mismatch
+                        'M' => matches += count,       // Match or mismatch (treat as match if no = available)
+                        'I' => insertions += count,    // Insertion to reference
+                        'D' => deletions += count,     // Deletion from reference
+                        'N' | 'S' | 'H' | 'P' => {},   // Skip these operations
+                        _ => {}
+                    }
+                }
+            }
+
+            // Calculate mutually gapped identity:
+            // numerator = matches
+            // denominator = matches + mismatches + insertions + deletions
+            let total = matches + mismatches + insertions + deletions;
+            if total > 0 {
+                Some(matches as f64 / total as f64)
+            } else {
+                None
+            }
+        } else {
+            None
+        }
+    }
+
     /// Convert PAF record to internal mapping structure
     pub fn to_mapping(&self, ref_id: u32, query_id: i32) -> Mapping {
         let mut mapping = Mapping {
@@ -153,8 +201,11 @@ impl PafRecord {
             mapping.set_reverse(true);
         }
 
-        // Calculate identity
-        let identity = if self.block_len > 0 {
+        // Calculate identity - prefer CIGAR-based if available
+        let identity = if let Some(cigar_identity) = self.calculate_cigar_identity() {
+            cigar_identity
+        } else if self.block_len > 0 {
+            // Fall back to matches/block_len from PAF columns
             self.matches as f64 / self.block_len as f64
         } else {
             0.0

@@ -260,10 +260,32 @@ impl PafFilter {
         // Step 1: Create scaffolds from the plane-swept mappings
         eprintln!("[SCAFFOLD_TRACE] Creating scaffolds from {} plane-swept mappings", metadata.len());
 
+        // Debug: check coverage of metadata
+        let mut chr1_mappings = 0;
+        let mut max_chr1_pos = 0;
+        for m in &metadata {
+            if m.query_name.contains("Chr1") && m.target_name.contains("Chr1") {
+                chr1_mappings += 1;
+                max_chr1_pos = max_chr1_pos.max(m.query_end);
+            }
+        }
+        eprintln!("[DEBUG] Chr1->Chr1 mappings in metadata: {}, max position: {}", chr1_mappings, max_chr1_pos);
+
         // Use scaffold_gap for merging into scaffolds (per CLAUDE.md)
         let merged_chains = self.merge_mappings_into_chains(&metadata, self.config.scaffold_gap)?;
         eprintln!("[SCAFFOLD_TRACE] After merging with gap={}: {} chains",
                   self.config.scaffold_gap, merged_chains.len());
+
+        // Debug: check Chr1->Chr1 chains
+        let mut chr1_chains = 0;
+        let mut max_chain_end = 0;
+        for chain in &merged_chains {
+            if chain.query_name.contains("Chr1") && chain.target_name.contains("Chr1") {
+                chr1_chains += 1;
+                max_chain_end = max_chain_end.max(chain.query_end);
+            }
+        }
+        eprintln!("[DEBUG] Chr1->Chr1 chains: {}, max end position: {}", chr1_chains, max_chain_end);
 
         // Step 2: Filter chains by minimum scaffold length
         let mut filtered_chains: Vec<MergedChain> = merged_chains
@@ -273,10 +295,33 @@ impl PafFilter {
         eprintln!("[SCAFFOLD_TRACE] After length filter (min={}): {} chains",
                   self.config.min_scaffold_length, filtered_chains.len());
 
+        // Debug: check Chr1->Chr1 chains after length filter
+        let mut chr1_scaffolds = 0;
+        let mut max_scaffold_end = 0;
+        for chain in &filtered_chains {
+            if chain.query_name.contains("Chr1") && chain.target_name.contains("Chr1") {
+                chr1_scaffolds += 1;
+                max_scaffold_end = max_scaffold_end.max(chain.query_end);
+            }
+        }
+        eprintln!("[DEBUG] Chr1->Chr1 scaffolds after length filter: {}, max end: {}", chr1_scaffolds, max_scaffold_end);
+
         // Step 3: Apply plane sweep to scaffolds based on scaffold_filter_mode
-        // Default: 1:1 filtering (best scaffold per query-target pair)
+        // Default: 1:N filtering (best scaffold per query-target pair)
         filtered_chains = self.apply_scaffold_plane_sweep(filtered_chains)?;
         eprintln!("[SCAFFOLD_TRACE] After plane sweep on scaffolds: {} chains", filtered_chains.len());
+
+        // Debug: check Chr1->Chr1 chains after plane sweep
+        let mut chr1_final = 0;
+        let mut max_final_end = 0;
+        for chain in &filtered_chains {
+            if chain.query_name.contains("Chr1") && chain.target_name.contains("Chr1") {
+                chr1_final += 1;
+                max_final_end = max_final_end.max(chain.query_end);
+                eprintln!("[DEBUG] Chr1->Chr1 scaffold: {} - {}", chain.query_start, chain.query_end);
+            }
+        }
+        eprintln!("[DEBUG] Chr1->Chr1 scaffolds after plane sweep: {}, max end: {}", chr1_final, max_final_end);
 
         // If scaffolds_only mode, return the actual mappings that form scaffolds
         if self.scaffolds_only {
@@ -313,7 +358,8 @@ impl PafFilter {
                 anchor_ranks.insert(member_rank);
             }
         }
-        // Debug: [SCAFFOLD_TRACE] Anchors identified
+        eprintln!("[SCAFFOLD_TRACE] Anchors identified: {} mappings (members of {} scaffold chains)",
+                  anchor_ranks.len(), filtered_chains.len());
 
         // Map ranks to indices in all_original_mappings
         let mut rank_to_idx = HashMap::new();
@@ -415,7 +461,8 @@ impl PafFilter {
         // Count anchors vs rescued
         let anchor_count = anchor_ranks.len();
         let rescued_count = kept_mappings.len() - anchor_count;
-        // Debug: [SCAFFOLD_TRACE] Final rescue statistics
+        eprintln!("[SCAFFOLD_TRACE] Final: {} original -> {} kept (anchors={}, rescued={})",
+                  all_original_mappings.len(), kept_mappings.len(), anchor_count, rescued_count);
 
         // Build result map directly from kept mappings
         let mut passing = HashMap::new();

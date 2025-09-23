@@ -2,6 +2,7 @@ mod mapping;
 mod paf;
 mod paf_filter;
 mod union_find;
+mod plane_sweep;
 
 use anyhow::Result;
 use clap::Parser;
@@ -35,12 +36,14 @@ struct Args {
     #[clap(short = 'x', long = "sparsify", default_value = "1.0")]
     sparsify: f64,
 
-    /// Primary mapping filter: "1:1", "1:N"/"1", "N:1", "N:N"/"N" (default: no filtering)
-    #[clap(short = 'm', long = "mapping-filter", default_value = "N:N")]
+    /// Primary plane sweep filter (default: N = no filtering)
+    /// Format: "1:1", "1" (=1:∞), "N" (=N:N, no filtering), or "M:N"
+    #[clap(short = 'm', long = "mapping-filter", default_value = "N")]
     mapping_filter: String,
 
-    /// Scaffold chain filter: "1:1", "1:N"/"1", "N:1", "N:N"/"N", or specific like "10:5"
-    #[clap(short = 'n', long = "scaffold-filter", default_value = "1:N")]
+    /// Scaffold filter when -s > 0 (default: 1:1)
+    /// Format: "1:1", "1" (=1:∞), "N" (=N:N, no filtering), or "M:N"
+    #[clap(short = 'n', long = "scaffold-filter", default_value = "1:1")]
     scaffold_filter: String,
 
     /// Scaffold jump (gap) distance [100000]
@@ -173,7 +176,7 @@ fn main() -> Result<()> {
         scaffold_overlap_threshold: args.scaffold_overlap,
         scaffold_max_deviation: args.scaffold_dist,
         prefix_delimiter: '#',  // Default PanSN delimiter
-        skip_prefix: false,     // false = group by prefix (default behavior)
+        skip_prefix: true,      // true = group by prefix (default behavior for PanSN)
     };
 
     // Progress indicator
