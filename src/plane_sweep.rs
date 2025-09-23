@@ -1,6 +1,6 @@
-use std::collections::{BTreeSet, HashMap};
-use std::cmp::Ordering;
 use crate::mapping::{Mapping, MappingAux};
+use std::cmp::Ordering;
+use std::collections::{BTreeSet, HashMap};
 
 /// Event types for plane sweep
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -19,13 +19,17 @@ struct Event {
 
 impl Event {
     fn new(position: u32, event_type: EventType, mapping_idx: usize) -> Self {
-        Event { position, event_type, mapping_idx }
+        Event {
+            position,
+            event_type,
+            mapping_idx,
+        }
     }
 }
 
 /// Calculate score for a mapping: identity * log(block_length)
 fn calculate_score(mapping: &Mapping) -> f64 {
-    let identity = mapping.identity() / 100.0;  // Convert from percent
+    let identity = mapping.identity() / 100.0; // Convert from percent
     let block_len = mapping.block_length as f64;
 
     if block_len <= 0.0 || identity <= 0.0 {
@@ -61,7 +65,9 @@ impl PartialOrd for MappingOrder {
 impl Ord for MappingOrder {
     fn cmp(&self, other: &Self) -> Ordering {
         // Order by score (descending), then start position, then ref_id
-        other.score.partial_cmp(&self.score)
+        other
+            .score
+            .partial_cmp(&self.score)
             .unwrap_or(Ordering::Equal)
             .then_with(|| self.start_pos.cmp(&other.start_pos))
             .then_with(|| self.ref_id.cmp(&other.ref_id))
@@ -128,7 +134,12 @@ pub fn filter_by_query(
         }
 
         // Mark best mappings as good
-        mark_good_mappings(&mut active_mappings, mappings, secondaries_to_keep, overlap_threshold);
+        mark_good_mappings(
+            &mut active_mappings,
+            mappings,
+            secondaries_to_keep,
+            overlap_threshold,
+        );
 
         i = j;
     }
@@ -142,10 +153,9 @@ pub fn filter_by_query(
     }
 
     // Filter both mappings and aux_data
-    let new_mappings: Vec<_> = keep_indices.iter()
-        .map(|&idx| mappings[idx])
-        .collect();
-    let new_aux: Vec<_> = keep_indices.iter()
+    let new_mappings: Vec<_> = keep_indices.iter().map(|&idx| mappings[idx]).collect();
+    let new_aux: Vec<_> = keep_indices
+        .iter()
         .map(|&idx| aux_data[idx].clone())
         .collect();
 
@@ -261,7 +271,8 @@ pub fn filter_by_reference(
         events.sort_by_key(|e| (e.position, e.event_type as u32));
 
         // Pre-calculate scores for this reference group
-        let scores: Vec<f64> = group_indices.iter()
+        let scores: Vec<f64> = group_indices
+            .iter()
             .map(|&idx| calculate_score(&mappings[idx]))
             .collect();
 
@@ -277,7 +288,10 @@ pub fn filter_by_reference(
             while j < events.len() && events[j].position == current_pos {
                 let event = &events[j];
                 // Find the score index for this mapping
-                let score_idx = group_indices.iter().position(|&idx| idx == event.mapping_idx).unwrap_or(0);
+                let score_idx = group_indices
+                    .iter()
+                    .position(|&idx| idx == event.mapping_idx)
+                    .unwrap_or(0);
                 let mapping_order = MappingOrder {
                     idx: event.mapping_idx,
                     score: scores[score_idx],
@@ -297,7 +311,12 @@ pub fn filter_by_reference(
             }
 
             // Mark best mappings on reference axis
-            mark_good_mappings_ref(&mut active_mappings, mappings, secondaries_to_keep, overlap_threshold);
+            mark_good_mappings_ref(
+                &mut active_mappings,
+                mappings,
+                secondaries_to_keep,
+                overlap_threshold,
+            );
 
             i = j;
         }
@@ -312,10 +331,9 @@ pub fn filter_by_reference(
     }
 
     // Filter both mappings and aux_data
-    let new_mappings: Vec<_> = keep_indices.iter()
-        .map(|&idx| mappings[idx])
-        .collect();
-    let new_aux: Vec<_> = keep_indices.iter()
+    let new_mappings: Vec<_> = keep_indices.iter().map(|&idx| mappings[idx]).collect();
+    let new_aux: Vec<_> = keep_indices
+        .iter()
         .map(|&idx| aux_data[idx].clone())
         .collect();
 
@@ -430,10 +448,10 @@ pub fn apply_plane_sweep(
         }
 
         // Create temporary vectors for this group
-        let mut group_mappings: Vec<Mapping> = group_indices.iter()
-            .map(|&idx| mappings[idx])
-            .collect();
-        let mut group_aux: Vec<MappingAux> = group_indices.iter()
+        let mut group_mappings: Vec<Mapping> =
+            group_indices.iter().map(|&idx| mappings[idx]).collect();
+        let mut group_aux: Vec<MappingAux> = group_indices
+            .iter()
             .map(|&idx| aux_data[idx].clone())
             .collect();
 
@@ -441,7 +459,12 @@ pub fn apply_plane_sweep(
         if let Some(limit) = query_limit {
             if limit > 0 {
                 let secondaries = if limit > 1 { limit - 1 } else { 0 };
-                filter_by_query(&mut group_mappings, &mut group_aux, secondaries, overlap_threshold);
+                filter_by_query(
+                    &mut group_mappings,
+                    &mut group_aux,
+                    secondaries,
+                    overlap_threshold,
+                );
             }
         }
 
@@ -449,7 +472,12 @@ pub fn apply_plane_sweep(
         if let Some(limit) = target_limit {
             if limit > 0 {
                 let secondaries = if limit > 1 { limit - 1 } else { 0 };
-                filter_by_reference(&mut group_mappings, &mut group_aux, secondaries, overlap_threshold);
+                filter_by_reference(
+                    &mut group_mappings,
+                    &mut group_aux,
+                    secondaries,
+                    overlap_threshold,
+                );
             }
         }
 
@@ -466,10 +494,9 @@ pub fn apply_plane_sweep(
     all_keep_indices.sort();
 
     // Filter both mappings and aux_data
-    let new_mappings: Vec<_> = all_keep_indices.iter()
-        .map(|&idx| mappings[idx])
-        .collect();
-    let new_aux: Vec<_> = all_keep_indices.iter()
+    let new_mappings: Vec<_> = all_keep_indices.iter().map(|&idx| mappings[idx]).collect();
+    let new_aux: Vec<_> = all_keep_indices
+        .iter()
         .map(|&idx| aux_data[idx].clone())
         .collect();
 
@@ -490,7 +517,8 @@ fn group_by_prefix_pairs(
         let query_prefix = extract_prefix(&aux.query_name, prefix_delimiter, skip_prefix);
         let target_prefix = extract_prefix(&aux.ref_name, prefix_delimiter, skip_prefix);
 
-        groups.entry((query_prefix, target_prefix))
+        groups
+            .entry((query_prefix, target_prefix))
             .or_insert_with(Vec::new)
             .push(idx);
     }

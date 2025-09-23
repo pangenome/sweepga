@@ -46,7 +46,8 @@ impl UnionFind {
     /// Get all sets as groups of indices
     pub fn get_sets(&mut self) -> Vec<Vec<usize>> {
         let n = self.parent.len();
-        let mut root_to_group: std::collections::HashMap<usize, Vec<usize>> = std::collections::HashMap::new();
+        let mut root_to_group: std::collections::HashMap<usize, Vec<usize>> =
+            std::collections::HashMap::new();
 
         for i in 0..n {
             let root = self.find(i);

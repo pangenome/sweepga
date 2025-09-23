@@ -1,4 +1,4 @@
-use anyhow::{Result, bail};
+use anyhow::{bail, Result};
 use std::collections::HashMap;
 use std::fs::File;
 use std::io::{BufRead, BufReader, BufWriter, Write};
@@ -7,17 +7,17 @@ use std::io::{BufRead, BufReader, BufWriter, Write};
 #[repr(C)]
 #[derive(Debug, Clone, Copy)]
 pub struct CompactMapping {
-    pub query_id: u32,        // 4 bytes - sequence ID from index
-    pub target_id: u32,       // 4 bytes - sequence ID from index
-    pub query_start: u32,     // 4 bytes
-    pub query_end: u32,       // 4 bytes
-    pub target_start: u32,    // 4 bytes
-    pub target_end: u32,      // 4 bytes
-    pub identity: u16,        // 2 bytes - scaled 0-10000 for 0-100%
-    pub strand: u8,           // 1 byte - 0 for +, 1 for -
-    pub flags: u8,            // 1 byte - for discard/overlapped flags
-    pub file_offset: u64,     // 8 bytes - offset in PAF file
-    // Total: 36 bytes
+    pub query_id: u32,     // 4 bytes - sequence ID from index
+    pub target_id: u32,    // 4 bytes - sequence ID from index
+    pub query_start: u32,  // 4 bytes
+    pub query_end: u32,    // 4 bytes
+    pub target_start: u32, // 4 bytes
+    pub target_end: u32,   // 4 bytes
+    pub identity: u16,     // 2 bytes - scaled 0-10000 for 0-100%
+    pub strand: u8,        // 1 byte - 0 for +, 1 for -
+    pub flags: u8,         // 1 byte - for discard/overlapped flags
+    pub file_offset: u64,  // 8 bytes - offset in PAF file
+                           // Total: 36 bytes
 }
 
 impl CompactMapping {
@@ -90,7 +90,12 @@ pub struct CompactPafFilter {
 }
 
 impl CompactPafFilter {
-    pub fn new(min_block_length: u32, keep_self: bool, prefix_delimiter: char, group_by_prefix: bool) -> Self {
+    pub fn new(
+        min_block_length: u32,
+        keep_self: bool,
+        prefix_delimiter: char,
+        group_by_prefix: bool,
+    ) -> Self {
         CompactPafFilter {
             mappings: Vec::new(),
             query_index: SequenceIndex::new(),
@@ -186,7 +191,8 @@ impl CompactPafFilter {
         eprintln!("Unique target sequences: {}", self.target_index.len());
 
         // Check memory usage estimate
-        let memory_mb = (self.mappings.len() * std::mem::size_of::<CompactMapping>()) as f64 / 1_048_576.0;
+        let memory_mb =
+            (self.mappings.len() * std::mem::size_of::<CompactMapping>()) as f64 / 1_048_576.0;
         eprintln!("Estimated memory usage for mappings: {:.1} MB", memory_mb);
 
         Ok(())
@@ -216,7 +222,8 @@ impl CompactPafFilter {
             let query_prefix = self.extract_prefix(query_name);
             let target_prefix = self.extract_prefix(target_name);
 
-            groups.entry((query_prefix, target_prefix))
+            groups
+                .entry((query_prefix, target_prefix))
                 .or_insert_with(Vec::new)
                 .push(idx);
         }
@@ -225,20 +232,26 @@ impl CompactPafFilter {
     }
 
     /// Apply plane sweep filtering
-    pub fn apply_plane_sweep(&mut self, filter_spec: &str, overlap_threshold: f64) -> Result<Vec<u64>> {
+    pub fn apply_plane_sweep(
+        &mut self,
+        filter_spec: &str,
+        overlap_threshold: f64,
+    ) -> Result<Vec<u64>> {
         let (query_limit, target_limit) = parse_filter_spec(filter_spec);
 
         // If no filtering, return all offsets (but still skip self if needed)
         if query_limit.is_none() && target_limit.is_none() {
             if !self.keep_self {
                 // Filter out self-mappings
-                return Ok(self.mappings.iter()
+                return Ok(self
+                    .mappings
+                    .iter()
                     .filter(|m| {
                         let q_name = self.query_index.get_name(m.query_id).unwrap_or("");
                         let t_name = self.target_index.get_name(m.target_id).unwrap_or("");
                         let q_prefix = self.extract_prefix(q_name);
                         let t_prefix = self.extract_prefix(t_name);
-                        q_prefix != t_prefix  // Keep only if different genomes
+                        q_prefix != t_prefix // Keep only if different genomes
                     })
                     .map(|m| m.file_offset)
                     .collect());
@@ -259,18 +272,34 @@ impl CompactPafFilter {
 
             // Skip self-mapping groups unless --self is specified
             if !self.keep_self && query_prefix == target_prefix {
-                eprintln!("Skipping self-mapping group: {} -> {} ({} mappings)", query_prefix, target_prefix, group_indices.len());
+                eprintln!(
+                    "Skipping self-mapping group: {} -> {} ({} mappings)",
+                    query_prefix,
+                    target_prefix,
+                    group_indices.len()
+                );
                 continue;
             }
 
-            eprintln!("Processing group {} -> {} with {} mappings", query_prefix, target_prefix, group_indices.len());
+            eprintln!(
+                "Processing group {} -> {} with {} mappings",
+                query_prefix,
+                target_prefix,
+                group_indices.len()
+            );
 
             // Apply plane sweep within this group
-            let group_mappings: Vec<&mut CompactMapping> = group_indices.iter()
+            let group_mappings: Vec<&mut CompactMapping> = group_indices
+                .iter()
                 .map(|&idx| unsafe { &mut *(&mut self.mappings[idx] as *mut CompactMapping) })
                 .collect();
 
-            let kept = apply_plane_sweep_to_group(group_mappings, query_limit, target_limit, overlap_threshold);
+            let kept = apply_plane_sweep_to_group(
+                group_mappings,
+                query_limit,
+                target_limit,
+                overlap_threshold,
+            );
             eprintln!("  Kept {} mappings from this group", kept.len());
 
             // Collect file offsets of kept mappings
@@ -289,7 +318,12 @@ impl CompactPafFilter {
     }
 
     /// Write filtered output using file offsets
-    pub fn write_filtered_output(&self, input_path: &str, output_path: &str, kept_offsets: Vec<u64>) -> Result<()> {
+    pub fn write_filtered_output(
+        &self,
+        input_path: &str,
+        output_path: &str,
+        kept_offsets: Vec<u64>,
+    ) -> Result<()> {
         let mut input = BufReader::new(File::open(input_path)?);
         let mut output = BufWriter::new(File::create(output_path)?);
 
@@ -323,19 +357,21 @@ fn parse_filter_spec(spec: &str) -> (Option<usize>, Option<usize>) {
 
     // Check if it's an "unlimited" specification (easter eggs!)
     fn is_unlimited(s: &str) -> bool {
-        matches!(s, "n" | "inf" | "infinite" | "∞" | "infinity" |
-                    "unlimited" | "many" | "all" | "*")
+        matches!(
+            s,
+            "n" | "inf" | "infinite" | "∞" | "infinity" | "unlimited" | "many" | "all" | "*"
+        )
     }
 
     // Handle single value (applies to query axis only)
     if !spec.contains(':') {
         if is_unlimited(&spec) {
-            return (None, None);  // No filtering
+            return (None, None); // No filtering
         }
         if let Ok(n) = spec.parse::<usize>() {
-            return (Some(n), None);  // Keep N per query
+            return (Some(n), None); // Keep N per query
         }
-        return (None, None);  // Default to no filtering if unparseable
+        return (None, None); // Default to no filtering if unparseable
     }
 
     // Handle M:N format
@@ -359,7 +395,6 @@ fn parse_filter_spec(spec: &str) -> (Option<usize>, Option<usize>) {
     (None, None)
 }
 
-
 /// Apply plane sweep to a group of mappings using exact algorithm
 fn apply_plane_sweep_to_group(
     mappings: Vec<&mut CompactMapping>,
@@ -367,14 +402,15 @@ fn apply_plane_sweep_to_group(
     target_limit: Option<usize>,
     overlap_threshold: f64,
 ) -> Vec<usize> {
-    use crate::plane_sweep_exact::{PlaneSweepMapping, plane_sweep_query, plane_sweep_target};
+    use crate::plane_sweep_exact::{plane_sweep_query, plane_sweep_target, PlaneSweepMapping};
 
     if mappings.is_empty() {
         return Vec::new();
     }
 
     // Convert to PlaneSweepMapping format
-    let mut plane_sweep_mappings: Vec<PlaneSweepMapping> = mappings.iter()
+    let mut plane_sweep_mappings: Vec<PlaneSweepMapping> = mappings
+        .iter()
         .enumerate()
         .map(|(idx, m)| PlaneSweepMapping {
             idx,
@@ -382,7 +418,7 @@ fn apply_plane_sweep_to_group(
             query_end: m.query_end,
             target_start: m.target_start,
             target_end: m.target_end,
-            identity: (m.identity as f64) / 10000.0,  // Convert from scaled
+            identity: (m.identity as f64) / 10000.0, // Convert from scaled
             flags: 0,
         })
         .collect();
@@ -396,10 +432,12 @@ fn apply_plane_sweep_to_group(
             let secondaries_t = if t > 1 { t - 1 } else { 0 };
 
             // First run query sweep
-            let query_kept = plane_sweep_query(&mut plane_sweep_mappings, secondaries_q, overlap_threshold);
+            let query_kept =
+                plane_sweep_query(&mut plane_sweep_mappings, secondaries_q, overlap_threshold);
 
             // Create filtered mappings from query results
-            let mut filtered_mappings: Vec<PlaneSweepMapping> = query_kept.iter()
+            let mut filtered_mappings: Vec<PlaneSweepMapping> = query_kept
+                .iter()
                 .map(|&idx| plane_sweep_mappings[idx].clone())
                 .collect();
 
@@ -409,10 +447,12 @@ fn apply_plane_sweep_to_group(
             }
 
             // Run target sweep on query-filtered results
-            let target_kept = plane_sweep_target(&mut filtered_mappings, secondaries_t, overlap_threshold);
+            let target_kept =
+                plane_sweep_target(&mut filtered_mappings, secondaries_t, overlap_threshold);
 
             // Map back to original indices
-            target_kept.iter()
+            target_kept
+                .iter()
                 .map(|&new_idx| query_kept[new_idx])
                 .collect()
         }
@@ -434,4 +474,3 @@ fn apply_plane_sweep_to_group(
 
     kept_indices
 }
-

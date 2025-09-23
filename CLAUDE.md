@@ -1,12 +1,24 @@
 # SweepGA Filtering Algorithm
 
-## CRITICAL: Git Commit Rules
+## CRITICAL: Git Commit Rules - NEVER VIOLATE THESE
 
-**NEVER use `git add -A` or `git add .`**
-- Only add specific source files you've modified
-- Never commit test data, FASTA files, PAF files, or intermediate results
-- Always use: `git add src/specific_file.rs tests/specific_test.rs`
-- All test data should be generated from data/scerevisiae8.fa.gz
+**ABSOLUTELY FORBIDDEN - NO EXCEPTIONS:**
+- **NEVER EVER use `git add -A`, `git add .`, or `git add --all`**
+- **NEVER add test data, FASTA files (except data/scerevisiae8.fa.gz), PAF files, or intermediate results**
+- **NEVER add files with extensions: .fa, .fasta, .paf, .gdb, .ktab, .bps, .log (unless specifically code logs)**
+
+**REQUIRED PROCEDURE:**
+1. Always list files to be added explicitly: `git add src/specific_file.rs`
+2. Always check with `git status` before committing
+3. If you accidentally stage wrong files, immediately `git reset HEAD <file>`
+4. All test data must be generated from data/scerevisiae8.fa.gz only
+
+**BEFORE EVERY COMMIT:**
+```bash
+git status  # Check what's staged
+git diff --cached --name-only  # List all staged files
+# Only proceed if list contains ONLY source code files
+```
 
 ## Core Algorithm (Corrected Implementation)
 

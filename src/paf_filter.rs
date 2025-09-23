@@ -1,14 +1,14 @@
 use anyhow::Result;
+use ordered_float::OrderedFloat;
 use rayon::prelude::*;
-use std::collections::{HashMap, HashSet, BTreeSet};
+use std::collections::{BTreeSet, HashMap, HashSet};
 use std::fs::File;
 use std::io::{BufRead, BufReader, BufWriter, Write};
 use std::path::Path;
 use std::sync::Mutex;
-use ordered_float::OrderedFloat;
 
 use crate::mapping::ChainStatus;
-use crate::plane_sweep_exact::{PlaneSweepMapping, plane_sweep_grouped_query};
+use crate::plane_sweep_exact::{plane_sweep_grouped_query, PlaneSweepMapping};
 
 /// Filtering mode
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -21,17 +21,17 @@ pub enum FilterMode {
 /// Filter configuration
 #[derive(Clone)]
 pub struct FilterConfig {
-    pub chain_gap: u32,           // -c/--chain-jump
-    pub min_block_length: u32,    // -l/--block-length
+    pub chain_gap: u32,        // -c/--chain-jump
+    pub min_block_length: u32, // -l/--block-length
 
     // Primary mapping filter (applied to raw mappings before scaffold creation)
-    pub mapping_filter_mode: FilterMode,  // Default: N:N (no filtering)
+    pub mapping_filter_mode: FilterMode, // Default: N:N (no filtering)
     pub mapping_max_per_query: Option<usize>,
     pub mapping_max_per_target: Option<usize>,
-    pub plane_sweep_secondaries: usize,  // -n parameter: number of secondaries to keep in plane sweep
+    pub plane_sweep_secondaries: usize, // -n parameter: number of secondaries to keep in plane sweep
 
     // Scaffold filter (applied to scaffold chains)
-    pub scaffold_filter_mode: FilterMode,      // Default: 1:1
+    pub scaffold_filter_mode: FilterMode, // Default: 1:1
     pub scaffold_max_per_query: Option<usize>,
     pub scaffold_max_per_target: Option<usize>,
 
@@ -49,7 +49,7 @@ pub struct FilterConfig {
 /// Record metadata for filtering without modifying records
 #[derive(Debug, Clone)]
 struct RecordMeta {
-    rank: usize,  // 0-based index in original file
+    rank: usize, // 0-based index in original file
     query_name: String,
     target_name: String,
     query_start: u32,
@@ -76,7 +76,7 @@ struct MergedChain {
     target_end: u32,
     strand: char,
     total_length: u32,
-    member_indices: Vec<usize>,  // Indices of original mappings in this chain
+    member_indices: Vec<usize>, // Indices of original mappings in this chain
 }
 
 /// PAF filter that preserves original records
@@ -91,8 +91,10 @@ impl PafFilter {
     pub fn new(config: FilterConfig) -> Self {
         PafFilter {
             config,
-            temp_dir: std::env::var("TMPDIR").ok().or_else(|| Some("/tmp".to_string())),
-            keep_self: false,  // Exclude self-mappings by default
+            temp_dir: std::env::var("TMPDIR")
+                .ok()
+                .or_else(|| Some("/tmp".to_string())),
+            keep_self: false, // Exclude self-mappings by default
             scaffolds_only: false,
         }
     }
@@ -107,7 +109,7 @@ impl PafFilter {
         // Extract prefix: take everything up to and including the last delimiter
         // e.g., "r#1#2" -> "r#1#", "Rabacal-1#Chr1" -> "Rabacal-1#", "r#1" -> "r#"
         if let Some(pos) = name.rfind(self.config.prefix_delimiter) {
-            name[..=pos].to_string()  // Include the delimiter itself
+            name[..=pos].to_string() // Include the delimiter itself
         } else {
             // No delimiter found, use full name
             name.to_string()
@@ -125,11 +127,7 @@ impl PafFilter {
     }
 
     /// Main filtering pipeline using record ranks
-    pub fn filter_paf<P: AsRef<Path>>(
-        &self,
-        input_path: P,
-        output_path: P
-    ) -> Result<()> {
+    pub fn filter_paf<P: AsRef<Path>>(&self, input_path: P, output_path: P) -> Result<()> {
         // First pass: extract metadata for all records
         let metadata = self.extract_metadata(&input_path)?;
 
@@ -204,8 +202,8 @@ impl PafFilter {
     fn apply_filters(&self, mut metadata: Vec<RecordMeta>) -> Result<HashMap<usize, RecordMeta>> {
         // 1. Filter by minimum block length and self-mappings
         metadata.retain(|m| {
-            m.block_length >= self.config.min_block_length &&
-            (self.keep_self || m.query_name != m.target_name)
+            m.block_length >= self.config.min_block_length
+                && (self.keep_self || m.query_name != m.target_name)
         });
 
         // Keep all original mappings for rescue phase (before any plane sweep)
@@ -233,7 +231,10 @@ impl PafFilter {
         // then rescue from ALL ORIGINAL mappings
 
         // Step 1: Create scaffolds from the plane-swept mappings
-        eprintln!("[SCAFFOLD_TRACE] Creating scaffolds from {} plane-swept mappings", metadata.len());
+        eprintln!(
+            "[SCAFFOLD_TRACE] Creating scaffolds from {} plane-swept mappings",
+            metadata.len()
+        );
 
         // Debug: check coverage of metadata
         let mut chr1_mappings = 0;
@@ -244,12 +245,18 @@ impl PafFilter {
                 max_chr1_pos = max_chr1_pos.max(m.query_end);
             }
         }
-        eprintln!("[DEBUG] Chr1->Chr1 mappings in metadata: {}, max position: {}", chr1_mappings, max_chr1_pos);
+        eprintln!(
+            "[DEBUG] Chr1->Chr1 mappings in metadata: {}, max position: {}",
+            chr1_mappings, max_chr1_pos
+        );
 
         // Use scaffold_gap for merging into scaffolds (per CLAUDE.md)
         let merged_chains = self.merge_mappings_into_chains(&metadata, self.config.scaffold_gap)?;
-        eprintln!("[SCAFFOLD_TRACE] After merging with gap={}: {} chains",
-                  self.config.scaffold_gap, merged_chains.len());
+        eprintln!(
+            "[SCAFFOLD_TRACE] After merging with gap={}: {} chains",
+            self.config.scaffold_gap,
+            merged_chains.len()
+        );
 
         // Debug: check Chr1->Chr1 chains
         let mut chr1_chains = 0;
@@ -260,15 +267,21 @@ impl PafFilter {
                 max_chain_end = max_chain_end.max(chain.query_end);
             }
         }
-        eprintln!("[DEBUG] Chr1->Chr1 chains: {}, max end position: {}", chr1_chains, max_chain_end);
+        eprintln!(
+            "[DEBUG] Chr1->Chr1 chains: {}, max end position: {}",
+            chr1_chains, max_chain_end
+        );
 
         // Step 2: Filter chains by minimum scaffold length
         let mut filtered_chains: Vec<MergedChain> = merged_chains
             .into_iter()
             .filter(|chain| chain.total_length >= self.config.min_scaffold_length)
             .collect();
-        eprintln!("[SCAFFOLD_TRACE] After length filter (min={}): {} chains",
-                  self.config.min_scaffold_length, filtered_chains.len());
+        eprintln!(
+            "[SCAFFOLD_TRACE] After length filter (min={}): {} chains",
+            self.config.min_scaffold_length,
+            filtered_chains.len()
+        );
 
         // Debug: check Chr1->Chr1 chains after length filter
         let mut chr1_scaffolds = 0;
@@ -279,12 +292,18 @@ impl PafFilter {
                 max_scaffold_end = max_scaffold_end.max(chain.query_end);
             }
         }
-        eprintln!("[DEBUG] Chr1->Chr1 scaffolds after length filter: {}, max end: {}", chr1_scaffolds, max_scaffold_end);
+        eprintln!(
+            "[DEBUG] Chr1->Chr1 scaffolds after length filter: {}, max end: {}",
+            chr1_scaffolds, max_scaffold_end
+        );
 
         // Step 3: Apply plane sweep to scaffolds based on scaffold_filter_mode
         // Default: 1:N filtering (best scaffold per query-target pair)
         filtered_chains = self.apply_scaffold_plane_sweep(filtered_chains)?;
-        eprintln!("[SCAFFOLD_TRACE] After plane sweep on scaffolds: {} chains", filtered_chains.len());
+        eprintln!(
+            "[SCAFFOLD_TRACE] After plane sweep on scaffolds: {} chains",
+            filtered_chains.len()
+        );
 
         // Debug: check Chr1->Chr1 chains after plane sweep
         let mut chr1_final = 0;
@@ -293,10 +312,16 @@ impl PafFilter {
             if chain.query_name.contains("Chr1") && chain.target_name.contains("Chr1") {
                 chr1_final += 1;
                 max_final_end = max_final_end.max(chain.query_end);
-                eprintln!("[DEBUG] Chr1->Chr1 scaffold: {} - {}", chain.query_start, chain.query_end);
+                eprintln!(
+                    "[DEBUG] Chr1->Chr1 scaffold: {} - {}",
+                    chain.query_start, chain.query_end
+                );
             }
         }
-        eprintln!("[DEBUG] Chr1->Chr1 scaffolds after plane sweep: {}, max end: {}", chr1_final, max_final_end);
+        eprintln!(
+            "[DEBUG] Chr1->Chr1 scaffolds after plane sweep: {}, max end: {}",
+            chr1_final, max_final_end
+        );
 
         // If scaffolds_only mode, return the actual mappings that form scaffolds
         if self.scaffolds_only {
@@ -333,8 +358,11 @@ impl PafFilter {
                 anchor_ranks.insert(member_rank);
             }
         }
-        eprintln!("[SCAFFOLD_TRACE] Anchors identified: {} mappings (members of {} scaffold chains)",
-                  anchor_ranks.len(), filtered_chains.len());
+        eprintln!(
+            "[SCAFFOLD_TRACE] Anchors identified: {} mappings (members of {} scaffold chains)",
+            anchor_ranks.len(),
+            filtered_chains.len()
+        );
 
         // Map ranks to indices in all_original_mappings
         let mut rank_to_idx = HashMap::new();
@@ -349,7 +377,10 @@ impl PafFilter {
         let mut mappings_by_chr_pair: HashMap<(String, String), Vec<usize>> = HashMap::new();
         for (idx, mapping) in all_original_mappings.iter().enumerate() {
             let key = (mapping.query_name.clone(), mapping.target_name.clone());
-            mappings_by_chr_pair.entry(key).or_insert_with(Vec::new).push(idx);
+            mappings_by_chr_pair
+                .entry(key)
+                .or_insert_with(Vec::new)
+                .push(idx);
         }
 
         // Sort each chromosome pair's mappings by query position for binary search
@@ -363,7 +394,10 @@ impl PafFilter {
             if let Some(&anchor_idx) = rank_to_idx.get(&anchor_rank) {
                 let anchor = &all_original_mappings[anchor_idx];
                 let key = (anchor.query_name.clone(), anchor.target_name.clone());
-                anchors_by_chr_pair.entry(key).or_insert_with(Vec::new).push(anchor_idx);
+                anchors_by_chr_pair
+                    .entry(key)
+                    .or_insert_with(Vec::new)
+                    .push(anchor_idx);
             }
         }
 
@@ -374,7 +408,10 @@ impl PafFilter {
         // Process each chromosome pair independently (can be parallelized)
         for ((query_chr, target_chr), mapping_indices) in &mappings_by_chr_pair {
             let chr_key = (query_chr.clone(), target_chr.clone());
-            let chr_anchors = anchors_by_chr_pair.get(&chr_key).map(|v| v.as_slice()).unwrap_or(&[]);
+            let chr_anchors = anchors_by_chr_pair
+                .get(&chr_key)
+                .map(|v| v.as_slice())
+                .unwrap_or(&[]);
 
             if chr_anchors.is_empty() {
                 continue; // No anchors on this chromosome pair, skip
@@ -406,13 +443,15 @@ impl PafFilter {
                         let anchor_q_center = (anchor.query_start + anchor.query_end) / 2;
 
                         // Early exit if anchor is too far in query space
-                        let q_diff = (mapping_q_center as i64 - anchor_q_center as i64).abs() as u64;
+                        let q_diff =
+                            (mapping_q_center as i64 - anchor_q_center as i64).abs() as u64;
                         if q_diff > max_deviation as u64 {
                             continue; // Too far in query dimension alone
                         }
 
                         let anchor_t_center = (anchor.target_start + anchor.target_end) / 2;
-                        let t_diff = (mapping_t_center as i64 - anchor_t_center as i64).abs() as u64;
+                        let t_diff =
+                            (mapping_t_center as i64 - anchor_t_center as i64).abs() as u64;
 
                         // Euclidean distance
                         let distance = ((q_diff * q_diff + t_diff * t_diff) as f64).sqrt() as u32;
@@ -436,15 +475,21 @@ impl PafFilter {
         // Count anchors vs rescued
         let anchor_count = anchor_ranks.len();
         let rescued_count = kept_mappings.len() - anchor_count;
-        eprintln!("[SCAFFOLD_TRACE] Final: {} original -> {} kept (anchors={}, rescued={})",
-                  all_original_mappings.len(), kept_mappings.len(), anchor_count, rescued_count);
+        eprintln!(
+            "[SCAFFOLD_TRACE] Final: {} original -> {} kept (anchors={}, rescued={})",
+            all_original_mappings.len(),
+            kept_mappings.len(),
+            anchor_count,
+            rescued_count
+        );
 
         // Build result map directly from kept mappings
         let mut passing = HashMap::new();
         for meta in kept_mappings {
             let mut result = meta.clone();
             // Set the chain status based on what we determined earlier
-            result.chain_status = kept_status.get(&meta.rank)
+            result.chain_status = kept_status
+                .get(&meta.rank)
                 .cloned()
                 .unwrap_or(ChainStatus::Scaffold);
             passing.insert(meta.rank, result);
@@ -454,7 +499,11 @@ impl PafFilter {
     }
 
     /// Merge mappings into chains using wfmash's union-find approach
-    fn merge_mappings_into_chains(&self, metadata: &[RecordMeta], max_gap: u32) -> Result<Vec<MergedChain>> {
+    fn merge_mappings_into_chains(
+        &self,
+        metadata: &[RecordMeta],
+        max_gap: u32,
+    ) -> Result<Vec<MergedChain>> {
         use crate::union_find::UnionFind;
 
         // Group by (query, target, strand) - this is like wfmash's refSeqId grouping
@@ -462,8 +511,15 @@ impl PafFilter {
         let mut groups: HashMap<(String, String, char), Vec<(usize, usize)>> = HashMap::new();
 
         for (idx, meta) in metadata.iter().enumerate() {
-            let key = (meta.query_name.clone(), meta.target_name.clone(), meta.strand);
-            groups.entry(key).or_insert_with(Vec::new).push((meta.rank, idx));
+            let key = (
+                meta.query_name.clone(),
+                meta.target_name.clone(),
+                meta.strand,
+            );
+            groups
+                .entry(key)
+                .or_insert_with(Vec::new)
+                .push((meta.rank, idx));
         }
 
         let mut all_chains = Vec::new();
@@ -481,7 +537,7 @@ impl PafFilter {
                 let (_rank_i, idx_i) = sorted_indices[i];
 
                 // Look ahead until we find a mapping too far away in query
-                for j in (i+1)..sorted_indices.len() {
+                for j in (i + 1)..sorted_indices.len() {
                     let (_rank_j, idx_j) = sorted_indices[j];
 
                     // If this mapping starts too far away in query, stop looking
@@ -499,9 +555,9 @@ impl PafFilter {
                         let overlap = metadata[idx_i].query_end - metadata[idx_j].query_start;
                         // Allow overlaps up to max_gap/5 (like wfmash's windowLength/5)
                         if overlap <= max_gap / 5 {
-                            0  // Treat small overlap as valid
+                            0 // Treat small overlap as valid
                         } else {
-                            max_gap + 1  // Too much overlap, don't chain
+                            max_gap + 1 // Too much overlap, don't chain
                         }
                     } else {
                         0
@@ -546,12 +602,9 @@ impl PafFilter {
 
             // Extract chains from union-find sets
             let sets = uf.get_sets();
-            let chains: Vec<Vec<(usize, usize)>> = sets.into_iter()
-                .map(|set_indices| {
-                    set_indices.into_iter()
-                        .map(|i| sorted_indices[i])
-                        .collect()
-                })
+            let chains: Vec<Vec<(usize, usize)>> = sets
+                .into_iter()
+                .map(|set_indices| set_indices.into_iter().map(|i| sorted_indices[i]).collect())
                 .collect();
 
             // Create merged chains from groups of mappings
@@ -573,7 +626,7 @@ impl PafFilter {
                     q_max = q_max.max(meta.query_end);
                     t_min = t_min.min(meta.target_start);
                     t_max = t_max.max(meta.target_end);
-                    member_ranks.push(rank);  // Store the original rank
+                    member_ranks.push(rank); // Store the original rank
                 }
 
                 let total_length = q_max - q_min;
@@ -587,7 +640,7 @@ impl PafFilter {
                     target_end: t_max,
                     strand,
                     total_length,
-                    member_indices: member_ranks,  // Now storing ranks, not indices
+                    member_indices: member_ranks, // Now storing ranks, not indices
                 });
             }
         }
@@ -624,9 +677,7 @@ impl PafFilter {
         }
 
         // Find best mapping (longest)
-        let best = mappings.into_iter()
-            .max_by_key(|m| m.block_length)
-            .unwrap();
+        let best = mappings.into_iter().max_by_key(|m| m.block_length).unwrap();
 
         Ok(vec![best])
     }
@@ -640,22 +691,22 @@ impl PafFilter {
         }
 
         // Convert RecordMeta to PlaneSweepMapping with query names
-        let mut plane_sweep_mappings: Vec<(PlaneSweepMapping, String)> = mappings.iter()
+        let mut plane_sweep_mappings: Vec<(PlaneSweepMapping, String)> = mappings
+            .iter()
             .enumerate()
             .map(|(idx, meta)| {
                 let mapping = PlaneSweepMapping {
-                    idx,  // Store original index
+                    idx, // Store original index
                     query_start: meta.query_start,
                     query_end: meta.query_end,
                     target_start: meta.target_start,
                     target_end: meta.target_end,
-                    identity: 1.0,  // Use 1.0 for now (length-based scoring)
+                    identity: 1.0, // Use 1.0 for now (length-based scoring)
                     flags: 0,
                 };
                 (mapping, meta.query_name.clone())
             })
             .collect();
-
 
         // Use the -n parameter from config
         let secondary_to_keep = self.config.plane_sweep_secondaries;
@@ -670,7 +721,8 @@ impl PafFilter {
         );
 
         // Convert back to RecordMeta
-        let result: Vec<RecordMeta> = kept_indices.iter()
+        let result: Vec<RecordMeta> = kept_indices
+            .iter()
             .map(|&idx| mappings[idx].clone())
             .collect();
 
@@ -687,12 +739,16 @@ impl PafFilter {
             // This ensures we keep scaffolds per chromosome pair, not per genome pair
             let query_key = chain.query_name.clone();
             let target_key = chain.target_name.clone();
-            prefix_groups.entry((query_key, target_key))
+            prefix_groups
+                .entry((query_key, target_key))
                 .or_insert_with(Vec::new)
                 .push(chain);
         }
 
-        eprintln!("[SCAFFOLD_FILTER] Grouped scaffolds into {} prefix pairs", prefix_groups.len());
+        eprintln!(
+            "[SCAFFOLD_FILTER] Grouped scaffolds into {} prefix pairs",
+            prefix_groups.len()
+        );
 
         // Apply filtering within each prefix pair IN PARALLEL
         let filtered_groups: Vec<Vec<MergedChain>> = prefix_groups
@@ -702,7 +758,7 @@ impl PafFilter {
                 let filtered = match self.config.scaffold_filter_mode {
                     FilterMode::OneToOne => self.scaffold_one_to_one_filter(group),
                     FilterMode::OneToMany => self.scaffold_one_to_many_filter(group),
-                    FilterMode::ManyToMany => Ok(group),  // No filtering
+                    FilterMode::ManyToMany => Ok(group), // No filtering
                 };
                 // Debug: [SCAFFOLD_FILTER] Processed prefix group
                 filtered.unwrap_or_else(|_| Vec::new())
@@ -760,7 +816,10 @@ impl PafFilter {
         // Group by query
         let mut by_query: HashMap<String, Vec<MergedChain>> = HashMap::new();
         for chain in chains {
-            by_query.entry(chain.query_name.clone()).or_insert_with(Vec::new).push(chain);
+            by_query
+                .entry(chain.query_name.clone())
+                .or_insert_with(Vec::new)
+                .push(chain);
         }
 
         let mut filtered = Vec::new();
@@ -813,11 +872,17 @@ impl PafFilter {
     }
 
     /// Keep all non-overlapping chains (for scaffold filtering with -n inf behavior)
-    fn plane_sweep_keep_all_non_overlapping(&self, chains: Vec<MergedChain>) -> Result<Vec<MergedChain>> {
+    fn plane_sweep_keep_all_non_overlapping(
+        &self,
+        chains: Vec<MergedChain>,
+    ) -> Result<Vec<MergedChain>> {
         // Group chains by query
         let mut by_query: HashMap<String, Vec<MergedChain>> = HashMap::new();
         for chain in chains {
-            by_query.entry(chain.query_name.clone()).or_insert_with(Vec::new).push(chain);
+            by_query
+                .entry(chain.query_name.clone())
+                .or_insert_with(Vec::new)
+                .push(chain);
         }
 
         let mut filtered = Vec::new();
@@ -867,7 +932,10 @@ impl PafFilter {
         // Group chains by query
         let mut by_query: HashMap<String, Vec<MergedChain>> = HashMap::new();
         for chain in chains {
-            by_query.entry(chain.query_name.clone()).or_insert_with(Vec::new).push(chain);
+            by_query
+                .entry(chain.query_name.clone())
+                .or_insert_with(Vec::new)
+                .push(chain);
         }
 
         let mut filtered = Vec::new();
@@ -894,19 +962,21 @@ impl PafFilter {
                         let min_len = chain_len.min(existing_len);
 
                         // If >50% overlap (wfmash uses scaffold_overlap_threshold)
-                        if overlap_len as f64 / min_len as f64 > self.config.scaffold_overlap_threshold {
+                        if overlap_len as f64 / min_len as f64
+                            > self.config.scaffold_overlap_threshold
+                        {
                             // Keep the longer chain
                             if existing.total_length > chain.total_length {
                                 has_significant_overlap = true;
-                                true  // Keep existing
+                                true // Keep existing
                             } else {
-                                false  // Remove existing, will add current
+                                false // Remove existing, will add current
                             }
                         } else {
-                            true  // No significant overlap, keep both
+                            true // No significant overlap, keep both
                         }
                     } else {
-                        true  // No overlap, keep
+                        true // No overlap, keep
                     }
                 });
 
@@ -969,7 +1039,10 @@ impl PafFilter {
         // Group by query
         let mut by_query: HashMap<String, Vec<RecordMeta>> = HashMap::new();
         for meta in metadata {
-            by_query.entry(meta.query_name.clone()).or_insert_with(Vec::new).push(meta);
+            by_query
+                .entry(meta.query_name.clone())
+                .or_insert_with(Vec::new)
+                .push(meta);
         }
 
         // Keep best per query, optionally limit per target
@@ -991,7 +1064,9 @@ impl PafFilter {
         // For scaffold filtering, we typically don't need additional limiting
         // but we can apply per-query/target limits if specified
 
-        if self.config.mapping_max_per_query.is_none() && self.config.mapping_max_per_target.is_none() {
+        if self.config.mapping_max_per_query.is_none()
+            && self.config.mapping_max_per_target.is_none()
+        {
             return Ok(metadata);
         }
 
@@ -1001,7 +1076,10 @@ impl PafFilter {
         if let Some(limit) = self.config.mapping_max_per_query {
             let mut by_query: HashMap<String, Vec<RecordMeta>> = HashMap::new();
             for meta in result {
-                by_query.entry(meta.query_name.clone()).or_insert_with(Vec::new).push(meta);
+                by_query
+                    .entry(meta.query_name.clone())
+                    .or_insert_with(Vec::new)
+                    .push(meta);
             }
 
             result = Vec::new();
@@ -1016,7 +1094,10 @@ impl PafFilter {
         if let Some(limit) = self.config.mapping_max_per_target {
             let mut by_target: HashMap<String, Vec<RecordMeta>> = HashMap::new();
             for meta in result {
-                by_target.entry(meta.target_name.clone()).or_insert_with(Vec::new).push(meta);
+                by_target
+                    .entry(meta.target_name.clone())
+                    .or_insert_with(Vec::new)
+                    .push(meta);
             }
 
             result = Vec::new();

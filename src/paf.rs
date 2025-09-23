@@ -1,7 +1,7 @@
-use anyhow::{Result, bail};
-use std::io::{BufRead, BufReader, Read};
+use crate::mapping::{Mapping, MappingAux, PafRecord};
+use anyhow::{bail, Result};
 use std::collections::HashMap;
-use crate::mapping::{PafRecord, Mapping, MappingAux};
+use std::io::{BufRead, BufReader, Read};
 
 pub struct PafReader<R: Read> {
     reader: BufReader<R>,
@@ -31,14 +31,18 @@ impl<R: Read> PafReader<R> {
         let paf = self.parse_paf_line(&line)?;
 
         // Get or assign IDs
-        let ref_id = *self.ref_name_to_id.entry(paf.ref_name.clone())
+        let ref_id = *self
+            .ref_name_to_id
+            .entry(paf.ref_name.clone())
             .or_insert_with(|| {
                 let id = self.next_ref_id;
                 self.next_ref_id += 1;
                 id
             });
 
-        let query_id = *self.query_name_to_id.entry(paf.query_name.clone())
+        let query_id = *self
+            .query_name_to_id
+            .entry(paf.query_name.clone())
             .or_insert_with(|| {
                 let id = self.next_query_id;
                 self.next_query_id += 1;

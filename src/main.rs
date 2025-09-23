@@ -1,15 +1,15 @@
 mod mapping;
 mod paf;
 mod paf_filter;
-mod union_find;
 mod plane_sweep;
 mod plane_sweep_exact;
+mod union_find;
 
 use anyhow::Result;
 use clap::Parser;
 use indicatif::{ProgressBar, ProgressStyle};
 
-use crate::paf_filter::{PafFilter, FilterConfig, FilterMode};
+use crate::paf_filter::{FilterConfig, FilterMode, PafFilter};
 
 /// SweepGA - Fast genome alignment with sophisticated filtering
 ///
@@ -93,7 +93,7 @@ fn parse_filter_mode(mode: &str, filter_type: &str) -> (FilterMode, Option<usize
     match mode.to_lowercase().as_str() {
         "1:1" => (FilterMode::OneToOne, Some(1), Some(1)),
         "1" | "1:n" | "1:∞" => (FilterMode::OneToMany, Some(1), None),
-        "n:1" | "∞:1" => (FilterMode::ManyToMany, None, Some(1)),  // N:1 is ManyToMany with target limit
+        "n:1" | "∞:1" => (FilterMode::ManyToMany, None, Some(1)), // N:1 is ManyToMany with target limit
         "n" | "n:n" | "∞" | "∞:∞" => (FilterMode::ManyToMany, None, None),
         s if s.contains(':') => {
             // Parse custom like "10:5"
@@ -105,16 +105,22 @@ fn parse_filter_mode(mode: &str, filter_type: &str) -> (FilterMode, Option<usize
                     let mode = match (per_query, per_target) {
                         (Some(1), Some(1)) => FilterMode::OneToOne,
                         (Some(1), _) => FilterMode::OneToMany,
-                        _ => FilterMode::ManyToMany,  // Any other combination uses ManyToMany
+                        _ => FilterMode::ManyToMany, // Any other combination uses ManyToMany
                     };
                     return (mode, per_query, per_target);
                 }
             }
-            eprintln!("Warning: Invalid {} filter '{}', using default N:N", filter_type, s);
+            eprintln!(
+                "Warning: Invalid {} filter '{}', using default N:N",
+                filter_type, s
+            );
             (FilterMode::ManyToMany, None, None)
         }
         _ => {
-            eprintln!("Warning: Invalid {} filter '{}', using default N:N", filter_type, mode);
+            eprintln!(
+                "Warning: Invalid {} filter '{}', using default N:N",
+                filter_type, mode
+            );
             (FilterMode::ManyToMany, None, None)
         }
     }
@@ -160,22 +166,27 @@ fn main() -> Result<()> {
 
     // Parse -n parameter for plane sweep
     let plane_sweep_secondaries = if args.num_mappings < 0 {
-        usize::MAX  // Keep all non-overlapping
+        usize::MAX // Keep all non-overlapping
     } else {
-        args.num_mappings as usize  // Keep best + this many secondaries
+        args.num_mappings as usize // Keep best + this many secondaries
     };
 
     // Parse mapping filter mode (for backward compatibility)
     let (mapping_filter_mode, mapping_max_per_query, mapping_max_per_target) =
         if args.mapping_filter == "N" {
             // Use plane sweep as default with -n parameter
-            (FilterMode::OneToMany, Some(1 + plane_sweep_secondaries), None)
+            (
+                FilterMode::OneToMany,
+                Some(1 + plane_sweep_secondaries),
+                None,
+            )
         } else {
             parse_filter_mode(&args.mapping_filter, "mapping")
         };
 
     // Parse scaffold filter mode
-    let (scaffold_filter_mode, scaffold_max_per_query, scaffold_max_per_target) = parse_filter_mode(&args.scaffold_filter, "scaffold");
+    let (scaffold_filter_mode, scaffold_max_per_query, scaffold_max_per_target) =
+        parse_filter_mode(&args.scaffold_filter, "scaffold");
 
     // Set up filter configuration
     let config = FilterConfig {
@@ -184,7 +195,7 @@ fn main() -> Result<()> {
         mapping_filter_mode,
         mapping_max_per_query,
         mapping_max_per_target,
-        plane_sweep_secondaries,  // Add plane sweep parameter
+        plane_sweep_secondaries, // Add plane sweep parameter
         scaffold_filter_mode,
         scaffold_max_per_query,
         scaffold_max_per_target,
@@ -195,8 +206,8 @@ fn main() -> Result<()> {
         min_scaffold_length: args.scaffold_mass,
         scaffold_overlap_threshold: args.scaffold_overlap,
         scaffold_max_deviation: args.scaffold_dist,
-        prefix_delimiter: '#',  // Default PanSN delimiter
-        skip_prefix: true,      // true = group by prefix (default behavior for PanSN)
+        prefix_delimiter: '#', // Default PanSN delimiter
+        skip_prefix: true,     // true = group by prefix (default behavior for PanSN)
     };
 
     // Progress indicator

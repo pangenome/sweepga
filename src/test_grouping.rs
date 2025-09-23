@@ -1,7 +1,7 @@
 #[cfg(test)]
 mod tests {
     use crate::compact_filter::{CompactMapping, CompactPafFilter};
-    use crate::plane_sweep_exact::{PlaneSweepMapping, plane_sweep_query, plane_sweep_both};
+    use crate::plane_sweep_exact::{plane_sweep_both, plane_sweep_query, PlaneSweepMapping};
     use std::collections::HashMap;
 
     /// Helper to create a compact mapping with names
@@ -16,7 +16,7 @@ mod tests {
     ) -> (CompactMapping, String, String) {
         let mapping = CompactMapping {
             query_id: 0,  // Will be set by test
-            target_id: 0,  // Will be set by test
+            target_id: 0, // Will be set by test
             query_start,
             query_end,
             target_start,
@@ -58,7 +58,8 @@ mod tests {
                 target_name.clone()
             };
 
-            groups.entry((query_prefix, target_prefix))
+            groups
+                .entry((query_prefix, target_prefix))
                 .or_insert_with(Vec::new)
                 .push(idx);
         }
@@ -86,7 +87,7 @@ mod tests {
         // Check genomeA# -> genomeB# group
         let ab_group = groups.get(&("genomeA#".to_string(), "genomeB#".to_string()));
         assert!(ab_group.is_some());
-        assert_eq!(ab_group.unwrap().len(), 3);  // All 3 A->B mappings (chr1->chr1, chr1->chr2, chr2->chr1)
+        assert_eq!(ab_group.unwrap().len(), 3); // All 3 A->B mappings (chr1->chr1, chr1->chr2, chr2->chr1)
 
         // Check genomeC# -> genomeD# group
         let cd_group = groups.get(&("genomeC#".to_string(), "genomeD#".to_string()));
@@ -119,9 +120,33 @@ mod tests {
     fn test_mixed_delimiter() {
         // Test with mixed delimiters and formats
         let mappings = vec![
-            create_mapping("human_haplotype1_chr1", "human_haplotype2_chr1", 100, 200, 100, 200, 0.95),
-            create_mapping("human_haplotype1_chr2", "human_haplotype2_chr2", 300, 400, 300, 400, 0.90),
-            create_mapping("mouse_strain1_chr1", "mouse_strain2_chr1", 500, 600, 500, 600, 0.92),
+            create_mapping(
+                "human_haplotype1_chr1",
+                "human_haplotype2_chr1",
+                100,
+                200,
+                100,
+                200,
+                0.95,
+            ),
+            create_mapping(
+                "human_haplotype1_chr2",
+                "human_haplotype2_chr2",
+                300,
+                400,
+                300,
+                400,
+                0.90,
+            ),
+            create_mapping(
+                "mouse_strain1_chr1",
+                "mouse_strain2_chr1",
+                500,
+                600,
+                500,
+                600,
+                0.92,
+            ),
         ];
 
         // Group with underscore delimiter (last occurrence)
@@ -130,7 +155,10 @@ mod tests {
         // Should have 2 groups: human_haplotype1_ -> human_haplotype2_ and mouse_strain1_ -> mouse_strain2_
         assert_eq!(groups.len(), 2);
 
-        let human_group = groups.get(&("human_haplotype1_".to_string(), "human_haplotype2_".to_string()));
+        let human_group = groups.get(&(
+            "human_haplotype1_".to_string(),
+            "human_haplotype2_".to_string(),
+        ));
         assert!(human_group.is_some());
         assert_eq!(human_group.unwrap().len(), 2);
 
@@ -143,9 +171,9 @@ mod tests {
     fn test_self_mappings() {
         // Test self-mappings within same genome
         let mappings = vec![
-            create_mapping("genomeA#chr1", "genomeA#chr1", 100, 200, 300, 400, 0.99),  // Self, different region
-            create_mapping("genomeA#chr1", "genomeA#chr2", 100, 200, 100, 200, 0.95),  // Same genome, diff chr
-            create_mapping("genomeA#chr1", "genomeB#chr1", 100, 200, 100, 200, 0.90),  // Different genome
+            create_mapping("genomeA#chr1", "genomeA#chr1", 100, 200, 300, 400, 0.99), // Self, different region
+            create_mapping("genomeA#chr1", "genomeA#chr2", 100, 200, 100, 200, 0.95), // Same genome, diff chr
+            create_mapping("genomeA#chr1", "genomeB#chr1", 100, 200, 100, 200, 0.90), // Different genome
         ];
 
         let groups = group_by_prefix_pairs(&mappings, '#', true);
@@ -155,7 +183,7 @@ mod tests {
 
         let aa_group = groups.get(&("genomeA#".to_string(), "genomeA#".to_string()));
         assert!(aa_group.is_some());
-        assert_eq!(aa_group.unwrap().len(), 2);  // Both self-mappings
+        assert_eq!(aa_group.unwrap().len(), 2); // Both self-mappings
 
         let ab_group = groups.get(&("genomeA#".to_string(), "genomeB#".to_string()));
         assert!(ab_group.is_some());
@@ -168,12 +196,11 @@ mod tests {
         let mappings = vec![
             // Group 1: genomeA# -> genomeB# (overlapping mappings)
             create_mapping("genomeA#chr1", "genomeB#chr1", 100, 500, 100, 500, 0.95),
-            create_mapping("genomeA#chr1", "genomeB#chr1", 200, 600, 200, 600, 0.90),  // Overlaps
-            create_mapping("genomeA#chr1", "genomeB#chr1", 700, 800, 700, 800, 0.85),  // Non-overlapping
-
+            create_mapping("genomeA#chr1", "genomeB#chr1", 200, 600, 200, 600, 0.90), // Overlaps
+            create_mapping("genomeA#chr1", "genomeB#chr1", 700, 800, 700, 800, 0.85), // Non-overlapping
             // Group 2: genomeC# -> genomeD# (should not affect Group 1)
             create_mapping("genomeC#chr1", "genomeD#chr1", 100, 500, 100, 500, 0.98),
-            create_mapping("genomeC#chr1", "genomeD#chr1", 200, 600, 200, 600, 0.97),  // Overlaps
+            create_mapping("genomeC#chr1", "genomeD#chr1", 200, 600, 200, 600, 0.97), // Overlaps
         ];
 
         let groups = group_by_prefix_pairs(&mappings, '#', true);
@@ -181,7 +208,8 @@ mod tests {
 
         // Process each group with plane sweep (1:1 filtering)
         for ((_q_prefix, _t_prefix), indices) in groups {
-            let mut group_mappings: Vec<PlaneSweepMapping> = indices.iter()
+            let mut group_mappings: Vec<PlaneSweepMapping> = indices
+                .iter()
                 .map(|&idx| {
                     let (m, _, _) = &mappings[idx];
                     PlaneSweepMapping {
@@ -230,15 +258,29 @@ mod tests {
         let mappings = vec![
             // SGDref to various strains
             create_mapping("SGDref#1#chrI", "DBVPG6044#1#chrI", 0, 1000, 0, 1000, 0.98),
-            create_mapping("SGDref#1#chrI", "DBVPG6044#1#chrI", 2000, 3000, 2000, 3000, 0.96),
+            create_mapping(
+                "SGDref#1#chrI",
+                "DBVPG6044#1#chrI",
+                2000,
+                3000,
+                2000,
+                3000,
+                0.96,
+            ),
             create_mapping("SGDref#1#chrI", "SK1#1#chrI", 0, 1000, 0, 1000, 0.97),
-            create_mapping("SGDref#1#chrI", "SK1#1#chrI", 500, 1500, 500, 1500, 0.95),  // Overlaps
-
+            create_mapping("SGDref#1#chrI", "SK1#1#chrI", 500, 1500, 500, 1500, 0.95), // Overlaps
             // Different haplotype
             create_mapping("SGDref#2#chrI", "DBVPG6044#2#chrI", 0, 1000, 0, 1000, 0.99),
-
             // Different chromosome
-            create_mapping("SGDref#1#chrII", "DBVPG6044#1#chrII", 0, 1000, 0, 1000, 0.94),
+            create_mapping(
+                "SGDref#1#chrII",
+                "DBVPG6044#1#chrII",
+                0,
+                1000,
+                0,
+                1000,
+                0.94,
+            ),
         ];
 
         // Group with double delimiter (PanSN format)
@@ -259,7 +301,7 @@ mod tests {
         // Test filtering within SGDref#1# -> DBVPG6044#1# group
         let sgd_dbvpg = groups.get(&("SGDref#1#".to_string(), "DBVPG6044#1#".to_string()));
         assert!(sgd_dbvpg.is_some());
-        assert_eq!(sgd_dbvpg.unwrap().len(), 3);  // chrI (2) + chrII (1)
+        assert_eq!(sgd_dbvpg.unwrap().len(), 3); // chrI (2) + chrII (1)
     }
 
     #[test]
@@ -290,7 +332,6 @@ mod tests {
             // Group A->B: High quality mappings
             create_mapping("genomeA#chr1", "genomeB#chr1", 100, 1000, 100, 1000, 0.99),
             create_mapping("genomeA#chr1", "genomeB#chr1", 2000, 3000, 2000, 3000, 0.98),
-
             // Group C->D: Lower quality mappings
             create_mapping("genomeC#chr1", "genomeD#chr1", 100, 1000, 100, 1000, 0.85),
             create_mapping("genomeC#chr1", "genomeD#chr1", 2000, 3000, 2000, 3000, 0.84),
@@ -301,7 +342,8 @@ mod tests {
         // Process each group with 1:1 filtering
         let mut total_kept = 0;
         for ((_q, _t), indices) in groups {
-            let mut group_mappings: Vec<PlaneSweepMapping> = indices.iter()
+            let mut group_mappings: Vec<PlaneSweepMapping> = indices
+                .iter()
                 .map(|&idx| {
                     let (m, _, _) = &mappings[idx];
                     PlaneSweepMapping {
@@ -322,6 +364,6 @@ mod tests {
 
         // Each group should keep its best mappings independently
         // Even though C->D has lower quality, they should still be kept within their group
-        assert_eq!(total_kept, 4);  // All mappings kept (non-overlapping within groups)
+        assert_eq!(total_kept, 4); // All mappings kept (non-overlapping within groups)
     }
 }

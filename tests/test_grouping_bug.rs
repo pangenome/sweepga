@@ -1,6 +1,6 @@
 // Test to demonstrate the plane sweep grouping bug
-use std::process::Command;
 use std::fs;
+use std::process::Command;
 
 #[test]
 fn test_plane_sweep_grouping_bug() {
@@ -26,11 +26,20 @@ chrII_query\t15000\t2000\t3000\t+\tchrII_target2\t10000\t4000\t5000\t1000\t1000\
 
     // Run sweepga with plane sweep (n=0, keep only best)
     let output = Command::new("cargo")
-        .args(&["run", "--release", "--bin", "sweepga-old", "--",
-                "-i", temp_path,
-                "-o", output_path,
-                "-n=0",  // Keep only best per position
-                "-s", "0"])  // No scaffolding
+        .args(&[
+            "run",
+            "--release",
+            "--bin",
+            "sweepga",
+            "--",
+            "-i",
+            temp_path,
+            "-o",
+            output_path,
+            "-n=0", // Keep only best per position
+            "-s",
+            "0",
+        ]) // No scaffolding
         .output()
         .expect("Failed to run sweepga");
 
@@ -43,12 +52,14 @@ chrII_query\t15000\t2000\t3000\t+\tchrII_target2\t10000\t4000\t5000\t1000\t1000\
     let lines: Vec<&str> = result.lines().collect();
 
     // Count mappings for chrI_query
-    let chr1_mappings = lines.iter()
+    let chr1_mappings = lines
+        .iter()
         .filter(|line| line.starts_with("chrI_query"))
         .count();
 
     // Count mappings for chrII_query
-    let chr2_mappings = lines.iter()
+    let chr2_mappings = lines
+        .iter()
         .filter(|line| line.starts_with("chrII_query"))
         .count();
 
@@ -65,9 +76,19 @@ chrII_query\t15000\t2000\t3000\t+\tchrII_target2\t10000\t4000\t5000\t1000\t1000\
 
     // This test will FAIL with the current bug (keeps all 5)
     // and PASS when fixed (keeps 2, one per query)
-    assert_eq!(chr1_mappings, 1, "Should keep only best mapping for chrI_query");
-    assert_eq!(chr2_mappings, 1, "Should keep only best mapping for chrII_query");
-    assert_eq!(lines.len(), 2, "Should keep exactly 2 mappings total (one per query)");
+    assert_eq!(
+        chr1_mappings, 1,
+        "Should keep only best mapping for chrI_query"
+    );
+    assert_eq!(
+        chr2_mappings, 1,
+        "Should keep only best mapping for chrII_query"
+    );
+    assert_eq!(
+        lines.len(),
+        2,
+        "Should keep exactly 2 mappings total (one per query)"
+    );
 
     // Clean up
     fs::remove_file(temp_path).ok();
@@ -93,11 +114,20 @@ query1\t5000\t1000\t2000\t+\ttarget_D\t10000\t1000\t2000\t1000\t1000\t60\tcg:Z:1
     fs::write(temp_path, paf_content).expect("Failed to write test PAF");
 
     let output = Command::new("cargo")
-        .args(&["run", "--release", "--bin", "sweepga-old", "--",
-                "-i", temp_path,
-                "-o", output_path,
-                "-n=0",  // Keep only best
-                "-s", "0"])  // No scaffolding
+        .args(&[
+            "run",
+            "--release",
+            "--bin",
+            "sweepga",
+            "--",
+            "-i",
+            temp_path,
+            "-o",
+            output_path,
+            "-n=0", // Keep only best
+            "-s",
+            "0",
+        ]) // No scaffolding
         .output()
         .expect("Failed to run sweepga");
 
@@ -106,13 +136,21 @@ query1\t5000\t1000\t2000\t+\ttarget_D\t10000\t1000\t2000\t1000\t1000\t60\tcg:Z:1
     let result = fs::read_to_string(output_path).expect("Failed to read output");
     let lines: Vec<&str> = result.lines().collect();
 
-    eprintln!("Multi-target test output ({} lines):\n{}", lines.len(), result);
+    eprintln!(
+        "Multi-target test output ({} lines):\n{}",
+        lines.len(),
+        result
+    );
 
     // With correct plane sweep: should keep only 1 mapping (all have same score, tie-breaking)
     // With incorrect grouping: would keep all 4 (each in different group)
 
     // Currently this will FAIL (keeps all 4) due to the bug
-    assert_eq!(lines.len(), 1, "Should keep only 1 mapping when all map to same query position");
+    assert_eq!(
+        lines.len(),
+        1,
+        "Should keep only 1 mapping when all map to same query position"
+    );
 
     // Clean up
     fs::remove_file(temp_path).ok();

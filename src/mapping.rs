@@ -5,15 +5,15 @@ use std::fmt;
 #[repr(C, packed)]
 #[derive(Debug, Clone, Copy)]
 pub struct Mapping {
-    pub ref_seq_id: u32,        // 4 bytes - reference sequence ID
-    pub ref_start_pos: u32,     // 4 bytes - reference start position
-    pub query_start_pos: u32,   // 4 bytes - query start position
-    pub block_length: u32,      // 4 bytes - mapping block length
-    pub n_merged: u32,          // 4 bytes - number of merged segments
-    pub conserved_sketches: u32,// 4 bytes - count of conserved sketches
-    pub nuc_identity: u16,      // 2 bytes - scaled identity (0-10000 for 0.00-100.00%)
-    pub flags: u8,              // 1 byte - bit-packed flags (strand, discard, overlapped)
-    pub kmer_complexity: u8,    // 1 byte - scaled kmer complexity (0-100)
+    pub ref_seq_id: u32,         // 4 bytes - reference sequence ID
+    pub ref_start_pos: u32,      // 4 bytes - reference start position
+    pub query_start_pos: u32,    // 4 bytes - query start position
+    pub block_length: u32,       // 4 bytes - mapping block length
+    pub n_merged: u32,           // 4 bytes - number of merged segments
+    pub conserved_sketches: u32, // 4 bytes - count of conserved sketches
+    pub nuc_identity: u16,       // 2 bytes - scaled identity (0-10000 for 0.00-100.00%)
+    pub flags: u8,               // 1 byte - bit-packed flags (strand, discard, overlapped)
+    pub kmer_complexity: u8,     // 1 byte - scaled kmer complexity (0-100)
 }
 
 impl Mapping {
@@ -59,7 +59,7 @@ impl Mapping {
 
     pub fn identity(&self) -> f64 {
         // nuc_identity stores 0-10000 for 0.00-100.00%
-        self.nuc_identity as f64 / 10000.0 * 100.0  // Return as percentage
+        self.nuc_identity as f64 / 10000.0 * 100.0 // Return as percentage
     }
 
     pub fn set_identity(&mut self, identity: f64) {
@@ -79,9 +79,9 @@ impl Mapping {
 /// Chain status for mappings
 #[derive(Debug, Clone, PartialEq)]
 pub enum ChainStatus {
-    Scaffold,           // Part of a scaffold chain (is an anchor)
-    Rescued,           // Rescued mapping (near an anchor)
-    Unassigned,        // Not yet assigned to a chain
+    Scaffold,   // Part of a scaffold chain (is an anchor)
+    Rescued,    // Rescued mapping (near an anchor)
+    Unassigned, // Not yet assigned to a chain
 }
 
 /// Auxiliary data for mappings during filtering/merging
@@ -157,12 +157,12 @@ impl PafRecord {
                     num_str.clear();
 
                     match ch {
-                        '=' => matches += count,      // Match
-                        'X' => mismatches += count,    // Mismatch
-                        'M' => matches += count,       // Match or mismatch (treat as match if no = available)
-                        'I' => insertions += count,    // Insertion to reference
-                        'D' => deletions += count,     // Deletion from reference
-                        'N' | 'S' | 'H' | 'P' => {},   // Skip these operations
+                        '=' => matches += count,    // Match
+                        'X' => mismatches += count, // Mismatch
+                        'M' => matches += count, // Match or mismatch (treat as match if no = available)
+                        'I' => insertions += count, // Insertion to reference
+                        'D' => deletions += count, // Deletion from reference
+                        'N' | 'S' | 'H' | 'P' => {} // Skip these operations
                         _ => {}
                     }
                 }

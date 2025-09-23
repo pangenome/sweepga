@@ -1,17 +1,17 @@
 // Exact implementation of wfmash plane sweep algorithm
-use std::collections::BTreeSet;
 use std::cmp::Ordering;
+use std::collections::BTreeSet;
 
 /// Compact mapping for plane sweep (minimal fields needed)
 #[derive(Debug, Clone, Copy)]
 pub struct PlaneSweepMapping {
-    pub idx: usize,           // Original index in input
+    pub idx: usize, // Original index in input
     pub query_start: u32,
     pub query_end: u32,
     pub target_start: u32,
     pub target_end: u32,
-    pub identity: f64,        // 0.0 - 1.0
-    pub flags: u8,            // bit 0: discard, bit 1: overlapped
+    pub identity: f64, // 0.0 - 1.0
+    pub flags: u8,     // bit 0: discard, bit 1: overlapped
 }
 
 impl PlaneSweepMapping {
@@ -140,10 +140,12 @@ impl Ord for MappingOrder {
     fn cmp(&self, other: &Self) -> Ordering {
         // Order by score (descending), then start position
         // This matches wfmash's Helper operator()
-        other.score.partial_cmp(&self.score)
+        other
+            .score
+            .partial_cmp(&self.score)
             .unwrap_or(Ordering::Equal)
             .then_with(|| self.start_pos.cmp(&other.start_pos))
-            .then_with(|| self.idx.cmp(&other.idx))  // For determinism
+            .then_with(|| self.idx.cmp(&other.idx)) // For determinism
     }
 }
 
@@ -288,13 +290,20 @@ pub fn plane_sweep_query(
         }
 
         // Mark good mappings
-        mark_good(&bst, mappings, secondaries_to_keep, overlap_threshold, Axis::Query);
+        mark_good(
+            &bst,
+            mappings,
+            secondaries_to_keep,
+            overlap_threshold,
+            Axis::Query,
+        );
 
         i = j;
     }
 
     // Return indices of kept mappings
-    mappings.iter()
+    mappings
+        .iter()
         .enumerate()
         .filter(|(_, m)| !m.is_discard() && !m.is_overlapped())
         .map(|(idx, _)| idx)
@@ -363,12 +372,19 @@ pub fn plane_sweep_target(
             }
         }
 
-        mark_good(&bst, mappings, secondaries_to_keep, overlap_threshold, Axis::Target);
+        mark_good(
+            &bst,
+            mappings,
+            secondaries_to_keep,
+            overlap_threshold,
+            Axis::Target,
+        );
 
         i = j;
     }
 
-    mappings.iter()
+    mappings
+        .iter()
         .enumerate()
         .filter(|(_, m)| !m.is_discard() && !m.is_overlapped())
         .map(|(idx, _)| idx)
@@ -386,22 +402,23 @@ pub fn plane_sweep_both(
     let query_kept = plane_sweep_query(mappings, query_secondaries, overlap_threshold);
 
     // Create a filtered set for target sweep
-    let mut filtered_mappings: Vec<PlaneSweepMapping> = query_kept.iter()
-        .map(|&idx| mappings[idx])
-        .collect();
+    let mut filtered_mappings: Vec<PlaneSweepMapping> =
+        query_kept.iter().map(|&idx| mappings[idx]).collect();
 
     // Apply target axis filtering
-    let target_kept = plane_sweep_target(&mut filtered_mappings, target_secondaries, overlap_threshold);
+    let target_kept = plane_sweep_target(
+        &mut filtered_mappings,
+        target_secondaries,
+        overlap_threshold,
+    );
 
     // Map back to original indices
-    target_kept.iter()
-        .map(|&idx| query_kept[idx])
-        .collect()
+    target_kept.iter().map(|&idx| query_kept[idx]).collect()
 }
 
 /// Group mappings by query sequence and apply plane sweep to each group
 pub fn plane_sweep_grouped_query(
-    mappings: &mut [(PlaneSweepMapping, String)],  // (mapping, query_seq_name)
+    mappings: &mut [(PlaneSweepMapping, String)], // (mapping, query_seq_name)
     secondaries_to_keep: usize,
     overlap_threshold: f64,
 ) -> Vec<usize> {
@@ -414,7 +431,8 @@ pub fn plane_sweep_grouped_query(
     // Group by query sequence
     let mut groups: HashMap<String, Vec<usize>> = HashMap::new();
     for (idx, (_, query_name)) in mappings.iter().enumerate() {
-        groups.entry(query_name.clone())
+        groups
+            .entry(query_name.clone())
             .or_insert_with(Vec::new)
             .push(idx);
     }
@@ -428,12 +446,12 @@ pub fn plane_sweep_grouped_query(
         }
 
         // Extract mappings for this group
-        let mut group_mappings: Vec<PlaneSweepMapping> = indices.iter()
-            .map(|&idx| mappings[idx].0)
-            .collect();
+        let mut group_mappings: Vec<PlaneSweepMapping> =
+            indices.iter().map(|&idx| mappings[idx].0).collect();
 
         // Apply plane sweep to this group
-        let kept_in_group = plane_sweep_query(&mut group_mappings, secondaries_to_keep, overlap_threshold);
+        let kept_in_group =
+            plane_sweep_query(&mut group_mappings, secondaries_to_keep, overlap_threshold);
 
         // Map back to original indices
         for &local_idx in &kept_in_group {
@@ -447,7 +465,7 @@ pub fn plane_sweep_grouped_query(
 
 /// Group mappings by target sequence and apply plane sweep to each group
 pub fn plane_sweep_grouped_target(
-    mappings: &mut [(PlaneSweepMapping, String)],  // (mapping, target_seq_name)
+    mappings: &mut [(PlaneSweepMapping, String)], // (mapping, target_seq_name)
     secondaries_to_keep: usize,
     overlap_threshold: f64,
 ) -> Vec<usize> {
@@ -460,7 +478,8 @@ pub fn plane_sweep_grouped_target(
     // Group by target sequence
     let mut groups: HashMap<String, Vec<usize>> = HashMap::new();
     for (idx, (_, target_name)) in mappings.iter().enumerate() {
-        groups.entry(target_name.clone())
+        groups
+            .entry(target_name.clone())
             .or_insert_with(Vec::new)
             .push(idx);
     }
@@ -474,12 +493,12 @@ pub fn plane_sweep_grouped_target(
         }
 
         // Extract mappings for this group
-        let mut group_mappings: Vec<PlaneSweepMapping> = indices.iter()
-            .map(|&idx| mappings[idx].0)
-            .collect();
+        let mut group_mappings: Vec<PlaneSweepMapping> =
+            indices.iter().map(|&idx| mappings[idx].0).collect();
 
         // Apply plane sweep to this group
-        let kept_in_group = plane_sweep_target(&mut group_mappings, secondaries_to_keep, overlap_threshold);
+        let kept_in_group =
+            plane_sweep_target(&mut group_mappings, secondaries_to_keep, overlap_threshold);
 
         // Map back to original indices
         for &local_idx in &kept_in_group {
@@ -504,17 +523,15 @@ mod tests {
 
     #[test]
     fn test_single_mapping() {
-        let mut mappings = vec![
-            PlaneSweepMapping {
-                idx: 0,
-                query_start: 100,
-                query_end: 200,
-                target_start: 300,
-                target_end: 400,
-                identity: 0.95,
-                flags: 0,
-            }
-        ];
+        let mut mappings = vec![PlaneSweepMapping {
+            idx: 0,
+            query_start: 100,
+            query_end: 200,
+            target_start: 300,
+            target_end: 400,
+            identity: 0.95,
+            flags: 0,
+        }];
         let kept = plane_sweep_query(&mut mappings, 0, 0.95);
         assert_eq!(kept, vec![0]);
     }
@@ -544,7 +561,7 @@ mod tests {
 
         // Keep best 1 per position (0 secondaries)
         let kept = plane_sweep_query(&mut mappings, 0, 0.95);
-        assert_eq!(kept.len(), 2);  // Both should be kept (non-overlapping)
+        assert_eq!(kept.len(), 2); // Both should be kept (non-overlapping)
     }
 
     #[test]
@@ -573,7 +590,7 @@ mod tests {
         // Keep best 1 per position - both mappings will be kept because they're
         // the best at different positions (0 at 100-149, both compete at 150-200, 1 at 201-250)
         let kept = plane_sweep_query(&mut mappings, 0, 0.95);
-        assert_eq!(kept.len(), 2);  // Both are kept as they're best at different positions
+        assert_eq!(kept.len(), 2); // Both are kept as they're best at different positions
     }
 
     #[test]
@@ -612,7 +629,7 @@ mod tests {
         // so they all have the same score (log(100))
         // With secondaries_to_keep=1, we keep best + 1 = 2 total
         let kept = plane_sweep_query(&mut mappings, 1, 0.95);
-        assert_eq!(kept.len(), 2);  // Best + 1 secondary
+        assert_eq!(kept.len(), 2); // Best + 1 secondary
         assert!(kept.contains(&0));
         assert!(kept.contains(&1));
     }
@@ -634,20 +651,20 @@ mod tests {
             },
             PlaneSweepMapping {
                 idx: 1,
-                query_start: 100,  // Same query region
+                query_start: 100, // Same query region
                 query_end: 200,
-                target_start: 500,  // Different target
+                target_start: 500, // Different target
                 target_end: 600,
-                identity: 0.90,  // Lower score - will be secondary
+                identity: 0.90, // Lower score - will be secondary
                 flags: 0,
             },
             PlaneSweepMapping {
                 idx: 2,
-                query_start: 100,  // Same query region
+                query_start: 100, // Same query region
                 query_end: 200,
                 target_start: 700,
                 target_end: 800,
-                identity: 0.85,  // Even lower score
+                identity: 0.85, // Even lower score
                 flags: 0,
             },
         ];
@@ -655,18 +672,22 @@ mod tests {
         // With identical query ranges, all mappings have the same score
         // With n=0, we keep only 1 (best only)
         let kept = plane_sweep_query(&mut mappings, 0, 1.0);
-        assert_eq!(kept.len(), 1);  // Only best kept
+        assert_eq!(kept.len(), 1); // Only best kept
 
         // With 1 secondary allowed - keep best + 1 = 2 total
-        mappings.iter_mut().for_each(|m| { m.flags = 0; });
+        mappings.iter_mut().for_each(|m| {
+            m.flags = 0;
+        });
         let kept = plane_sweep_query(&mut mappings, 1, 1.0);
-        assert_eq!(kept.len(), 2);  // Best + 1 secondary
+        assert_eq!(kept.len(), 2); // Best + 1 secondary
 
         // With 1 secondary and overlap filtering
         // The first 2 are kept as primary/secondary
-        mappings.iter_mut().for_each(|m| { m.flags = 0; });
+        mappings.iter_mut().for_each(|m| {
+            m.flags = 0;
+        });
         let kept = plane_sweep_query(&mut mappings, 1, 0.5);
-        assert_eq!(kept.len(), 2);  // Best + 1 secondary
+        assert_eq!(kept.len(), 2); // Best + 1 secondary
     }
 
     #[test]
@@ -693,6 +714,6 @@ mod tests {
         ];
 
         let kept = plane_sweep_query(&mut mappings, 0, 0.95);
-        assert_eq!(kept.len(), 2);  // Both at extremes
+        assert_eq!(kept.len(), 2); // Both at extremes
     }
 }

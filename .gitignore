@@ -5,12 +5,47 @@ deps/
 *.swo
 *~
 .DS_Store
-# Test outputs
+
+# Test outputs and temporary files
 test_data/*.paf
 test_data/*.png
 test_data/*.fai
 *.paf
 *.png
+*.log
+*.html
+
+# FASTA files (except the compressed reference)
+*.fa
+*.fasta
+*.fai
+*.fa.gz
+!data/scerevisiae8.fa.gz
+*.fa.gz.fai
+*.fa.gz.gzi
+
+# Index and intermediate files
+*.gdb
+*.gix
+*.ktab*
+*.bps
+*.[0-9]gdb
+
+# Temporary test files
+/tmp/
+x.paf
+y.fa
+z.paf
+v.fa
+test_*.fa
+test_*.paf
+dummy.fa
+minimal.fa
+all_seqs.fa
+s288c*.fa
+
+# Wfmash temp files
+wfmash-*
 
 # Except the input test files we want to keep
 !test_data/chrV.fastga.paf
