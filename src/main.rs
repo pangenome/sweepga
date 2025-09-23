@@ -56,8 +56,8 @@ struct Args {
     #[clap(short = 'j', long = "scaffold-jump", default_value = "100000")]
     scaffold_jump: u32,
 
-    /// Minimum scaffold length [10000]
-    #[clap(short = 's', long = "scaffold-mass", default_value = "10000")]
+    /// Minimum scaffold length (0 = disable scaffolding, which is default)
+    #[clap(short = 's', long = "scaffold-mass", default_value = "0")]
     scaffold_mass: u32,
 
     /// Scaffold chain overlap threshold [0.5]
