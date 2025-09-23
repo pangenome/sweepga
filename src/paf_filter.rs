@@ -97,14 +97,15 @@ impl PafFilter {
 
     /// Extract prefix from sequence name for grouping
     fn extract_prefix(&self, name: &str) -> String {
-        if !self.config.skip_prefix {
-            // No prefix extraction
+        if self.config.skip_prefix {
+            // Skip prefix extraction, use full name
             return name.to_string();
         }
 
-        // Find last occurrence of delimiter and take everything before it
+        // Extract prefix: take everything up to and including the last delimiter
+        // e.g., "r#1#2" -> "r#1#", "Rabacal-1#Chr1" -> "Rabacal-1#", "r#1" -> "r#"
         if let Some(pos) = name.rfind(self.config.prefix_delimiter) {
-            name[..pos].to_string()
+            name[..=pos].to_string()  // Include the delimiter itself
         } else {
             // No delimiter found, use full name
             name.to_string()
