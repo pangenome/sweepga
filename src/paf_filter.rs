@@ -282,12 +282,12 @@ impl PafFilter {
             let mut scaffold_mappings = HashMap::new();
             for (idx, chain) in filtered_chains.iter().enumerate() {
                 // Create a synthetic mapping for each scaffold chain
-                let mut meta = RecordMeta {
+                let meta = RecordMeta {
                     rank: idx,  // Use sequential ranks for scaffolds
                     query_name: chain.query_name.clone(),
                     query_start: chain.query_start,
                     query_end: chain.query_end,
-                    target_name: String::new(), // Will be filled from original
+                    target_name: chain.target_name.clone(),  // Use the chain's target name directly
                     target_start: chain.target_start,
                     target_end: chain.target_end,
                     strand: chain.strand,
@@ -298,12 +298,6 @@ impl PafFilter {
                     discard: false,
                     overlapped: false,
                 };
-
-                // Get target name from first original mapping in this chain
-                if !chain.member_indices.is_empty() && chain.member_indices[0] < metadata.len() {
-                    let first = &metadata[chain.member_indices[0]];
-                    meta.target_name = first.target_name.clone();
-                }
 
                 scaffold_mappings.insert(idx, meta);
             }
