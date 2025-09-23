@@ -8,6 +8,7 @@ use std::sync::Mutex;
 use ordered_float::OrderedFloat;
 
 use crate::mapping::ChainStatus;
+use crate::plane_sweep_exact::{PlaneSweepMapping, plane_sweep_grouped_query};
 
 /// Filtering mode
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -27,6 +28,7 @@ pub struct FilterConfig {
     pub mapping_filter_mode: FilterMode,  // Default: N:N (no filtering)
     pub mapping_max_per_query: Option<usize>,
     pub mapping_max_per_target: Option<usize>,
+    pub plane_sweep_secondaries: usize,  // -n parameter: number of secondaries to keep in plane sweep
 
     // Scaffold filter (applied to scaffold chains)
     pub scaffold_filter_mode: FilterMode,      // Default: 1:1
@@ -209,40 +211,33 @@ impl PafFilter {
         // Keep all original mappings for rescue phase (before any plane sweep)
         let all_original_mappings = metadata.clone();
 
-        // 2. Apply primary mapping filter to input mappings
-        // Default: N:N (no filtering) before scaffold creation
-        if self.config.mapping_filter_mode != FilterMode::ManyToMany {
-            // Group by prefix pairs for filtering modes
-            let mut prefix_groups: HashMap<(String, String), Vec<RecordMeta>> = HashMap::new();
-            for record in metadata {
-                let query_prefix = self.extract_prefix(&record.query_name);
-                let target_prefix = self.extract_prefix(&record.target_name);
-                prefix_groups.entry((query_prefix, target_prefix))
-                    .or_insert_with(Vec::new)
-                    .push(record);
-            }
-
-            // Debug: [MAPPING_FILTER] Grouped into prefix pairs
-
-            // Apply filtering within each prefix pair IN PARALLEL
-            let filtered_groups: Vec<Vec<RecordMeta>> = prefix_groups
-                .into_par_iter()
-                .map(|((_q_prefix, _t_prefix), group)| {
-                    let group_size = group.len();
-                    let filtered = match self.config.mapping_filter_mode {
-                        FilterMode::OneToOne => self.filter_one_to_one_within_group(group),
-                        FilterMode::OneToMany => self.apply_plane_sweep_to_mappings(&group),
-                        FilterMode::ManyToMany => Ok(group),
-                    };
-                    // Debug: [MAPPING_FILTER] Processed group
-                    filtered.unwrap_or_else(|_| Vec::new())
-                })
-                .collect();
-
-            // Combine all filtered groups
-            metadata = filtered_groups.into_iter().flatten().collect();
-            // Debug: [MAPPING_FILTER] After filtering
+        // 2. Apply plane sweep as the default filtering method
+        // Group by prefix pairs for filtering modes
+        let mut prefix_groups: HashMap<(String, String), Vec<RecordMeta>> = HashMap::new();
+        for record in metadata {
+            let query_prefix = self.extract_prefix(&record.query_name);
+            let target_prefix = self.extract_prefix(&record.target_name);
+            prefix_groups.entry((query_prefix, target_prefix))
+                .or_insert_with(Vec::new)
+                .push(record);
         }
+
+        // Debug: [MAPPING_FILTER] Grouped into prefix pairs
+
+        // Apply plane sweep filtering within each prefix pair IN PARALLEL
+        let filtered_groups: Vec<Vec<RecordMeta>> = prefix_groups
+            .into_par_iter()
+            .map(|((_q_prefix, _t_prefix), group)| {
+                // Always apply plane sweep (it's now the default)
+                let filtered = self.apply_plane_sweep_to_mappings(&group);
+                // Debug: [MAPPING_FILTER] Processed group
+                filtered.unwrap_or_else(|_| Vec::new())
+            })
+            .collect();
+
+        // Combine all filtered groups
+        metadata = filtered_groups.into_iter().flatten().collect();
+        // Debug: [MAPPING_FILTER] After filtering
 
         // If no scaffold filtering, we're done - return the plane-swept mappings
         if self.config.min_scaffold_length == 0 {
@@ -664,160 +659,38 @@ impl PafFilter {
             return Ok(mappings.to_vec());
         }
 
-        // Group mappings by query sequence
-        let mut by_query: HashMap<String, Vec<usize>> = HashMap::new();
-        for (idx, mapping) in mappings.iter().enumerate() {
-            by_query.entry(mapping.query_name.clone())
-                .or_insert_with(Vec::new)
-                .push(idx);
-        }
+        // Convert RecordMeta to PlaneSweepMapping with query names
+        let mut plane_sweep_mappings: Vec<(PlaneSweepMapping, String)> = mappings.iter()
+            .enumerate()
+            .map(|(idx, meta)| {
+                let mapping = PlaneSweepMapping {
+                    idx,  // Store original index
+                    query_start: meta.query_start,
+                    query_end: meta.query_end,
+                    target_start: meta.target_start,
+                    target_end: meta.target_end,
+                    identity: 1.0,  // Use 1.0 for now (length-based scoring)
+                    flags: 0,
+                };
+                (mapping, meta.query_name.clone())
+            })
+            .collect();
 
-        // Clone mappings to allow modification
-        let mut mappings = mappings.to_vec();
-
-        // Step 1: Initially mark ALL mappings as bad (discard=true, overlapped=false)
-        for mapping in &mut mappings {
-            mapping.discard = true;
-            mapping.overlapped = false;
-        }
-
-        // Calculate scores for each mapping (identity * log(block_length))
-        let mut scores = Vec::with_capacity(mappings.len());
-        for mapping in &mappings {
-            // Use identity from PAF if valid, otherwise default to 0.95
-            let identity = if mapping.identity > 0.0 && mapping.identity <= 1.0 {
-                mapping.identity
-            } else {
-                0.95
-            };
-            // Score = identity * log(block_length)
-            let score = identity * (mapping.block_length as f64).ln();
-            scores.push(score);
-        }
-
-        // For mapping filter mode, determine how many secondary mappings to keep
-        // In wfmash, the default is to keep ALL non-overlapping mappings (secondaryToKeep = MAX)
-        let secondary_to_keep = match self.config.mapping_filter_mode {
-            FilterMode::ManyToMany => usize::MAX, // Keep all non-overlapping
-            FilterMode::OneToMany => usize::MAX,  // Keep all non-overlapping (wfmash default)
-            FilterMode::OneToOne => 0,   // Keep only best mapping
-        };
+        // Use the -n parameter from config
+        let secondary_to_keep = self.config.plane_sweep_secondaries;
 
         let overlap_threshold = self.config.overlap_threshold;
 
-        // Process each query sequence independently
-        for (_query, indices) in by_query {
-            // Step 2: Create event schedule for plane sweep FOR THIS QUERY
-            #[derive(Debug)]
-            struct Event {
-                pos: u32,
-                event_type: u8, // 0 = BEGIN, 1 = END
-                idx: usize,
-            }
+        // Apply plane sweep grouped by query sequence
+        let kept_indices = plane_sweep_grouped_query(
+            &mut plane_sweep_mappings,
+            secondary_to_keep,
+            overlap_threshold,
+        );
 
-            let mut events = Vec::with_capacity(indices.len() * 2);
-            for &idx in &indices {
-                let mapping = &mappings[idx];
-                events.push(Event { pos: mapping.query_start, event_type: 0, idx });
-                events.push(Event { pos: mapping.query_end, event_type: 1, idx });
-            }
-
-            // Sort events by position, then by type (BEGIN before END)
-            events.sort_by_key(|e| (e.pos, e.event_type));
-
-            // Step 3: Execute plane sweep algorithm FOR THIS QUERY
-            // BST to maintain active segments, ordered by score (descending), then query_start, then target_name
-            let mut active: BTreeSet<(OrderedFloat<f64>, u32, String, usize)> = BTreeSet::new();
-
-            let mut i = 0;
-            while i < events.len() {
-                let current_pos = events[i].pos;
-
-                // Process all events at the current position
-                let mut j = i;
-                while j < events.len() && events[j].pos == current_pos {
-                    let event = &events[j];
-                    let idx = event.idx;
-                    let mapping = &mappings[idx];
-
-                    if event.event_type == 0 { // BEGIN event
-                        // Add to active set (negative score for descending order)
-                        active.insert((
-                            OrderedFloat(-scores[idx]),
-                            mapping.query_start,
-                            mapping.target_name.clone(),
-                            idx
-                        ));
-                    } else { // END event
-                        // Remove from active set
-                        active.remove(&(
-                            OrderedFloat(-scores[idx]),
-                            mapping.query_start,
-                            mapping.target_name.clone(),
-                            idx
-                        ));
-                    }
-                    j += 1;
-                }
-
-                // Mark mappings as good (following wfmash's markGood logic)
-                if !active.is_empty() {
-                    let mut kept_count = 0;
-                    let active_vec: Vec<_> = active.iter().cloned().collect();
-
-                    // First, mark the best secondaryToKeep+1 mappings as good
-                    for &(_, _, _, idx) in &active_vec {
-                        if kept_count > secondary_to_keep {
-                            break;
-                        }
-                        mappings[idx].discard = false;
-                        kept_count += 1;
-                    }
-
-                    // Then check for overlaps if threshold < 1.0
-                    if overlap_threshold < 1.0 && kept_count > 0 {
-                        // Check overlaps with kept mappings
-                        let kept_indices: Vec<_> = active_vec.iter()
-                            .take(kept_count)
-                            .map(|(_, _, _, idx)| *idx)
-                            .collect();
-
-                        for (k, &(_, _, _, idx)) in active_vec.iter().enumerate() {
-                            if k >= kept_count {
-                                // This mapping is beyond secondaryToKeep, check overlap
-                                let mapping = &mappings[idx];
-
-                                for &kept_idx in &kept_indices {
-                                    let kept = &mappings[kept_idx];
-
-                                    // Only check overlap on same strand
-                                    if mapping.strand != kept.strand {
-                                        continue;
-                                    }
-
-                                    let q_overlap = Self::calculate_overlap(
-                                        mapping.query_start, mapping.query_end,
-                                        kept.query_start, kept.query_end
-                                    );
-
-                                    if q_overlap > overlap_threshold {
-                                        mappings[idx].overlapped = true;
-                                        mappings[idx].discard = true;
-                                        break;
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-
-                i = j;
-            }
-        }
-
-        // Step 4: Remove bad mappings (where discard=true OR overlapped=true)
-        let result: Vec<_> = mappings.into_iter()
-            .filter(|m| !m.discard && !m.overlapped)
+        // Convert back to RecordMeta
+        let result: Vec<RecordMeta> = kept_indices.iter()
+            .map(|&idx| mappings[idx].clone())
             .collect();
 
         Ok(result)

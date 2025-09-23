@@ -19,6 +19,20 @@ impl PlaneSweepMapping {
     pub const FLAG_OVERLAPPED: u8 = 0x02;
 
     pub fn score(&self) -> f64 {
+        // For now, use mapping block length as score
+        // TODO: Later we can derive identity from CIGAR string
+        let length = (self.query_end - self.query_start) as f64;
+        if length <= 0.0 {
+            f64::NEG_INFINITY
+        } else {
+            // Simple length-based score for now
+            // Can be enhanced to: self.identity * length.ln() when we parse CIGAR
+            length.ln()
+        }
+    }
+
+    pub fn score_with_identity(&self) -> f64 {
+        // Original scoring with identity (for future use when we parse CIGAR)
         let length = (self.query_end - self.query_start) as f64;
         if length <= 0.0 || self.identity <= 0.0 {
             f64::NEG_INFINITY
@@ -159,12 +173,19 @@ fn mark_good(
     // wfmash logic from line 104-112:
     // Keep marking mappings as good until:
     // (score_drops OR already_good) AND kept > secondaryToKeep
+    let mut debug_count = 0;
     for mapping_order in bst {
         // Line 106: if ((greater_score || !discard) && kept > secondaryToKeep)
         // greater_score means current score < first_score
         // !discard means already marked as good
         let score_dropped = mapping_order.score < first_score;
         let already_good = !mappings[mapping_order.idx].is_discard();
+
+        if debug_count < 3 && bst.len() > 10 {
+            eprintln!("  [markGood] idx={}, score={:.2}, first_score={:.2}, dropped={}, good={}, kept={}",
+                     mapping_order.idx, mapping_order.score, first_score, score_dropped, already_good, kept);
+            debug_count += 1;
+        }
 
         if (score_dropped || already_good) && kept > secondaries_to_keep {
             break;
@@ -389,6 +410,98 @@ pub fn plane_sweep_both(
     target_kept.iter()
         .map(|&idx| query_kept[idx])
         .collect()
+}
+
+/// Group mappings by query sequence and apply plane sweep to each group
+pub fn plane_sweep_grouped_query(
+    mappings: &mut [(PlaneSweepMapping, String)],  // (mapping, query_seq_name)
+    secondaries_to_keep: usize,
+    overlap_threshold: f64,
+) -> Vec<usize> {
+    use std::collections::HashMap;
+
+    if mappings.is_empty() {
+        return Vec::new();
+    }
+
+    // Group by query sequence
+    let mut groups: HashMap<String, Vec<usize>> = HashMap::new();
+    for (idx, (_, query_name)) in mappings.iter().enumerate() {
+        groups.entry(query_name.clone())
+            .or_insert_with(Vec::new)
+            .push(idx);
+    }
+
+    let mut all_kept = Vec::new();
+
+    // Apply plane sweep to each query sequence group
+    for (_, indices) in groups {
+        if indices.is_empty() {
+            continue;
+        }
+
+        // Extract mappings for this group
+        let mut group_mappings: Vec<PlaneSweepMapping> = indices.iter()
+            .map(|&idx| mappings[idx].0)
+            .collect();
+
+        // Apply plane sweep to this group
+        let kept_in_group = plane_sweep_query(&mut group_mappings, secondaries_to_keep, overlap_threshold);
+
+        // Map back to original indices
+        for &local_idx in &kept_in_group {
+            all_kept.push(indices[local_idx]);
+        }
+    }
+
+    all_kept.sort_unstable();
+    all_kept
+}
+
+/// Group mappings by target sequence and apply plane sweep to each group
+pub fn plane_sweep_grouped_target(
+    mappings: &mut [(PlaneSweepMapping, String)],  // (mapping, target_seq_name)
+    secondaries_to_keep: usize,
+    overlap_threshold: f64,
+) -> Vec<usize> {
+    use std::collections::HashMap;
+
+    if mappings.is_empty() {
+        return Vec::new();
+    }
+
+    // Group by target sequence
+    let mut groups: HashMap<String, Vec<usize>> = HashMap::new();
+    for (idx, (_, target_name)) in mappings.iter().enumerate() {
+        groups.entry(target_name.clone())
+            .or_insert_with(Vec::new)
+            .push(idx);
+    }
+
+    let mut all_kept = Vec::new();
+
+    // Apply plane sweep to each target sequence group
+    for (_, indices) in groups {
+        if indices.is_empty() {
+            continue;
+        }
+
+        // Extract mappings for this group
+        let mut group_mappings: Vec<PlaneSweepMapping> = indices.iter()
+            .map(|&idx| mappings[idx].0)
+            .collect();
+
+        // Apply plane sweep to this group
+        let kept_in_group = plane_sweep_target(&mut group_mappings, secondaries_to_keep, overlap_threshold);
+
+        // Map back to original indices
+        for &local_idx in &kept_in_group {
+            all_kept.push(indices[local_idx]);
+        }
+    }
+
+    all_kept.sort_unstable();
+    all_kept
 }
 
 #[cfg(test)]

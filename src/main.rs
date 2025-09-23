@@ -3,6 +3,7 @@ mod paf;
 mod paf_filter;
 mod union_find;
 mod plane_sweep;
+mod plane_sweep_exact;
 
 use anyhow::Result;
 use clap::Parser;
@@ -41,9 +42,14 @@ struct Args {
     #[clap(short = 'm', long = "mapping-filter", default_value = "N")]
     mapping_filter: String,
 
+    /// Number of mappings to keep per position in plane sweep (default: 0 = best only)
+    /// Use -n 1 to keep best + 1 secondary, -n -1 to keep all non-overlapping
+    #[clap(short = 'n', long = "num-mappings", default_value = "0")]
+    num_mappings: i32,
+
     /// Scaffold filter when -s > 0 (default: 1:1)
     /// Format: "1:1", "1" (=1:∞), "N" (=N:N, no filtering), or "M:N"
-    #[clap(short = 'n', long = "scaffold-filter", default_value = "1:1")]
+    #[clap(long = "scaffold-filter", default_value = "1:1")]
     scaffold_filter: String,
 
     /// Scaffold jump (gap) distance [100000]
@@ -152,8 +158,21 @@ fn main() -> Result<()> {
         return Ok(());
     }
 
-    // Parse mapping filter mode
-    let (mapping_filter_mode, mapping_max_per_query, mapping_max_per_target) = parse_filter_mode(&args.mapping_filter, "mapping");
+    // Parse -n parameter for plane sweep
+    let plane_sweep_secondaries = if args.num_mappings < 0 {
+        usize::MAX  // Keep all non-overlapping
+    } else {
+        args.num_mappings as usize  // Keep best + this many secondaries
+    };
+
+    // Parse mapping filter mode (for backward compatibility)
+    let (mapping_filter_mode, mapping_max_per_query, mapping_max_per_target) =
+        if args.mapping_filter == "N" {
+            // Use plane sweep as default with -n parameter
+            (FilterMode::OneToMany, Some(1 + plane_sweep_secondaries), None)
+        } else {
+            parse_filter_mode(&args.mapping_filter, "mapping")
+        };
 
     // Parse scaffold filter mode
     let (scaffold_filter_mode, scaffold_max_per_query, scaffold_max_per_target) = parse_filter_mode(&args.scaffold_filter, "scaffold");
@@ -165,6 +184,7 @@ fn main() -> Result<()> {
         mapping_filter_mode,
         mapping_max_per_query,
         mapping_max_per_target,
+        plane_sweep_secondaries,  // Add plane sweep parameter
         scaffold_filter_mode,
         scaffold_max_per_query,
         scaffold_max_per_target,
