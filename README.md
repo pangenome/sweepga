@@ -4,7 +4,7 @@ Filters highly sensitive whole genome alignments to extract maximum synteny alig
 
 ## What it does
 
-SweepGA chains mappings into large syntenic scaffolds (>10kb), filters them to keep the best per genome pair, then rescues any mappings within 100kb of these anchors. This extracts clean synteny alignments from noisy all-vs-all mappings.
+SweepGA chains mappings into large syntenic scaffolds (>10kb), keeps the best scaffolds per query genome (1:N filtering), then rescues any mappings within 100kb of these anchors. This extracts clean synteny alignments from noisy all-vs-all mappings.
 
 ## Installation
 
