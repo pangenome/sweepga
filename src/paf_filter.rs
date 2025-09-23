@@ -708,17 +708,16 @@ impl PafFilter {
             })
             .collect();
 
-        // Use the -n parameter from config
-        let secondary_to_keep = self.config.plane_sweep_secondaries;
+        // Use the mapping limits from config
+        // For query axis: if limit is Some(n), keep n mappings per query position
+        // For None (many/infinity), keep all non-overlapping (usize::MAX)
+        let query_limit = self.config.mapping_max_per_query.unwrap_or(usize::MAX);
 
         let overlap_threshold = self.config.overlap_threshold;
 
         // Apply plane sweep grouped by query sequence
-        let kept_indices = plane_sweep_grouped_query(
-            &mut plane_sweep_mappings,
-            secondary_to_keep,
-            overlap_threshold,
-        );
+        let kept_indices =
+            plane_sweep_grouped_query(&mut plane_sweep_mappings, query_limit, overlap_threshold);
 
         // Convert back to RecordMeta
         let result: Vec<RecordMeta> = kept_indices

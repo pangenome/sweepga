@@ -37,18 +37,15 @@ struct Args {
     #[clap(short = 'x', long = "sparsify", default_value = "1.0")]
     sparsify: f64,
 
-    /// Primary plane sweep filter (default: N = no filtering)
-    /// Format: "1:1", "1" (=1:∞), "N" (=N:N, no filtering), or "M:N"
-    #[clap(short = 'm', long = "mapping-filter", default_value = "N")]
-    mapping_filter: String,
-
-    /// Number of mappings to keep per position in plane sweep (default: 0 = best only)
-    /// Use -n 1 to keep best + 1 secondary, -n -1 to keep all non-overlapping
-    #[clap(short = 'n', long = "num-mappings", default_value = "0")]
-    num_mappings: i32,
+    /// Plane sweep filter specification (default: "1:1" = best mapping per query and target)
+    /// Format: "1:1" (best on both axes), "1" or "1:∞" (best on query axis only),
+    /// "many:many" or "∞:∞" (no filtering), or "M:N" for custom limits
+    /// Examples: -n 1:1 (best only), -n 3:2 (top 3 per query, top 2 per target), -n many:many (no filter)
+    #[clap(short = 'n', long = "num-mappings", default_value = "1:1")]
+    num_mappings: String,
 
     /// Scaffold filter when -s > 0 (default: 1:1)
-    /// Format: "1:1", "1" (=1:∞), "N" (=N:N, no filtering), or "M:N"
+    /// Format: "1:1", "1" (=1:∞), "many:many" (no filtering), or "M:N"
     #[clap(long = "scaffold-filter", default_value = "1:1")]
     scaffold_filter: String,
 
@@ -90,38 +87,58 @@ struct Args {
 }
 
 fn parse_filter_mode(mode: &str, filter_type: &str) -> (FilterMode, Option<usize>, Option<usize>) {
-    match mode.to_lowercase().as_str() {
+    // Handle various ways to specify "no filtering"
+    let lower = mode.to_lowercase();
+    match lower.as_str() {
         "1:1" => (FilterMode::OneToOne, Some(1), Some(1)),
-        "1" | "1:n" | "1:∞" => (FilterMode::OneToMany, Some(1), None),
-        "n:1" | "∞:1" => (FilterMode::ManyToMany, None, Some(1)), // N:1 is ManyToMany with target limit
-        "n" | "n:n" | "∞" | "∞:∞" => (FilterMode::ManyToMany, None, None),
-        s if s.contains(':') => {
-            // Parse custom like "10:5"
-            let parts: Vec<&str> = s.split(':').collect();
-            if parts.len() == 2 {
-                let per_query = parts[0].parse::<usize>().ok();
-                let per_target = parts[1].parse::<usize>().ok();
-                if per_query.is_some() || per_target.is_some() {
-                    let mode = match (per_query, per_target) {
-                        (Some(1), Some(1)) => FilterMode::OneToOne,
-                        (Some(1), _) => FilterMode::OneToMany,
-                        _ => FilterMode::ManyToMany, // Any other combination uses ManyToMany
-                    };
-                    return (mode, per_query, per_target);
-                }
-            }
-            eprintln!(
-                "Warning: Invalid {} filter '{}', using default N:N",
-                filter_type, s
-            );
+        "1" | "1:∞" | "1:infinity" | "1:many" => (FilterMode::OneToMany, Some(1), None),
+        "∞:1" | "infinity:1" | "many:1" => (FilterMode::ManyToMany, None, Some(1)),
+        "many:many" | "∞:∞" | "infinity:infinity" | "many" | "∞" | "infinity" | "-1" | "-1:-1" => {
             (FilterMode::ManyToMany, None, None)
         }
-        _ => {
+        s if s.contains(':') => {
+            // Parse custom like "10:5" or "2:3"
+            let parts: Vec<&str> = s.split(':').collect();
+            if parts.len() == 2 {
+                // Check for infinity/many on each side
+                let per_query = match parts[0] {
+                    "∞" | "infinity" | "many" | "-1" => None,
+                    n => n.parse::<usize>().ok().filter(|&x| x > 0), // Reject 0
+                };
+                let per_target = match parts[1] {
+                    "∞" | "infinity" | "many" | "-1" => None,
+                    n => n.parse::<usize>().ok().filter(|&x| x > 0), // Reject 0
+                };
+
+                // Determine filter mode based on limits
+                let mode = match (per_query, per_target) {
+                    (Some(1), Some(1)) => FilterMode::OneToOne,
+                    (Some(1), None) => FilterMode::OneToMany,
+                    _ => FilterMode::ManyToMany,
+                };
+                return (mode, per_query, per_target);
+            }
             eprintln!(
-                "Warning: Invalid {} filter '{}', using default N:N",
+                "Warning: Invalid {} filter '{}', using default 1:1",
+                filter_type, s
+            );
+            (FilterMode::OneToOne, Some(1), Some(1))
+        }
+        _ => {
+            // Try parsing as a single number
+            if let Ok(n) = mode.parse::<usize>() {
+                if n == 0 {
+                    eprintln!("Error: 0 is not a valid filter value. Use 1 for best mapping only.");
+                    std::process::exit(1);
+                }
+                // Single number means filter on query axis only
+                return (FilterMode::OneToMany, Some(n), None);
+            }
+            eprintln!(
+                "Warning: Invalid {} filter '{}', using default 1:1",
                 filter_type, mode
             );
-            (FilterMode::ManyToMany, None, None)
+            (FilterMode::OneToOne, Some(1), Some(1))
         }
     }
 }
@@ -165,24 +182,8 @@ fn main() -> Result<()> {
     }
 
     // Parse -n parameter for plane sweep
-    let plane_sweep_secondaries = if args.num_mappings < 0 {
-        usize::MAX // Keep all non-overlapping
-    } else {
-        args.num_mappings as usize // Keep best + this many secondaries
-    };
-
-    // Parse mapping filter mode (for backward compatibility)
-    let (mapping_filter_mode, mapping_max_per_query, mapping_max_per_target) =
-        if args.mapping_filter == "N" {
-            // Use plane sweep as default with -n parameter
-            (
-                FilterMode::OneToMany,
-                Some(1 + plane_sweep_secondaries),
-                None,
-            )
-        } else {
-            parse_filter_mode(&args.mapping_filter, "mapping")
-        };
+    let (plane_sweep_mode, plane_sweep_query_limit, plane_sweep_target_limit) =
+        parse_filter_mode(&args.num_mappings, "plane sweep");
 
     // Parse scaffold filter mode
     let (scaffold_filter_mode, scaffold_max_per_query, scaffold_max_per_target) =
@@ -192,10 +193,10 @@ fn main() -> Result<()> {
     let config = FilterConfig {
         chain_gap: args.scaffold_jump, // Use scaffold_jump for merging into chains
         min_block_length: args.block_length,
-        mapping_filter_mode,
-        mapping_max_per_query,
-        mapping_max_per_target,
-        plane_sweep_secondaries, // Add plane sweep parameter
+        mapping_filter_mode: plane_sweep_mode,
+        mapping_max_per_query: plane_sweep_query_limit,
+        mapping_max_per_target: plane_sweep_target_limit,
+        plane_sweep_secondaries: 0, // Not used with new format
         scaffold_filter_mode,
         scaffold_max_per_query,
         scaffold_max_per_target,

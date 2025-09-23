@@ -153,7 +153,7 @@ impl Ord for MappingOrder {
 fn mark_good(
     bst: &BTreeSet<MappingOrder>,
     mappings: &mut [PlaneSweepMapping],
-    secondaries_to_keep: usize,
+    mappings_to_keep: usize,
     overlap_threshold: f64,
     axis: Axis,
 ) {
@@ -172,11 +172,10 @@ fn mark_good(
     }
     let first_score = first.unwrap().score;
 
-    // wfmash logic: keep best mapping + secondaries_to_keep additional mappings
-    // Total to keep = 1 + secondaries_to_keep
+    // Keep up to mappings_to_keep mappings total
     for mapping_order in bst {
         // Stop if we've kept enough mappings
-        if kept > secondaries_to_keep {
+        if kept >= mappings_to_keep {
             break;
         }
 
@@ -226,7 +225,7 @@ pub enum Axis {
 /// Apply plane sweep on query axis (exact wfmash algorithm)
 pub fn plane_sweep_query(
     mappings: &mut [PlaneSweepMapping],
-    secondaries_to_keep: usize,
+    mappings_to_keep: usize,
     overlap_threshold: f64,
 ) -> Vec<usize> {
     if mappings.is_empty() || mappings.len() == 1 {
@@ -293,7 +292,7 @@ pub fn plane_sweep_query(
         mark_good(
             &bst,
             mappings,
-            secondaries_to_keep,
+            mappings_to_keep,
             overlap_threshold,
             Axis::Query,
         );
@@ -313,7 +312,7 @@ pub fn plane_sweep_query(
 /// Apply plane sweep on target axis
 pub fn plane_sweep_target(
     mappings: &mut [PlaneSweepMapping],
-    secondaries_to_keep: usize,
+    mappings_to_keep: usize,
     overlap_threshold: f64,
 ) -> Vec<usize> {
     if mappings.is_empty() || mappings.len() == 1 {
@@ -375,7 +374,7 @@ pub fn plane_sweep_target(
         mark_good(
             &bst,
             mappings,
-            secondaries_to_keep,
+            mappings_to_keep,
             overlap_threshold,
             Axis::Target,
         );
@@ -394,12 +393,12 @@ pub fn plane_sweep_target(
 /// Apply both query and target filtering
 pub fn plane_sweep_both(
     mappings: &mut [PlaneSweepMapping],
-    query_secondaries: usize,
-    target_secondaries: usize,
+    query_mappings_to_keep: usize,
+    target_mappings_to_keep: usize,
     overlap_threshold: f64,
 ) -> Vec<usize> {
     // First apply query axis filtering
-    let query_kept = plane_sweep_query(mappings, query_secondaries, overlap_threshold);
+    let query_kept = plane_sweep_query(mappings, query_mappings_to_keep, overlap_threshold);
 
     // Create a filtered set for target sweep
     let mut filtered_mappings: Vec<PlaneSweepMapping> =
@@ -408,7 +407,7 @@ pub fn plane_sweep_both(
     // Apply target axis filtering
     let target_kept = plane_sweep_target(
         &mut filtered_mappings,
-        target_secondaries,
+        target_mappings_to_keep,
         overlap_threshold,
     );
 
@@ -419,7 +418,7 @@ pub fn plane_sweep_both(
 /// Group mappings by query sequence and apply plane sweep to each group
 pub fn plane_sweep_grouped_query(
     mappings: &mut [(PlaneSweepMapping, String)], // (mapping, query_seq_name)
-    secondaries_to_keep: usize,
+    mappings_to_keep: usize,
     overlap_threshold: f64,
 ) -> Vec<usize> {
     use std::collections::HashMap;
@@ -451,7 +450,7 @@ pub fn plane_sweep_grouped_query(
 
         // Apply plane sweep to this group
         let kept_in_group =
-            plane_sweep_query(&mut group_mappings, secondaries_to_keep, overlap_threshold);
+            plane_sweep_query(&mut group_mappings, mappings_to_keep, overlap_threshold);
 
         // Map back to original indices
         for &local_idx in &kept_in_group {
@@ -466,7 +465,7 @@ pub fn plane_sweep_grouped_query(
 /// Group mappings by target sequence and apply plane sweep to each group
 pub fn plane_sweep_grouped_target(
     mappings: &mut [(PlaneSweepMapping, String)], // (mapping, target_seq_name)
-    secondaries_to_keep: usize,
+    mappings_to_keep: usize,
     overlap_threshold: f64,
 ) -> Vec<usize> {
     use std::collections::HashMap;
@@ -498,7 +497,7 @@ pub fn plane_sweep_grouped_target(
 
         // Apply plane sweep to this group
         let kept_in_group =
-            plane_sweep_target(&mut group_mappings, secondaries_to_keep, overlap_threshold);
+            plane_sweep_target(&mut group_mappings, mappings_to_keep, overlap_threshold);
 
         // Map back to original indices
         for &local_idx in &kept_in_group {
@@ -627,7 +626,7 @@ mod tests {
 
         // All three mappings have identical query ranges (100-200)
         // so they all have the same score (log(100))
-        // With secondaries_to_keep=1, we keep best + 1 = 2 total
+        // With mappings_to_keep=1, we keep best + 1 = 2 total
         let kept = plane_sweep_query(&mut mappings, 1, 0.95);
         assert_eq!(kept.len(), 2); // Best + 1 secondary
         assert!(kept.contains(&0));
