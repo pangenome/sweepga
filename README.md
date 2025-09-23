@@ -8,12 +8,12 @@ SweepGA chains mappings into large syntenic scaffolds (>10kb), filters them to k
 
 ## Installation
 
-Requires Rust 1.70+. Clone and build:
+Requires Rust 1.70+. Clone and install:
 
 ```bash
 git clone https://github.com/pangenome/sweepga.git
 cd sweepga
-cargo build --release
+cargo install --force --path .
 ```
 
 ## Usage with FASTGA
