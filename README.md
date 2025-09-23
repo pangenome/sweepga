@@ -6,7 +6,7 @@ PAF filtering using Euclidean distance to scaffold anchors.
 
 SweepGA filters genome alignment PAF files by identifying large scaffold alignments and rescuing nearby mappings based on Euclidean distance. The tool first finds high-confidence scaffold chains through merging and plane sweep filtering, then retains any mapping within a specified Euclidean distance threshold of these anchors.
 
-The algorithm works in three phases. First, it merges nearby mappings into chains using union-find, where mappings are chained if they're within a gap threshold in both query and target coordinates. Second, it identifies scaffold chains that exceed a minimum length threshold and removes overlapping scaffolds through plane sweep. Third, it rescues non-scaffold mappings by calculating their Euclidean distance to scaffold anchors in query-target coordinate space, keeping those within the distance threshold.
+The algorithm works in multiple phases. First, it applies plane sweep filtering per query sequence to remove overlapping mappings while keeping the best scoring ones. Second, it merges nearby filtered mappings into chains using union-find, where mappings are chained if they're within a gap threshold in both query and target coordinates. Third, it identifies scaffold chains that exceed a minimum length threshold and applies scaffold-level filtering. Finally, it rescues non-scaffold mappings by calculating their Euclidean distance to scaffold anchors in query-target coordinate space, keeping those within the distance threshold.
 
 The Euclidean distance is calculated between mapping center points: for a mapping M and scaffold anchor S, the distance is sqrt((M_query_center - S_query_center)² + (M_target_center - S_target_center)²). This allows rescue across strands, so reverse complement mappings near forward strand scaffolds are retained.
 
@@ -54,7 +54,7 @@ The main parameters control scaffold identification and rescue distance:
 
 `-D/--scaffold-dist` sets the maximum Euclidean distance for rescue (default 100000). Mappings further than this from any scaffold anchor are discarded.
 
-`-m/--mode` controls the filtering strategy: "1:∞" (default) keeps all non-overlapping mappings per query position, "1:1" keeps only the best per query-target pair, "N:N" or equivalently "∞:∞" disables plane sweep filtering.
+`-m/--mode` controls the mapping filtering strategy: "1" or "1:∞" (default) keeps all non-overlapping mappings per query position, "1:1" keeps only the best per query-target pair, "N" or "N:N" disables plane sweep filtering entirely.
 
 ## Example: varying rescue distance
 
@@ -80,9 +80,9 @@ The scaffold jump parameter has less effect when scaffolds are already well-sepa
 
 The implementation follows wfmash's filterByScaffolds approach. Mappings are first grouped by query-target pair and sorted by query position. Union-find merges mappings where both query and target gaps are below the threshold, allowing small overlaps up to gap/5. The resulting chains are filtered by length to identify scaffolds.
 
-Plane sweep works by sweeping a plane across the query axis and keeping the top-N best mappings at each position based on their score (block length). For the default "1:∞" mode, this keeps all non-overlapping mappings at each query position; for "1:1" it keeps only the single best mapping per query-target pair. The overlap threshold parameter (default 0.95) can be used to filter mappings that are mostly contained within better scoring ones, though setting it to 1.0 effectively disables this filter.
+Plane sweep operates independently per query sequence, sweeping across the query axis and keeping the best scoring mappings at each position. The scoring function matches wfmash: identity × log(block_length). For the default "1" mode, this keeps all non-overlapping mappings at each query position; for "1:1" it keeps only the single best mapping per query-target pair. The overlap threshold parameter (default 0.95) filters mappings that are mostly contained within better scoring ones.
 
-The rescue phase calculates Euclidean distance from each non-scaffold mapping to all scaffold anchors on the same target sequence. The distance uses mapping center points in 2D space where axes are query and target positions. Any mapping within the distance threshold of at least one anchor is rescued, regardless of strand orientation.
+The rescue phase calculates Euclidean distance from each non-scaffold mapping to scaffold anchors on the same chromosome pair. Mappings are grouped by (query_chromosome, target_chromosome) and sorted by query position for efficient processing. The distance uses mapping center points in 2D space where axes are query and target positions. Any mapping within the distance threshold of at least one anchor is rescued, regardless of strand orientation.
 
 Output preserves the original PAF records with an added tag indicating filter status: st:Z:scaffold for scaffold anchors, st:Z:rescued for rescued mappings. This allows downstream tools to distinguish high-confidence syntenic anchors from nearby features.
 
