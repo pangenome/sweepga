@@ -212,32 +212,12 @@ impl PafFilter {
         let all_original_mappings = metadata.clone();
 
         // 2. Apply plane sweep as the default filtering method
-        // Group by prefix pairs for filtering modes
-        let mut prefix_groups: HashMap<(String, String), Vec<RecordMeta>> = HashMap::new();
-        for record in metadata {
-            let query_prefix = self.extract_prefix(&record.query_name);
-            let target_prefix = self.extract_prefix(&record.target_name);
-            prefix_groups.entry((query_prefix, target_prefix))
-                .or_insert_with(Vec::new)
-                .push(record);
-        }
+        // IMPORTANT: Plane sweep must be applied PER QUERY SEQUENCE, not per query-target pair!
+        // This is how wfmash does it - all mappings from a query compete regardless of target
 
-        // Debug: [MAPPING_FILTER] Grouped into prefix pairs
-
-        // Apply plane sweep filtering within each prefix pair IN PARALLEL
-        let filtered_groups: Vec<Vec<RecordMeta>> = prefix_groups
-            .into_par_iter()
-            .map(|((_q_prefix, _t_prefix), group)| {
-                // Always apply plane sweep (it's now the default)
-                let filtered = self.apply_plane_sweep_to_mappings(&group);
-                // Debug: [MAPPING_FILTER] Processed group
-                filtered.unwrap_or_else(|_| Vec::new())
-            })
-            .collect();
-
-        // Combine all filtered groups
-        metadata = filtered_groups.into_iter().flatten().collect();
-        // Debug: [MAPPING_FILTER] After filtering
+        // The plane sweep is already correctly implemented in apply_plane_sweep_to_mappings
+        // which groups by query sequence internally. We just need to pass ALL mappings to it.
+        metadata = self.apply_plane_sweep_to_mappings(&metadata)?;
 
         // If no scaffold filtering, we're done - return the plane-swept mappings
         if self.config.min_scaffold_length == 0 {
@@ -675,6 +655,7 @@ impl PafFilter {
                 (mapping, meta.query_name.clone())
             })
             .collect();
+
 
         // Use the -n parameter from config
         let secondary_to_keep = self.config.plane_sweep_secondaries;

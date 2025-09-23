@@ -170,28 +170,15 @@ fn mark_good(
     }
     let first_score = first.unwrap().score;
 
-    // wfmash logic from line 104-112:
-    // Keep marking mappings as good until:
-    // (score_drops OR already_good) AND kept > secondaryToKeep
-    let mut debug_count = 0;
+    // wfmash logic: keep best mapping + secondaries_to_keep additional mappings
+    // Total to keep = 1 + secondaries_to_keep
     for mapping_order in bst {
-        // Line 106: if ((greater_score || !discard) && kept > secondaryToKeep)
-        // greater_score means current score < first_score
-        // !discard means already marked as good
-        let score_dropped = mapping_order.score < first_score;
-        let already_good = !mappings[mapping_order.idx].is_discard();
-
-        if debug_count < 3 && bst.len() > 10 {
-            eprintln!("  [markGood] idx={}, score={:.2}, first_score={:.2}, dropped={}, good={}, kept={}",
-                     mapping_order.idx, mapping_order.score, first_score, score_dropped, already_good, kept);
-            debug_count += 1;
-        }
-
-        if (score_dropped || already_good) && kept > secondaries_to_keep {
+        // Stop if we've kept enough mappings
+        if kept > secondaries_to_keep {
             break;
         }
 
-        // Mark as good (line 110) and always increment kept
+        // Mark as good and increment kept
         mappings[mapping_order.idx].set_discard(false);
         kept_indices.push(mapping_order.idx);
         kept += 1;
@@ -435,7 +422,7 @@ pub fn plane_sweep_grouped_query(
     let mut all_kept = Vec::new();
 
     // Apply plane sweep to each query sequence group
-    for (_, indices) in groups {
+    for (query_name, indices) in groups {
         if indices.is_empty() {
             continue;
         }
@@ -623,12 +610,11 @@ mod tests {
 
         // All three mappings have identical query ranges (100-200)
         // so they all have the same score (log(100))
-        // With identical scores, all are kept
+        // With secondaries_to_keep=1, we keep best + 1 = 2 total
         let kept = plane_sweep_query(&mut mappings, 1, 0.95);
-        assert_eq!(kept.len(), 3);  // All kept with identical scores
+        assert_eq!(kept.len(), 2);  // Best + 1 secondary
         assert!(kept.contains(&0));
         assert!(kept.contains(&1));
-        assert!(kept.contains(&2));
     }
 
     #[test]
@@ -667,21 +653,20 @@ mod tests {
         ];
 
         // With identical query ranges, all mappings have the same score
-        // Using length-based scoring, they're all equally "best"
+        // With n=0, we keep only 1 (best only)
         let kept = plane_sweep_query(&mut mappings, 0, 1.0);
-        assert_eq!(kept.len(), 3);  // All kept with identical scores
+        assert_eq!(kept.len(), 1);  // Only best kept
 
-        // With 1 secondary allowed - but all have identical scores, so all kept
+        // With 1 secondary allowed - keep best + 1 = 2 total
         mappings.iter_mut().for_each(|m| { m.flags = 0; });
         let kept = plane_sweep_query(&mut mappings, 1, 1.0);
-        assert_eq!(kept.len(), 3);  // All kept with identical scores
+        assert_eq!(kept.len(), 2);  // Best + 1 secondary
 
         // With 1 secondary and overlap filtering
-        // But all mappings have identical scores and 100% overlap
-        // So all are still kept (overlap filtering applies after secondaries selection)
+        // The first 2 are kept as primary/secondary
         mappings.iter_mut().for_each(|m| { m.flags = 0; });
         let kept = plane_sweep_query(&mut mappings, 1, 0.5);
-        assert_eq!(kept.len(), 3);  // All kept with identical scores
+        assert_eq!(kept.len(), 2);  // Best + 1 secondary
     }
 
     #[test]
