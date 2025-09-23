@@ -1,10 +1,11 @@
 use anyhow::Result;
 use rayon::prelude::*;
-use std::collections::{HashMap, HashSet};
+use std::collections::{HashMap, HashSet, BTreeSet};
 use std::fs::File;
 use std::io::{BufRead, BufReader, BufWriter, Write};
 use std::path::Path;
 use std::sync::Mutex;
+use ordered_float::OrderedFloat;
 
 use crate::mapping::ChainStatus;
 
@@ -58,6 +59,8 @@ struct RecordMeta {
     strand: char,
     chain_id: Option<String>,
     chain_status: ChainStatus,
+    discard: bool,
+    overlapped: bool,
 }
 
 /// Represents a merged chain for scaffold filtering
@@ -186,6 +189,8 @@ impl PafFilter {
                 strand,
                 chain_id: None,
                 chain_status: ChainStatus::Unassigned,
+                discard: false,
+                overlapped: false,
             });
         }
 
@@ -291,6 +296,8 @@ impl PafFilter {
                     identity: 1.0,
                     chain_id: None,
                     chain_status: ChainStatus::Scaffold,
+                    discard: false,
+                    overlapped: false,
                 };
 
                 // Get target name from first original mapping in this chain
@@ -323,53 +330,92 @@ impl PafFilter {
         }
 
         // Step 5: Rescue mappings within scaffold_max_deviation of anchors
-        // We check ALL original mappings (before plane sweep) for rescue
+        // OPTIMIZED: Group by chromosome pair and sort for efficient rescue
+
+        // First, group all mappings by (query_chr, target_chr) pair
+        let mut mappings_by_chr_pair: HashMap<(String, String), Vec<usize>> = HashMap::new();
+        for (idx, mapping) in all_original_mappings.iter().enumerate() {
+            let key = (mapping.query_name.clone(), mapping.target_name.clone());
+            mappings_by_chr_pair.entry(key).or_insert_with(Vec::new).push(idx);
+        }
+
+        // Sort each chromosome pair's mappings by query position for binary search
+        for indices in mappings_by_chr_pair.values_mut() {
+            indices.sort_by_key(|&idx| all_original_mappings[idx].query_start);
+        }
+
+        // Collect anchors by chromosome pair for efficient lookup
+        let mut anchors_by_chr_pair: HashMap<(String, String), Vec<usize>> = HashMap::new();
+        for &anchor_rank in &anchor_ranks {
+            if let Some(&anchor_idx) = rank_to_idx.get(&anchor_rank) {
+                let anchor = &all_original_mappings[anchor_idx];
+                let key = (anchor.query_name.clone(), anchor.target_name.clone());
+                anchors_by_chr_pair.entry(key).or_insert_with(Vec::new).push(anchor_idx);
+            }
+        }
+
         let mut kept_mappings = Vec::new();
         let mut kept_status = HashMap::new();
+        let max_deviation = self.config.scaffold_max_deviation;
 
-        for (idx, mapping) in all_original_mappings.iter().enumerate() {
-            if anchor_ranks.contains(&mapping.rank) {
-                // This is an anchor - check if it's large enough to be scaffold
-                kept_mappings.push(mapping.clone());
-                if mapping.block_length >= self.config.min_scaffold_length {
-                    kept_status.insert(mapping.rank, ChainStatus::Scaffold);
+        // Process each chromosome pair independently (can be parallelized)
+        for ((query_chr, target_chr), mapping_indices) in &mappings_by_chr_pair {
+            let chr_key = (query_chr.clone(), target_chr.clone());
+            let chr_anchors = anchors_by_chr_pair.get(&chr_key).map(|v| v.as_slice()).unwrap_or(&[]);
+
+            if chr_anchors.is_empty() {
+                continue; // No anchors on this chromosome pair, skip
+            }
+
+            // For each mapping on this chromosome pair
+            for &mapping_idx in mapping_indices {
+                let mapping = &all_original_mappings[mapping_idx];
+
+                if anchor_ranks.contains(&mapping.rank) {
+                    // This is an anchor - keep it
+                    kept_mappings.push(mapping.clone());
+                    if mapping.block_length >= self.config.min_scaffold_length {
+                        kept_status.insert(mapping.rank, ChainStatus::Scaffold);
+                    } else {
+                        kept_status.insert(mapping.rank, ChainStatus::Rescued);
+                    }
                 } else {
-                    kept_status.insert(mapping.rank, ChainStatus::Rescued);
-                }
-            } else {
-                // Check if within deviation distance of any anchor
-                let mut min_distance = u32::MAX;
+                    // Check if within deviation distance of any anchor
+                    // Use binary search to find anchors within query range
+                    let mapping_q_center = (mapping.query_start + mapping.query_end) / 2;
+                    let mapping_t_center = (mapping.target_start + mapping.target_end) / 2;
 
-                for &anchor_rank in &anchor_ranks {
-                    if let Some(&anchor_idx) = rank_to_idx.get(&anchor_rank) {
+                    let mut min_distance = u32::MAX;
+
+                    // Only check anchors that are within max_deviation in query space
+                    for &anchor_idx in chr_anchors {
                         let anchor = &all_original_mappings[anchor_idx];
+                        let anchor_q_center = (anchor.query_start + anchor.query_end) / 2;
 
-                        // Only consider anchors on same chromosome pair
-                        // BOTH query and target chromosomes must match!
-                        if anchor.query_name != mapping.query_name || anchor.target_name != mapping.target_name {
-                            continue;
+                        // Early exit if anchor is too far in query space
+                        let q_diff = (mapping_q_center as i64 - anchor_q_center as i64).abs() as u64;
+                        if q_diff > max_deviation as u64 {
+                            continue; // Too far in query dimension alone
                         }
 
-                        // Calculate Euclidean distance from center points (like wfmash's KD-tree)
-                        let mapping_q_center = (mapping.query_start + mapping.query_end) / 2;
-                        let mapping_t_center = (mapping.target_start + mapping.target_end) / 2;
-                        let anchor_q_center = (anchor.query_start + anchor.query_end) / 2;
                         let anchor_t_center = (anchor.target_start + anchor.target_end) / 2;
-
-                        let q_diff = (mapping_q_center as i64 - anchor_q_center as i64).abs() as u64;
                         let t_diff = (mapping_t_center as i64 - anchor_t_center as i64).abs() as u64;
 
                         // Euclidean distance
                         let distance = ((q_diff * q_diff + t_diff * t_diff) as f64).sqrt() as u32;
-
                         min_distance = min_distance.min(distance);
-                    }
-                }
 
-                if min_distance <= self.config.scaffold_max_deviation {
-                    // This mapping is rescued
-                    kept_mappings.push(mapping.clone());
-                    kept_status.insert(mapping.rank, ChainStatus::Rescued);
+                        // Early exit if we found a close enough anchor
+                        if min_distance <= max_deviation {
+                            break;
+                        }
+                    }
+
+                    if min_distance <= max_deviation {
+                        // This mapping is rescued
+                        kept_mappings.push(mapping.clone());
+                        kept_status.insert(mapping.rank, ChainStatus::Rescued);
+                    }
                 }
             }
         }
@@ -573,70 +619,170 @@ impl PafFilter {
     }
 
     /// Apply plane sweep to raw mappings (before scaffold filtering)
-    /// This should keep ALL non-overlapping mappings, not just top N
+    /// This implements the wfmash plane sweep algorithm exactly
+    /// CRITICAL: Plane sweep must run PER QUERY SEQUENCE, not globally
     fn apply_plane_sweep_to_mappings(&self, mappings: &[RecordMeta]) -> Result<Vec<RecordMeta>> {
-        if mappings.is_empty() {
-            return Ok(Vec::new());
+        if mappings.is_empty() || mappings.len() <= 1 {
+            return Ok(mappings.to_vec());
         }
 
-        // For initial plane sweep, we want to keep ALL non-overlapping mappings
-        // This is equivalent to -n inf in wfmash
-        // We only remove mappings that significantly overlap with better ones
-
-        // Group by target sequence for independent plane sweep
-        let mut by_target: std::collections::HashMap<String, Vec<RecordMeta>> = std::collections::HashMap::new();
-        for mapping in mappings {
-            by_target.entry(mapping.target_name.clone()).or_insert_with(Vec::new).push(mapping.clone());
+        // Group mappings by query sequence
+        let mut by_query: HashMap<String, Vec<usize>> = HashMap::new();
+        for (idx, mapping) in mappings.iter().enumerate() {
+            by_query.entry(mapping.query_name.clone())
+                .or_insert_with(Vec::new)
+                .push(idx);
         }
 
-        let mut all_kept = Vec::new();
+        // Clone mappings to allow modification
+        let mut mappings = mappings.to_vec();
 
-        for (_target, target_mappings) in by_target {
-            // Sort by score (block_length) in descending order
-            let mut sorted = target_mappings;
-            sorted.sort_by_key(|m| std::cmp::Reverse(m.block_length));
+        // Step 1: Initially mark ALL mappings as bad (discard=true, overlapped=false)
+        for mapping in &mut mappings {
+            mapping.discard = true;
+            mapping.overlapped = false;
+        }
 
-            let mut kept_for_target: Vec<RecordMeta> = Vec::new();
-            let overlap_threshold = self.config.overlap_threshold;
+        // Calculate scores for each mapping (identity * log(block_length))
+        let mut scores = Vec::with_capacity(mappings.len());
+        for mapping in &mappings {
+            // Use identity from PAF if valid, otherwise default to 0.95
+            let identity = if mapping.identity > 0.0 && mapping.identity <= 1.0 {
+                mapping.identity
+            } else {
+                0.95
+            };
+            // Score = identity * log(block_length)
+            let score = identity * (mapping.block_length as f64).ln();
+            scores.push(score);
+        }
 
-            for mapping in sorted {
-                let mut should_keep = true;
+        // For mapping filter mode, determine how many secondary mappings to keep
+        // In wfmash, the default is to keep ALL non-overlapping mappings (secondaryToKeep = MAX)
+        let secondary_to_keep = match self.config.mapping_filter_mode {
+            FilterMode::ManyToMany => usize::MAX, // Keep all non-overlapping
+            FilterMode::OneToMany => usize::MAX,  // Keep all non-overlapping (wfmash default)
+            FilterMode::OneToOne => 0,   // Keep only best mapping
+        };
 
-                // Only check overlap with mappings on same strand
-                for kept_mapping in &kept_for_target {
-                    if mapping.strand != kept_mapping.strand {
-                        continue; // Different strands don't compete
-                    }
+        let overlap_threshold = self.config.overlap_threshold;
 
-                    let q_overlap = Self::calculate_overlap(
-                        mapping.query_start, mapping.query_end,
-                        kept_mapping.query_start, kept_mapping.query_end
-                    );
-                    let t_overlap = Self::calculate_overlap(
-                        mapping.target_start, mapping.target_end,
-                        kept_mapping.target_start, kept_mapping.target_end
-                    );
-
-                    // Only skip if BOTH query and target overlap significantly
-                    // This allows inversions and repeats to coexist
-                    if q_overlap > overlap_threshold && t_overlap > overlap_threshold {
-                        should_keep = false;
-                        break;
-                    }
-                }
-
-                if should_keep {
-                    kept_for_target.push(mapping);
-                }
+        // Process each query sequence independently
+        for (_query, indices) in by_query {
+            // Step 2: Create event schedule for plane sweep FOR THIS QUERY
+            #[derive(Debug)]
+            struct Event {
+                pos: u32,
+                event_type: u8, // 0 = BEGIN, 1 = END
+                idx: usize,
             }
 
-            all_kept.extend(kept_for_target);
+            let mut events = Vec::with_capacity(indices.len() * 2);
+            for &idx in &indices {
+                let mapping = &mappings[idx];
+                events.push(Event { pos: mapping.query_start, event_type: 0, idx });
+                events.push(Event { pos: mapping.query_end, event_type: 1, idx });
+            }
+
+            // Sort events by position, then by type (BEGIN before END)
+            events.sort_by_key(|e| (e.pos, e.event_type));
+
+            // Step 3: Execute plane sweep algorithm FOR THIS QUERY
+            // BST to maintain active segments, ordered by score (descending), then query_start, then target_name
+            let mut active: BTreeSet<(OrderedFloat<f64>, u32, String, usize)> = BTreeSet::new();
+
+            let mut i = 0;
+            while i < events.len() {
+                let current_pos = events[i].pos;
+
+                // Process all events at the current position
+                let mut j = i;
+                while j < events.len() && events[j].pos == current_pos {
+                    let event = &events[j];
+                    let idx = event.idx;
+                    let mapping = &mappings[idx];
+
+                    if event.event_type == 0 { // BEGIN event
+                        // Add to active set (negative score for descending order)
+                        active.insert((
+                            OrderedFloat(-scores[idx]),
+                            mapping.query_start,
+                            mapping.target_name.clone(),
+                            idx
+                        ));
+                    } else { // END event
+                        // Remove from active set
+                        active.remove(&(
+                            OrderedFloat(-scores[idx]),
+                            mapping.query_start,
+                            mapping.target_name.clone(),
+                            idx
+                        ));
+                    }
+                    j += 1;
+                }
+
+                // Mark mappings as good (following wfmash's markGood logic)
+                if !active.is_empty() {
+                    let mut kept_count = 0;
+                    let active_vec: Vec<_> = active.iter().cloned().collect();
+
+                    // First, mark the best secondaryToKeep+1 mappings as good
+                    for &(_, _, _, idx) in &active_vec {
+                        if kept_count > secondary_to_keep {
+                            break;
+                        }
+                        mappings[idx].discard = false;
+                        kept_count += 1;
+                    }
+
+                    // Then check for overlaps if threshold < 1.0
+                    if overlap_threshold < 1.0 && kept_count > 0 {
+                        // Check overlaps with kept mappings
+                        let kept_indices: Vec<_> = active_vec.iter()
+                            .take(kept_count)
+                            .map(|(_, _, _, idx)| *idx)
+                            .collect();
+
+                        for (k, &(_, _, _, idx)) in active_vec.iter().enumerate() {
+                            if k >= kept_count {
+                                // This mapping is beyond secondaryToKeep, check overlap
+                                let mapping = &mappings[idx];
+
+                                for &kept_idx in &kept_indices {
+                                    let kept = &mappings[kept_idx];
+
+                                    // Only check overlap on same strand
+                                    if mapping.strand != kept.strand {
+                                        continue;
+                                    }
+
+                                    let q_overlap = Self::calculate_overlap(
+                                        mapping.query_start, mapping.query_end,
+                                        kept.query_start, kept.query_end
+                                    );
+
+                                    if q_overlap > overlap_threshold {
+                                        mappings[idx].overlapped = true;
+                                        mappings[idx].discard = true;
+                                        break;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                i = j;
+            }
         }
 
-        // Sort back by original rank to preserve order
-        all_kept.sort_by_key(|m| m.rank);
+        // Step 4: Remove bad mappings (where discard=true OR overlapped=true)
+        let result: Vec<_> = mappings.into_iter()
+            .filter(|m| !m.discard && !m.overlapped)
+            .collect();
 
-        Ok(all_kept)
+        Ok(result)
     }
 
     /// Apply scaffold plane sweep with proper prefix grouping and filtering mode
@@ -674,26 +820,44 @@ impl PafFilter {
     }
 
     /// Apply 1:1 filtering to scaffold chains (best per query and per target)
-    fn scaffold_one_to_one_filter(&self, mut chains: Vec<MergedChain>) -> Result<Vec<MergedChain>> {
-        // Sort by total length (descending) to prioritize longer chains
-        chains.sort_by(|a, b| b.total_length.cmp(&a.total_length));
+    fn scaffold_one_to_one_filter(&self, chains: Vec<MergedChain>) -> Result<Vec<MergedChain>> {
+        // First, group by (query_chr, target_chr) pairs and keep best in each
+        let mut by_chr_pair: HashMap<(String, String), Vec<MergedChain>> = HashMap::new();
+
+        for chain in chains {
+            let key = (chain.query_name.clone(), chain.target_name.clone());
+            by_chr_pair.entry(key).or_insert_with(Vec::new).push(chain);
+        }
+
+        // Keep only the best chain for each chromosome pair
+        let mut best_per_pair = Vec::new();
+        for (_pair, mut pair_chains) in by_chr_pair {
+            // Sort by total length (descending) to find the best
+            pair_chains.sort_by(|a, b| b.total_length.cmp(&a.total_length));
+            if let Some(best) = pair_chains.into_iter().next() {
+                best_per_pair.push(best);
+            }
+        }
+
+        // Now apply 1:1 constraint across all chromosome pairs
+        // Sort all best chains by total length
+        best_per_pair.sort_by(|a, b| b.total_length.cmp(&a.total_length));
 
         let mut kept_queries = HashSet::new();
         let mut kept_targets = HashSet::new();
         let mut result = Vec::new();
 
-        for chain in chains {
+        for chain in best_per_pair {
             let query_name = chain.query_name.clone();
             let target_name = chain.target_name.clone();
 
-            // Keep only if this is the first (best) for both query and target
+            // Keep only if this is the first (best) for both query and target chromosome
             if !kept_queries.contains(&query_name) && !kept_targets.contains(&target_name) {
-                kept_queries.insert(query_name);
-                kept_targets.insert(target_name);
+                kept_queries.insert(query_name.clone());
+                kept_targets.insert(target_name.clone());
                 result.push(chain);
             }
         }
-
         Ok(result)
     }
 

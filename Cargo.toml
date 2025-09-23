@@ -11,6 +11,7 @@ rayon = "1.10"
 byteorder = "1.5"
 indicatif = "0.17"
 tempfile = "3.8"
+ordered-float = "4.0"
 
 [dev-dependencies]
 pretty_assertions = "1.4"

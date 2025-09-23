@@ -43,8 +43,8 @@ struct Args {
     #[clap(short = 'x', long = "sparsify", default_value = "1.0")]
     sparsify: f64,
 
-    /// Filtering mode: "1:1", "1:∞"/"map" (plane sweep), or "N:N" (no filtering)
-    #[clap(short = 'm', long = "mode", default_value = "1:∞")]
+    /// Filtering mode: "1:1", "1:∞"/"1"/"map" (plane sweep), or "N:N"/"N" (no filtering)
+    #[clap(short = 'm', long = "mode", default_value = "1")]
     mode: String,
 
     /// Keep all fragment mappings (no merge)
@@ -122,10 +122,10 @@ fn main() -> Result<()> {
     // Parse filtering mode
     let (filter_mode, max_per_query, max_per_target) = match args.mode.as_str() {
         "1:1" => (FilterMode::OneToOne, Some(1), Some(1)),
-        "1:∞" | "1:inf" | "1:N" | "map" => (FilterMode::OneToMany, Some(1), args.mappings),
-        "N:N" => (FilterMode::ManyToMany, args.mappings, args.mappings),
+        "1" | "1:∞" | "1:inf" | "1:N" | "map" => (FilterMode::OneToMany, Some(1), args.mappings),
+        "N" | "N:N" => (FilterMode::ManyToMany, args.mappings, args.mappings),
         _ => {
-            eprintln!("Invalid mode: {}. Use '1:1', '1:∞' (or '1:inf', 'map'), or 'N:N'", args.mode);
+            eprintln!("Invalid mode: {}. Use '1:1', '1' (or '1:∞', '1:inf', 'map'), or 'N' (or 'N:N')", args.mode);
             std::process::exit(1);
         }
     };
@@ -137,9 +137,9 @@ fn main() -> Result<()> {
         mapping_filter_mode: filter_mode,
         mapping_max_per_query: max_per_query,
         mapping_max_per_target: max_per_target,
-        scaffold_filter_mode: FilterMode::OneToOne, // Default scaffold filtering
-        scaffold_max_per_query: Some(1),
-        scaffold_max_per_target: Some(1),
+        scaffold_filter_mode: FilterMode::OneToMany, // Default scaffold filtering (like wfmash)
+        scaffold_max_per_query: None,  // No limit - keep all non-overlapping scaffolds
+        scaffold_max_per_target: None,  // No limit on targets
         overlap_threshold: args.overlap,
         sparsity: args.sparsify,
         no_merge: args.no_merge,
