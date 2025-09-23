@@ -1,6 +1,9 @@
 mod compact_filter;
 mod plane_sweep_exact;
 
+#[cfg(test)]
+mod test_grouping;
+
 use anyhow::Result;
 use clap::Parser;
 use compact_filter::CompactPafFilter;

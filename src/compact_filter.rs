@@ -228,8 +228,21 @@ impl CompactPafFilter {
     pub fn apply_plane_sweep(&mut self, filter_spec: &str, overlap_threshold: f64) -> Result<Vec<u64>> {
         let (query_limit, target_limit) = parse_filter_spec(filter_spec);
 
-        // If no filtering, return all offsets
+        // If no filtering, return all offsets (but still skip self if needed)
         if query_limit.is_none() && target_limit.is_none() {
+            if !self.keep_self {
+                // Filter out self-mappings
+                return Ok(self.mappings.iter()
+                    .filter(|m| {
+                        let q_name = self.query_index.get_name(m.query_id).unwrap_or("");
+                        let t_name = self.target_index.get_name(m.target_id).unwrap_or("");
+                        let q_prefix = self.extract_prefix(q_name);
+                        let t_prefix = self.extract_prefix(t_name);
+                        q_prefix != t_prefix  // Keep only if different genomes
+                    })
+                    .map(|m| m.file_offset)
+                    .collect());
+            }
             return Ok(self.mappings.iter().map(|m| m.file_offset).collect());
         }
 
@@ -244,12 +257,21 @@ impl CompactPafFilter {
                 continue;
             }
 
+            // Skip self-mapping groups unless --self is specified
+            if !self.keep_self && query_prefix == target_prefix {
+                eprintln!("Skipping self-mapping group: {} -> {} ({} mappings)", query_prefix, target_prefix, group_indices.len());
+                continue;
+            }
+
+            eprintln!("Processing group {} -> {} with {} mappings", query_prefix, target_prefix, group_indices.len());
+
             // Apply plane sweep within this group
             let group_mappings: Vec<&mut CompactMapping> = group_indices.iter()
                 .map(|&idx| unsafe { &mut *(&mut self.mappings[idx] as *mut CompactMapping) })
                 .collect();
 
             let kept = apply_plane_sweep_to_group(group_mappings, query_limit, target_limit, overlap_threshold);
+            eprintln!("  Kept {} mappings from this group", kept.len());
 
             // Collect file offsets of kept mappings
             for &idx in &kept {
@@ -345,7 +367,7 @@ fn apply_plane_sweep_to_group(
     target_limit: Option<usize>,
     overlap_threshold: f64,
 ) -> Vec<usize> {
-    use crate::plane_sweep_exact::{PlaneSweepMapping, plane_sweep_query, plane_sweep_target, plane_sweep_both};
+    use crate::plane_sweep_exact::{PlaneSweepMapping, plane_sweep_query, plane_sweep_target};
 
     if mappings.is_empty() {
         return Vec::new();
@@ -366,12 +388,33 @@ fn apply_plane_sweep_to_group(
         .collect();
 
     // Apply filtering based on limits
+    // For 1:1 mode, we run sweeps SEQUENTIALLY (query then target on filtered results)
     let kept_indices = match (query_limit, target_limit) {
         (Some(q), Some(t)) if q > 0 && t > 0 => {
-            // Both axes
+            // Both axes - run SEQUENTIALLY like wfmash
             let secondaries_q = if q > 1 { q - 1 } else { 0 };
             let secondaries_t = if t > 1 { t - 1 } else { 0 };
-            plane_sweep_both(&mut plane_sweep_mappings, secondaries_q, secondaries_t, overlap_threshold)
+
+            // First run query sweep
+            let query_kept = plane_sweep_query(&mut plane_sweep_mappings, secondaries_q, overlap_threshold);
+
+            // Create filtered mappings from query results
+            let mut filtered_mappings: Vec<PlaneSweepMapping> = query_kept.iter()
+                .map(|&idx| plane_sweep_mappings[idx].clone())
+                .collect();
+
+            // Reset indices for filtered set
+            for (new_idx, mapping) in filtered_mappings.iter_mut().enumerate() {
+                mapping.idx = new_idx;
+            }
+
+            // Run target sweep on query-filtered results
+            let target_kept = plane_sweep_target(&mut filtered_mappings, secondaries_t, overlap_threshold);
+
+            // Map back to original indices
+            target_kept.iter()
+                .map(|&new_idx| query_kept[new_idx])
+                .collect()
         }
         (Some(q), _) if q > 0 => {
             // Query axis only
