@@ -1,14 +1,10 @@
 # SweepGA
 
-PAF filtering using Euclidean distance to scaffold anchors.
+Filters highly sensitive whole genome alignments to extract maximum synteny alignments using chaining, plane sweep, and distance-based rescue.
 
 ## What it does
 
-SweepGA filters genome alignment PAF files by identifying large scaffold alignments and rescuing nearby mappings based on Euclidean distance. The tool first finds high-confidence scaffold chains through merging and plane sweep filtering, then retains any mapping within a specified Euclidean distance threshold of these anchors.
-
-The algorithm works in multiple phases. First, it applies plane sweep filtering per query sequence to remove overlapping mappings while keeping the best scoring ones. Second, it merges nearby filtered mappings into chains using union-find, where mappings are chained if they're within a gap threshold in both query and target coordinates. Third, it identifies scaffold chains that exceed a minimum length threshold and applies scaffold-level filtering. Finally, it rescues non-scaffold mappings by calculating their Euclidean distance to scaffold anchors in query-target coordinate space, keeping those within the distance threshold.
-
-The Euclidean distance is calculated between mapping center points: for a mapping M and scaffold anchor S, the distance is sqrt((M_query_center - S_query_center)² + (M_target_center - S_target_center)²). This allows rescue across strands, so reverse complement mappings near forward strand scaffolds are retained.
+SweepGA chains mappings into large syntenic scaffolds (>10kb), filters them to keep the best per genome pair, then rescues any mappings within 100kb of these anchors. This extracts clean synteny alignments from noisy all-vs-all mappings.
 
 ## Installation
 
