@@ -25,14 +25,14 @@ fn make_mapping(
 #[test]
 fn test_empty_input() {
     let mut mappings = vec![];
-    let kept = plane_sweep_query(&mut mappings, 0, 0.95);
+    let kept = plane_sweep_query(&mut mappings, 1, 0.95);
     assert_eq!(kept.len(), 0, "Empty input should return empty");
 }
 
 #[test]
 fn test_single_mapping() {
     let mut mappings = vec![make_mapping(0, 100, 200, 300, 400)];
-    let kept = plane_sweep_query(&mut mappings, 0, 0.95);
+    let kept = plane_sweep_query(&mut mappings, 1, 0.95);
     assert_eq!(kept, vec![0], "Single mapping should always be kept");
 }
 
@@ -45,7 +45,7 @@ fn test_non_overlapping_mappings() {
     ];
 
     // With n=0 (best only), both should be kept as they're best at different positions
-    let kept = plane_sweep_query(&mut mappings, 0, 0.95);
+    let kept = plane_sweep_query(&mut mappings, 1, 0.95);
     assert_eq!(
         kept.len(),
         2,
@@ -65,7 +65,7 @@ fn test_overlapping_mappings_keep_best() {
     // With n=0 (best only), both are kept because each is best at some position
     // Mapping 0 is best at positions 100-149
     // Mapping 1 is best at positions 150-350
-    let kept = plane_sweep_query(&mut mappings, 0, 0.95);
+    let kept = plane_sweep_query(&mut mappings, 1, 0.95);
     assert_eq!(
         kept.len(),
         2,
@@ -84,7 +84,7 @@ fn test_identical_mappings() {
 
     // With n=0 (best only), only the best should be kept
     // When all have identical scores, we keep only 1 (respecting the n=0 limit)
-    let kept = plane_sweep_query(&mut mappings, 0, 0.95);
+    let kept = plane_sweep_query(&mut mappings, 1, 0.95);
     assert_eq!(
         kept.len(),
         1,
@@ -116,7 +116,7 @@ fn test_contained_mappings() {
 
     // The larger mapping has better score (log(200) > log(30))
     // With n=0, only the larger should be kept
-    let kept = plane_sweep_query(&mut mappings, 0, 0.95);
+    let kept = plane_sweep_query(&mut mappings, 1, 0.95);
     assert_eq!(kept.len(), 1, "Only best (larger) mapping kept");
     assert_eq!(kept[0], 0, "Larger mapping has better score");
 
@@ -158,7 +158,7 @@ fn test_complex_overlaps() {
     ];
 
     // With n=0, each mapping might be best at some position
-    let kept = plane_sweep_query(&mut mappings, 0, 0.95);
+    let kept = plane_sweep_query(&mut mappings, 1, 0.95);
     // All mappings are kept because each is best at its non-overlapping portion
     assert!(
         kept.len() >= 3,
@@ -175,7 +175,7 @@ fn test_target_axis_filtering() {
         make_mapping(2, 500, 600, 600, 700), // Target: 600-700 (no overlap)
     ];
 
-    let kept = plane_sweep_target(&mut mappings, 0, 0.95);
+    let kept = plane_sweep_target(&mut mappings, 1, 0.95);
     // Mappings 0 and 1 overlap on target, both might be kept if best at different positions
     // Mapping 2 doesn't overlap, should be kept
     assert!(kept.contains(&2), "Non-overlapping mapping on target kept");
@@ -192,7 +192,7 @@ fn test_both_axes_filtering() {
     ];
 
     // Filter on both axes with n=0 (best only)
-    let kept = plane_sweep_both(&mut mappings, 0, 0, 0.95);
+    let kept = plane_sweep_both(&mut mappings, 1, 1, 0.95);
 
     // Should keep mapping 0 (best at its position)
     // Should keep mapping 3 (no overlap)
@@ -238,15 +238,15 @@ fn test_secondary_count() {
 
     // All mappings have similar query range, sorted by length (score)
 
-    // n=0: Keep only the best
-    let kept = plane_sweep_query(&mut mappings, 0, 1.0);
-    assert_eq!(kept.len(), 1, "n=0 keeps only best");
+    // n=1: Keep only the best
+    let kept = plane_sweep_query(&mut mappings, 1, 1.0);
+    assert_eq!(kept.len(), 1, "n=1 keeps only best");
     assert_eq!(kept[0], 0);
 
-    // n=2: Keep best + 2 secondaries = 3 total
+    // n=3: Keep 3 total
     mappings.iter_mut().for_each(|m| m.flags = 0);
-    let kept = plane_sweep_query(&mut mappings, 2, 1.0);
-    assert_eq!(kept.len(), 3, "n=2 keeps best + 2 secondaries");
+    let kept = plane_sweep_query(&mut mappings, 3, 1.0);
+    assert_eq!(kept.len(), 3, "n=3 keeps 3 mappings total");
 
     // n=usize::MAX: Keep all
     mappings.iter_mut().for_each(|m| m.flags = 0);
@@ -279,7 +279,7 @@ fn test_event_ordering() {
     ];
 
     // The zero-length mapping should get worst score
-    let kept = plane_sweep_query(&mut mappings, 0, 0.95);
+    let kept = plane_sweep_query(&mut mappings, 1, 0.95);
     assert!(!kept.contains(&0), "Zero-length mapping should not be kept");
 }
 
@@ -302,7 +302,7 @@ fn test_real_world_scenario() {
     ];
 
     // Default behavior: n=0 (keep best at each position)
-    let kept = plane_sweep_query(&mut mappings, 0, 0.95);
+    let kept = plane_sweep_query(&mut mappings, 1, 0.95);
 
     // Should keep the large spanning alignment (best score due to length)
     assert!(kept.contains(&8), "Large spanning alignment kept");

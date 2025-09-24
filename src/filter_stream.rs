@@ -354,19 +354,22 @@ impl StreamFilter {
             // Use union-find for transitive chaining (like wfmash)
             let mut uf = UnionFind::new(sorted_indices.len());
 
-            // Check pairs for potential chaining, but stop when too far
+            // Check pairs for potential chaining using binary search optimization
             for i in 0..sorted_indices.len() {
                 let (_rank_i, idx_i) = sorted_indices[i];
 
-                // Look ahead until we find a mapping too far away in query
-                for j in (i+1)..sorted_indices.len() {
-                    let (_rank_j, idx_j) = sorted_indices[j];
+                // Binary search to find the range of mappings within max_gap
+                // We want all mappings j where: metadata[idx_j].query_start <= metadata[idx_i].query_end + max_gap
+                let search_bound = metadata[idx_i].query_end + max_gap;
 
-                    // If this mapping starts too far away in query, stop looking
-                    // This prevents creating genome-spanning chains
-                    if metadata[idx_j].query_start > metadata[idx_i].query_end + max_gap {
-                        break; // Too far, no point checking further mappings
-                    }
+                // Find the first mapping that starts after our search bound
+                let j_end = sorted_indices[i + 1..]
+                    .binary_search_by_key(&(search_bound + 1), |&(_rank, idx)| metadata[idx].query_start)
+                    .unwrap_or_else(|pos| pos) + i + 1;
+
+                // Now check all mappings from i+1 to j_end-1
+                for j in (i + 1)..j_end {
+                    let (_rank_j, idx_j) = sorted_indices[j];
 
                     // Calculate distances (similar to wfmash's q_dist and r_dist)
                     // Note: wfmash allows small overlaps (up to windowLength/5)

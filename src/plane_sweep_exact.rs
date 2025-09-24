@@ -516,7 +516,7 @@ mod tests {
     #[test]
     fn test_empty_input() {
         let mut mappings = vec![];
-        let kept = plane_sweep_query(&mut mappings, 0, 0.95);
+        let kept = plane_sweep_query(&mut mappings, 1, 0.95);
         assert_eq!(kept.len(), 0);
     }
 
@@ -531,7 +531,7 @@ mod tests {
             identity: 0.95,
             flags: 0,
         }];
-        let kept = plane_sweep_query(&mut mappings, 0, 0.95);
+        let kept = plane_sweep_query(&mut mappings, 1, 0.95);
         assert_eq!(kept, vec![0]);
     }
 
@@ -559,7 +559,7 @@ mod tests {
         ];
 
         // Keep best 1 per position (0 secondaries)
-        let kept = plane_sweep_query(&mut mappings, 0, 0.95);
+        let kept = plane_sweep_query(&mut mappings, 1, 0.95);
         assert_eq!(kept.len(), 2); // Both should be kept (non-overlapping)
     }
 
@@ -588,7 +588,7 @@ mod tests {
 
         // Keep best 1 per position - both mappings will be kept because they're
         // the best at different positions (0 at 100-149, both compete at 150-200, 1 at 201-250)
-        let kept = plane_sweep_query(&mut mappings, 0, 0.95);
+        let kept = plane_sweep_query(&mut mappings, 1, 0.95);
         assert_eq!(kept.len(), 2); // Both are kept as they're best at different positions
     }
 
@@ -626,9 +626,9 @@ mod tests {
 
         // All three mappings have identical query ranges (100-200)
         // so they all have the same score (log(100))
-        // With mappings_to_keep=1, we keep best + 1 = 2 total
-        let kept = plane_sweep_query(&mut mappings, 1, 0.95);
-        assert_eq!(kept.len(), 2); // Best + 1 secondary
+        // With mappings_to_keep=2, we keep exactly 2 mappings
+        let kept = plane_sweep_query(&mut mappings, 2, 0.95);
+        assert_eq!(kept.len(), 2); // Keep 2 mappings
         assert!(kept.contains(&0));
         assert!(kept.contains(&1));
     }
@@ -669,24 +669,24 @@ mod tests {
         ];
 
         // With identical query ranges, all mappings have the same score
-        // With n=0, we keep only 1 (best only)
-        let kept = plane_sweep_query(&mut mappings, 0, 1.0);
+        // With n=1, we keep only 1 (best only)
+        let kept = plane_sweep_query(&mut mappings, 1, 1.0);
         assert_eq!(kept.len(), 1); // Only best kept
 
-        // With 1 secondary allowed - keep best + 1 = 2 total
+        // With 2 mappings allowed - keep exactly 2
         mappings.iter_mut().for_each(|m| {
             m.flags = 0;
         });
-        let kept = plane_sweep_query(&mut mappings, 1, 1.0);
-        assert_eq!(kept.len(), 2); // Best + 1 secondary
+        let kept = plane_sweep_query(&mut mappings, 2, 1.0);
+        assert_eq!(kept.len(), 2); // Keep 2 mappings
 
-        // With 1 secondary and overlap filtering
-        // The first 2 are kept as primary/secondary
+        // With 2 mappings and overlap filtering
+        // The first 2 are kept
         mappings.iter_mut().for_each(|m| {
             m.flags = 0;
         });
-        let kept = plane_sweep_query(&mut mappings, 1, 0.5);
-        assert_eq!(kept.len(), 2); // Best + 1 secondary
+        let kept = plane_sweep_query(&mut mappings, 2, 0.5);
+        assert_eq!(kept.len(), 2); // Keep 2 mappings
     }
 
     #[test]
@@ -712,7 +712,7 @@ mod tests {
             },
         ];
 
-        let kept = plane_sweep_query(&mut mappings, 0, 0.95);
+        let kept = plane_sweep_query(&mut mappings, 1, 0.95);
         assert_eq!(kept.len(), 2); // Both at extremes
     }
 }

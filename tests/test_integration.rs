@@ -104,7 +104,7 @@ chr1\t10000\t1000\t2000\t+\tchr1_ref\t10000\t9000\t10000\t1000\t1000\t60\tcg:Z:1
             temp_path,
             "-o",
             output_path,
-            "-n=2", // Keep best + 2 secondaries
+            "-n=3", // Keep 3 mappings total
             "-s",
             "0",
         ]) // No scaffolding
@@ -119,12 +119,12 @@ chr1\t10000\t1000\t2000\t+\tchr1_ref\t10000\t9000\t10000\t1000\t1000\t60\tcg:Z:1
     let result = fs::read_to_string(output_path).expect("Failed to read output");
     let lines: Vec<&str> = result.lines().collect();
 
-    // With n=2, we keep best + 2 secondaries = 3 total
+    // With n=3, we keep exactly 3 mappings total
     // Even with identical scores, the limit is respected
     assert_eq!(
         lines.len(),
         3,
-        "With n=2, should keep exactly 3 mappings (best + 2 secondaries)"
+        "With n=3, should keep exactly 3 mappings"
     );
 
     // Clean up
@@ -210,7 +210,7 @@ contig1\t8000\t4000\t5000\t+\tref1\t10000\t4000\t5000\t1000\t1000\t60\tcg:Z:1000
             temp_path,
             "-o",
             output_path,
-            "-n=0", // Keep only best
+            "-n=1", // Keep only best
             "-p",
             "0.5", // 50% overlap threshold
             "-s",
