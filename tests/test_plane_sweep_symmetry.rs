@@ -15,7 +15,7 @@ fn make_interval(idx: usize, begin: u32, end: u32) -> Interval {
 #[test]
 fn test_symmetry_simple() {
     // Create mappings with query and target coordinates
-    let mappings = vec![
+    let mappings = [
         (100, 200, 300, 400), // query: 100-200, target: 300-400
         (150, 250, 350, 450), // overlaps on both axes
         (300, 400, 100, 200), // non-overlapping
@@ -51,13 +51,13 @@ fn test_symmetry_simple() {
 #[test]
 fn test_symmetry_transposed() {
     // Create mappings where we swap query/target
-    let original = vec![
+    let original = [
         (100, 500, 1000, 1400), // 400 length on both
         (200, 400, 1100, 1300), // 200 length on both
         (600, 900, 1500, 1800), // 300 length on both
     ];
 
-    let transposed = vec![
+    let transposed = [
         (1000, 1400, 100, 500), // Same mapping, swapped axes
         (1100, 1300, 200, 400),
         (1500, 1800, 600, 900),
@@ -87,7 +87,7 @@ fn test_symmetry_transposed() {
 #[test]
 fn test_symmetry_with_overlaps() {
     // Mappings with complex overlaps
-    let mappings = vec![
+    let mappings = [
         (0, 100, 0, 100),     // Square mapping
         (50, 150, 50, 150),   // Overlaps 50% with first
         (200, 300, 200, 300), // Non-overlapping square
@@ -122,7 +122,7 @@ fn test_symmetry_with_overlaps() {
 #[test]
 fn test_asymmetric_mappings() {
     // Mappings that are NOT symmetric - different behavior expected
-    let mappings = vec![
+    let mappings = [
         (0, 200, 0, 100),    // Longer on query axis
         (50, 150, 200, 400), // Longer on target axis
         (300, 500, 50, 150), // Longer on query axis
@@ -159,7 +159,7 @@ fn test_asymmetric_mappings() {
 #[test]
 fn test_perfect_symmetry_all_axes() {
     // Test that filtering on both axes with symmetric data produces symmetric results
-    let symmetric_mappings = vec![
+    let symmetric_mappings = [
         (100, 300, 100, 300), // 200x200
         (400, 600, 400, 600), // 200x200
         (700, 900, 700, 900), // 200x200

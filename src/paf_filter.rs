@@ -572,8 +572,9 @@ impl PafFilter {
                     + 1;
 
                 // Now check all mappings from i+1 to j_end-1
-                for (_rank_j, idx_j) in &sorted_indices[(i + 1)..j_end] {
-                    let idx_j = *idx_j;
+                #[allow(clippy::needless_range_loop)]
+                for j in (i + 1)..j_end {
+                    let (_rank_j, idx_j) = sorted_indices[j];
 
                     // Calculate distances (similar to wfmash's q_dist and r_dist)
                     // Note: wfmash allows small overlaps (up to windowLength/5)

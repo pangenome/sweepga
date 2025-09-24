@@ -5,6 +5,7 @@ use sweepga::union_find::UnionFind;
 
 #[derive(Clone, Debug)]
 struct TestMapping {
+    #[allow(dead_code)]
     idx: usize,
     query_start: u32,
     query_end: u32,
