@@ -4,7 +4,7 @@ Filters highly sensitive whole genome alignments using plane sweep algorithm and
 
 ## What it does
 
-By default, SweepGA applies plane sweep filtering to keep the best mapping at each query position. With scaffolding enabled (`-s`), it chains mappings into large syntenic scaffolds, filters them to keep the best per genome pair, then rescues any mappings within a specified distance of these anchors. This extracts clean synteny alignments from noisy all-vs-all mappings.
+By default, SweepGA chains mappings into syntenic scaffolds and applies plane sweep filtering, then rescues nearby mappings. With `-j 0`, it performs only plane sweep filtering without scaffolding. This extracts clean synteny alignments from noisy all-vs-all mappings.
 
 ## Installation
 
@@ -21,11 +21,14 @@ cargo install --force --path .
 SweepGA filters PAF alignments from tools like wfmash, FASTGA, or minimap2. Basic usage:
 
 ```bash
-# Default: plane sweep filtering (keep best mapping per query position)
+# Default: scaffolding + plane sweep + rescue (with -j 100000)
 sweepga -i alignments.paf -o filtered.paf
 
-# With scaffolding for synteny extraction
-sweepga -i alignments.paf -o filtered.paf -s 10000 -j 100000
+# Plane sweep only (no scaffolding)
+sweepga -i alignments.paf -o filtered.paf -j 0
+
+# Custom scaffold parameters
+sweepga -i alignments.paf -o filtered.paf -j 50000 -s 5000
 ```
 
 ### Complete example workflow
@@ -39,8 +42,8 @@ fastga -T8 -pafx data/scerevisiae8.fa > data/scerevisiae8.raw.paf
 head -n1 data/scerevisiae8.raw.paf
 # SGDref#1#chrI  230218  0  2641  -  SGDref#1#chrIV  1531933  1522805  1525422  2341  2692  255  dv:f:.1135  df:i:351  cg:Z:6=1D2=1X1I6=...
 
-# Apply scaffold-based filtering with -s (scaffolds >10kb, rescue within 100kb)
-sweepga -i data/scerevisiae8.raw.paf -o data/scerevisiae8.filtered.paf -s 10000
+# Apply scaffold-based filtering (default: -j 100000, -s 10000)
+sweepga -i data/scerevisiae8.raw.paf -o data/scerevisiae8.filtered.paf
 # Reduces to 27,940 mappings: 336 scaffolds + 27,604 rescued
 
 # Check the breakdown
@@ -60,11 +63,11 @@ The default parameters work well for most eukaryotic genomes: scaffold mass of 1
 - `"many:many"` or `"∞:∞"` - Keep all non-overlapping mappings
 - `"M:N"` - Keep top M per query, top N per target
 
-### Scaffolding Parameters (optional)
+### Scaffolding Parameters
 
-`-s/--scaffold-mass` sets the minimum length for a chain to be considered a scaffold anchor (default 0 = disabled). When >0, enables scaffolding mode.
+`-j/--scaffold-jump` sets the maximum gap for merging mappings into scaffold chains (default 100000). Set to 0 to disable scaffolding and use plane sweep only.
 
-`-j/--scaffold-jump` sets the maximum gap for merging mappings into scaffold chains (default 100000). This controls how scattered mappings can be while still being considered part of the same chain.
+`-s/--scaffold-mass` sets the minimum length for a chain to be considered a scaffold anchor (default 10000). Only used when scaffolding is enabled (`-j > 0`).
 
 `-D/--scaffold-dist` sets the maximum Euclidean distance for rescue (default 100000). Mappings further than this from any scaffold anchor are discarded.
 

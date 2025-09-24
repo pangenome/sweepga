@@ -217,8 +217,8 @@ impl PafFilter {
         // which groups by query sequence internally. We just need to pass ALL mappings to it.
         metadata = self.apply_plane_sweep_to_mappings(&metadata)?;
 
-        // If no scaffold filtering, we're done - return the plane-swept mappings
-        if self.config.min_scaffold_length == 0 {
+        // If no scaffolding (scaffold_gap == 0), we're done - return the plane-swept mappings
+        if self.config.scaffold_gap == 0 {
             let mut result = HashMap::new();
             for m in metadata {
                 result.insert(m.rank, m);

@@ -19,7 +19,7 @@ query2\t1500\t200\t1200\t+\ttarget2\t2500\t200\t1200\t1000\t1000\t60\tcg:Z:1000M
     let output_path = "/tmp/test_sweepga_output.paf";
     fs::write(temp_path, paf_content).expect("Failed to write test PAF");
 
-    // Run sweepga with default settings (plane sweep with n=0)
+    // Run sweepga with plane sweep only (no scaffolding)
     let output = Command::new("cargo")
         .args(&[
             "run",
@@ -31,9 +31,9 @@ query2\t1500\t200\t1200\t+\ttarget2\t2500\t200\t1200\t1000\t1000\t60\tcg:Z:1000M
             temp_path,
             "-o",
             output_path,
-            "-s",
+            "-j",
             "0",
-        ]) // No scaffolding, just plane sweep
+        ]) // -j 0 disables scaffolding, just plane sweep
         .output()
         .expect("Failed to run sweepga");
 
@@ -105,9 +105,9 @@ chr1\t10000\t1000\t2000\t+\tchr1_ref\t10000\t9000\t10000\t1000\t1000\t60\tcg:Z:1
             "-o",
             output_path,
             "-n=3", // Keep 3 mappings total
-            "-s",
+            "-j",
             "0",
-        ]) // No scaffolding
+        ]) // -j 0 disables scaffolding
         .output()
         .expect("Failed to run sweepga");
 
@@ -154,9 +154,9 @@ read1\t5000\t3000\t3400\t+\tref1\t10000\t5000\t5400\t400\t400\t60\tcg:Z:400M
             "-o",
             output_path,
             "-n=-1", // Keep all non-overlapping
-            "-s",
+            "-j",
             "0",
-        ]) // No scaffolding
+        ]) // -j 0 disables scaffolding
         .output()
         .expect("Failed to run sweepga");
 
@@ -209,9 +209,9 @@ contig1\t8000\t4000\t5000\t+\tref1\t10000\t4000\t5000\t1000\t1000\t60\tcg:Z:1000
             "-n=1", // Keep only best
             "-p",
             "0.5", // 50% overlap threshold
-            "-s",
+            "-j",
             "0",
-        ]) // No scaffolding
+        ]) // -j 0 disables scaffolding
         .output()
         .expect("Failed to run sweepga");
 
@@ -268,9 +268,9 @@ seq2\t4000\t200\t1200\t+\tref2\t8000\t300\t1300\t1000\t1000\t60\tcg:Z:1000M
             temp_path,
             "-o",
             output_filtered,
-            "-s",
+            "-j",
             "0",
-        ]) // No scaffolding, just plane sweep
+        ]) // -j 0 disables scaffolding, just plane sweep
         .output()
         .expect("Failed to run sweepga with filtering");
 

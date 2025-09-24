@@ -49,12 +49,12 @@ struct Args {
     #[clap(long = "scaffold-filter", default_value = "1:1")]
     scaffold_filter: String,
 
-    /// Scaffold jump (gap) distance [100000]
+    /// Scaffold jump (gap) distance. 0 = disable scaffolding (plane sweep only), >0 = enable scaffolding [100000]
     #[clap(short = 'j', long = "scaffold-jump", default_value = "100000")]
     scaffold_jump: u32,
 
-    /// Minimum scaffold length (0 = disable scaffolding, which is default)
-    #[clap(short = 's', long = "scaffold-mass", default_value = "0")]
+    /// Minimum scaffold length when scaffolding is enabled [10000]
+    #[clap(short = 's', long = "scaffold-mass", default_value = "10000")]
     scaffold_mass: u32,
 
     /// Scaffold chain overlap threshold [0.5]
