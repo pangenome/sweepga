@@ -121,11 +121,7 @@ chr1\t10000\t1000\t2000\t+\tchr1_ref\t10000\t9000\t10000\t1000\t1000\t60\tcg:Z:1
 
     // With n=3, we keep exactly 3 mappings total
     // Even with identical scores, the limit is respected
-    assert_eq!(
-        lines.len(),
-        3,
-        "With n=3, should keep exactly 3 mappings"
-    );
+    assert_eq!(lines.len(), 3, "With n=3, should keep exactly 3 mappings");
 
     // Clean up
     fs::remove_file(temp_path).ok();

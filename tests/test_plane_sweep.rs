@@ -82,23 +82,19 @@ fn test_identical_mappings() {
         make_mapping(2, 100, 200, 700, 800), // Same query range, different target
     ];
 
-    // With n=0 (best only), only the best should be kept
-    // When all have identical scores, we keep only 1 (respecting the n=0 limit)
+    // With n=1 (keep exactly 1), only the best should be kept
+    // When all have identical scores, we keep only 1 (respecting the n=1 limit)
     let kept = plane_sweep_query(&mut mappings, 1, 0.95);
     assert_eq!(
         kept.len(),
         1,
-        "With n=0, only 1 mapping kept even with identical scores"
+        "With n=1, only 1 mapping kept even with identical scores"
     );
 
-    // With n=1 (best + 1 secondary), we keep 2 total
+    // With n=2 (keep 2 total), we keep 2 mappings
     mappings.iter_mut().for_each(|m| m.flags = 0); // Reset flags
-    let kept = plane_sweep_query(&mut mappings, 1, 0.95);
-    assert_eq!(
-        kept.len(),
-        2,
-        "With n=1, keep 2 mappings (best + 1 secondary)"
-    );
+    let kept = plane_sweep_query(&mut mappings, 2, 0.95);
+    assert_eq!(kept.len(), 2, "With n=2, keep 2 mappings total");
 
     // With n=usize::MAX (all non-overlapping), all should be kept
     mappings.iter_mut().for_each(|m| m.flags = 0); // Reset flags
@@ -115,15 +111,15 @@ fn test_contained_mappings() {
     ];
 
     // The larger mapping has better score (log(200) > log(30))
-    // With n=0, only the larger should be kept
+    // With n=1, only the larger should be kept
     let kept = plane_sweep_query(&mut mappings, 1, 0.95);
     assert_eq!(kept.len(), 1, "Only best (larger) mapping kept");
     assert_eq!(kept[0], 0, "Larger mapping has better score");
 
-    // With n=1 (best + 1 secondary), both should be kept
+    // With n=2 (keep 2 mappings), both should be kept
     mappings.iter_mut().for_each(|m| m.flags = 0);
-    let kept = plane_sweep_query(&mut mappings, 1, 0.95);
-    assert_eq!(kept.len(), 2, "Both mappings kept as primary + secondary");
+    let kept = plane_sweep_query(&mut mappings, 2, 0.95);
+    assert_eq!(kept.len(), 2, "Both mappings kept with n=2");
 }
 
 #[test]
@@ -136,11 +132,11 @@ fn test_overlap_threshold() {
         make_mapping(3, 100, 300, 1300, 1500), // Same query range
     ];
 
-    // With n=1 (keep 2 total) and strict overlap threshold
+    // With n=2 (keep 2 total) and strict overlap threshold
     // All 4 mappings have identical query ranges and same scores
-    // With n=1, we keep only 2 mappings regardless of identical scores
-    let kept = plane_sweep_query(&mut mappings, 1, 0.5);
-    assert_eq!(kept.len(), 2, "With n=1, keep exactly 2 mappings");
+    // With n=2, we keep only 2 mappings regardless of identical scores
+    let kept = plane_sweep_query(&mut mappings, 2, 0.5);
+    assert_eq!(kept.len(), 2, "With n=2, keep exactly 2 mappings");
 
     // The third and fourth mappings should be marked as overlapped
     // since they have 100% overlap with the kept mappings
@@ -301,7 +297,7 @@ fn test_real_world_scenario() {
         make_mapping(8, 8000, 12000, 20000, 24000), // Very long mapping
     ];
 
-    // Default behavior: n=0 (keep best at each position)
+    // Default behavior: n=1 (keep best at each position)
     let kept = plane_sweep_query(&mut mappings, 1, 0.95);
 
     // Should keep the large spanning alignment (best score due to length)
@@ -310,11 +306,11 @@ fn test_real_world_scenario() {
     // Should keep some from each non-overlapping region
     assert!(kept.len() >= 4, "Multiple regions represented");
 
-    // With n=1, should keep more mappings (secondaries)
+    // With n=2, should keep more mappings
     mappings.iter_mut().for_each(|m| m.flags = 0);
-    let kept_with_secondary = plane_sweep_query(&mut mappings, 1, 0.95);
+    let kept_with_more = plane_sweep_query(&mut mappings, 2, 0.95);
     assert!(
-        kept_with_secondary.len() > kept.len(),
-        "More mappings kept with secondaries allowed"
+        kept_with_more.len() > kept.len(),
+        "More mappings kept with n=2"
     );
 }

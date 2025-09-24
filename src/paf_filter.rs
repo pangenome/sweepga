@@ -335,12 +335,16 @@ impl PafFilter {
             }
 
             // Collect all member mappings from scaffold chains
-            for chain in &filtered_chains {
+            for (chain_idx, chain) in filtered_chains.iter().enumerate() {
+                // Create a unique chain ID
+                let chain_id = format!("chain_{}", chain_idx + 1);
+
                 for &member_rank in &chain.member_indices {
                     // member_indices contains ranks of original mappings
                     if let Some(meta) = rank_to_meta.get(&member_rank) {
                         let mut scaffold_meta = (*meta).clone();
                         scaffold_meta.chain_status = ChainStatus::Scaffold;
+                        scaffold_meta.chain_id = Some(chain_id.clone());
                         scaffold_mappings.insert(member_rank, scaffold_meta);
                     }
                 }
@@ -352,10 +356,15 @@ impl PafFilter {
         // Step 4: Identify anchors - use the actual member mappings of scaffold chains
         // NOTE: member_indices actually contains ranks, not array indices!
         let mut anchor_ranks = HashSet::new();
-        for chain in &filtered_chains {
+        let mut rank_to_chain_id: HashMap<usize, String> = HashMap::new();
+
+        for (chain_idx, chain) in filtered_chains.iter().enumerate() {
+            let chain_id = format!("chain_{}", chain_idx + 1);
+
             // The member_indices field contains the ranks of mappings in this chain
             for &member_rank in &chain.member_indices {
                 anchor_ranks.insert(member_rank);
+                rank_to_chain_id.insert(member_rank, chain_id.clone());
             }
         }
         eprintln!(
@@ -422,8 +431,12 @@ impl PafFilter {
                 let mapping = &all_original_mappings[mapping_idx];
 
                 if anchor_ranks.contains(&mapping.rank) {
-                    // This is an anchor - keep it
-                    kept_mappings.push(mapping.clone());
+                    // This is an anchor - keep it with its chain ID
+                    let mut anchor_mapping = mapping.clone();
+                    if let Some(chain_id) = rank_to_chain_id.get(&mapping.rank) {
+                        anchor_mapping.chain_id = Some(chain_id.clone());
+                    }
+                    kept_mappings.push(anchor_mapping);
                     if mapping.block_length >= self.config.min_scaffold_length {
                         kept_status.insert(mapping.rank, ChainStatus::Scaffold);
                     } else {
@@ -436,6 +449,7 @@ impl PafFilter {
                     let mapping_t_center = (mapping.target_start + mapping.target_end) / 2;
 
                     let mut min_distance = u32::MAX;
+                    let mut closest_anchor_rank = None;
 
                     // Only check anchors that are within max_deviation in query space
                     for &anchor_idx in chr_anchors {
@@ -455,7 +469,10 @@ impl PafFilter {
 
                         // Euclidean distance
                         let distance = ((q_diff * q_diff + t_diff * t_diff) as f64).sqrt() as u32;
-                        min_distance = min_distance.min(distance);
+                        if distance < min_distance {
+                            min_distance = distance;
+                            closest_anchor_rank = Some(anchor.rank);
+                        }
 
                         // Early exit if we found a close enough anchor
                         if min_distance <= max_deviation {
@@ -464,8 +481,14 @@ impl PafFilter {
                     }
 
                     if min_distance <= max_deviation {
-                        // This mapping is rescued
-                        kept_mappings.push(mapping.clone());
+                        // This mapping is rescued - assign it to the same chain as its closest anchor
+                        let mut rescued_mapping = mapping.clone();
+                        if let Some(anchor_rank) = closest_anchor_rank {
+                            if let Some(chain_id) = rank_to_chain_id.get(&anchor_rank) {
+                                rescued_mapping.chain_id = Some(chain_id.clone());
+                            }
+                        }
+                        kept_mappings.push(rescued_mapping);
                         kept_status.insert(mapping.rank, ChainStatus::Rescued);
                     }
                 }
@@ -542,8 +565,12 @@ impl PafFilter {
 
                 // Find the first mapping that starts after our search bound
                 let j_end = sorted_indices[i + 1..]
-                    .binary_search_by_key(&(search_bound + 1), |&(_rank, idx)| metadata[idx].query_start)
-                    .unwrap_or_else(|pos| pos) + i + 1;
+                    .binary_search_by_key(&(search_bound + 1), |&(_rank, idx)| {
+                        metadata[idx].query_start
+                    })
+                    .unwrap_or_else(|pos| pos)
+                    + i
+                    + 1;
 
                 // Now check all mappings from i+1 to j_end-1
                 for j in (i + 1)..j_end {

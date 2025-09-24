@@ -1,10 +1,10 @@
 # SweepGA
 
-Filters highly sensitive whole genome alignments to extract maximum synteny alignments using chaining, plane sweep, and distance-based rescue.
+Filters highly sensitive whole genome alignments using plane sweep algorithm and optional synteny-based scaffolding with distance-based rescue.
 
 ## What it does
 
-SweepGA chains mappings into large syntenic scaffolds (>10kb), filters them to keep the best per genome pair (1:1 filtering), then rescues any mappings within 100kb of these anchors. This extracts clean synteny alignments from noisy all-vs-all mappings.
+By default, SweepGA applies plane sweep filtering to keep the best mapping at each query position. With scaffolding enabled (`-s`), it chains mappings into large syntenic scaffolds, filters them to keep the best per genome pair, then rescues any mappings within a specified distance of these anchors. This extracts clean synteny alignments from noisy all-vs-all mappings.
 
 ## Installation
 
@@ -16,14 +16,16 @@ cd sweepga
 cargo install --force --path .
 ```
 
-## Usage with FASTGA
+## Basic Usage
 
-FASTGA generates all-vs-all genome alignments in PAF format with full CIGAR strings. These alignments typically need filtering to remove redundant and weak mappings. Basic usage:
+SweepGA filters PAF alignments from tools like wfmash, FASTGA, or minimap2. Basic usage:
 
 ```bash
-# Generate alignments with FASTGA and filter with SweepGA
-fastga -pafm data/scerevisiae8.fa data/scerevisiae8.fa > data/scerevisiae8.raw.paf
-sweepga -i data/scerevisiae8.raw.paf -o data/scerevisiae8.filtered.paf
+# Default: plane sweep filtering (keep best mapping per query position)
+sweepga -i alignments.paf -o filtered.paf
+
+# With scaffolding for synteny extraction
+sweepga -i alignments.paf -o filtered.paf -s 10000 -j 100000
 ```
 
 ### Complete example workflow
@@ -37,8 +39,8 @@ fastga -T8 -pafx data/scerevisiae8.fa > data/scerevisiae8.raw.paf
 head -n1 data/scerevisiae8.raw.paf
 # SGDref#1#chrI  230218  0  2641  -  SGDref#1#chrIV  1531933  1522805  1525422  2341  2692  255  dv:f:.1135  df:i:351  cg:Z:6=1D2=1X1I6=...
 
-# Apply scaffold-based filtering (default: scaffolds >10kb, rescue within 100kb)
-sweepga -i data/scerevisiae8.raw.paf -o data/scerevisiae8.filtered.paf
+# Apply scaffold-based filtering with -s (scaffolds >10kb, rescue within 100kb)
+sweepga -i data/scerevisiae8.raw.paf -o data/scerevisiae8.filtered.paf -s 10000
 # Reduces to 27,940 mappings: 336 scaffolds + 27,604 rescued
 
 # Check the breakdown
@@ -50,15 +52,27 @@ The default parameters work well for most eukaryotic genomes: scaffold mass of 1
 
 ## Parameters
 
-The main parameters control scaffold identification and rescue distance:
+### Plane Sweep Filtering (default behavior)
 
-`-S/--scaffold-mass` sets the minimum length for a chain to be considered a scaffold anchor (default 10000). Smaller values create more anchors but may include repetitive elements.
+`-n/--num-mappings` controls how many mappings to keep per query position (default "1:1"):
+- `"1:1"` - Keep best mapping on both query and target axes
+- `"1"` or `"1:∞"` - Keep best on query axis only
+- `"many:many"` or `"∞:∞"` - Keep all non-overlapping mappings
+- `"M:N"` - Keep top M per query, top N per target
 
-`-j/--scaffold-jump` sets the maximum gap for merging mappings into scaffold chains (default 100000). This controls how scattered mappings can be while still being considered part of the same scaffold.
+### Scaffolding Parameters (optional)
+
+`-s/--scaffold-mass` sets the minimum length for a chain to be considered a scaffold anchor (default 0 = disabled). When >0, enables scaffolding mode.
+
+`-j/--scaffold-jump` sets the maximum gap for merging mappings into scaffold chains (default 100000). This controls how scattered mappings can be while still being considered part of the same chain.
 
 `-D/--scaffold-dist` sets the maximum Euclidean distance for rescue (default 100000). Mappings further than this from any scaffold anchor are discarded.
 
-`-m/--mode` controls the mapping filtering strategy: "1" or "1:∞" (default) keeps all non-overlapping mappings per query position, "1:1" keeps only the best per query-target pair, "N" or "N:N" disables plane sweep filtering entirely.
+### Chain Annotations
+
+When scaffolding is enabled, mappings are annotated with:
+- `ch:Z:chain_N` - Chain ID for grouped mappings
+- `st:Z:{scaffold|rescued|unassigned}` - Status of each mapping
 
 ## Example: varying rescue distance
 
