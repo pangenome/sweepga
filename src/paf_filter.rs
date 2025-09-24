@@ -173,8 +173,8 @@ impl PafFilter {
             // Look for divergence tag from FASTGA
             let mut identity = matches as f64 / block_length.max(1) as f64;
             for field in &fields[11..] {
-                if field.starts_with("dv:f:") {
-                    if let Ok(div) = field[5..].parse::<f64>() {
+                if let Some(div_str) = field.strip_prefix("dv:f:") {
+                    if let Ok(div) = div_str.parse::<f64>() {
                         identity = 1.0 - div;
                     }
                 }
@@ -249,8 +249,7 @@ impl PafFilter {
             }
         }
         eprintln!(
-            "[DEBUG] Chr1->Chr1 mappings in metadata: {}, max position: {}",
-            chr1_mappings, max_chr1_pos
+            "[DEBUG] Chr1->Chr1 mappings in metadata: {chr1_mappings}, max position: {max_chr1_pos}"
         );
 
         // Use scaffold_gap for merging into scaffolds (per CLAUDE.md)
@@ -271,8 +270,7 @@ impl PafFilter {
             }
         }
         eprintln!(
-            "[DEBUG] Chr1->Chr1 chains: {}, max end position: {}",
-            chr1_chains, max_chain_end
+            "[DEBUG] Chr1->Chr1 chains: {chr1_chains}, max end position: {max_chain_end}"
         );
 
         // Step 2: Filter chains by minimum scaffold length
@@ -296,8 +294,7 @@ impl PafFilter {
             }
         }
         eprintln!(
-            "[DEBUG] Chr1->Chr1 scaffolds after length filter: {}, max end: {}",
-            chr1_scaffolds, max_scaffold_end
+            "[DEBUG] Chr1->Chr1 scaffolds after length filter: {chr1_scaffolds}, max end: {max_scaffold_end}"
         );
 
         // Step 3: Apply plane sweep to scaffolds based on scaffold_filter_mode
@@ -322,8 +319,7 @@ impl PafFilter {
             }
         }
         eprintln!(
-            "[DEBUG] Chr1->Chr1 scaffolds after plane sweep: {}, max end: {}",
-            chr1_final, max_final_end
+            "[DEBUG] Chr1->Chr1 scaffolds after plane sweep: {chr1_final}, max end: {max_final_end}"
         );
 
         // If scaffolds_only mode, return the actual mappings that form scaffolds
@@ -391,7 +387,7 @@ impl PafFilter {
             let key = (mapping.query_name.clone(), mapping.target_name.clone());
             mappings_by_chr_pair
                 .entry(key)
-                .or_insert_with(Vec::new)
+                .or_default()
                 .push(idx);
         }
 
@@ -408,7 +404,7 @@ impl PafFilter {
                 let key = (anchor.query_name.clone(), anchor.target_name.clone());
                 anchors_by_chr_pair
                     .entry(key)
-                    .or_insert_with(Vec::new)
+                    .or_default()
                     .push(anchor_idx);
             }
         }
@@ -461,14 +457,14 @@ impl PafFilter {
 
                         // Early exit if anchor is too far in query space
                         let q_diff =
-                            (mapping_q_center as i64 - anchor_q_center as i64).abs() as u64;
+                            (mapping_q_center as i64 - anchor_q_center as i64).unsigned_abs();
                         if q_diff > max_deviation as u64 {
                             continue; // Too far in query dimension alone
                         }
 
                         let anchor_t_center = (anchor.target_start + anchor.target_end) / 2;
                         let t_diff =
-                            (mapping_t_center as i64 - anchor_t_center as i64).abs() as u64;
+                            (mapping_t_center as i64 - anchor_t_center as i64).unsigned_abs();
 
                         // Euclidean distance
                         let distance = ((q_diff * q_diff + t_diff * t_diff) as f64).sqrt() as u32;
@@ -544,7 +540,7 @@ impl PafFilter {
             );
             groups
                 .entry(key)
-                .or_insert_with(Vec::new)
+                .or_default()
                 .push((meta.rank, idx));
         }
 
@@ -576,8 +572,8 @@ impl PafFilter {
                     + 1;
 
                 // Now check all mappings from i+1 to j_end-1
-                for j in (i + 1)..j_end {
-                    let (_rank_j, idx_j) = sorted_indices[j];
+                for (_rank_j, idx_j) in &sorted_indices[(i + 1)..j_end] {
+                    let idx_j = *idx_j;
 
                     // Calculate distances (similar to wfmash's q_dist and r_dist)
                     // Note: wfmash allows small overlaps (up to windowLength/5)
@@ -773,7 +769,7 @@ impl PafFilter {
             let target_key = chain.target_name.clone();
             prefix_groups
                 .entry((query_key, target_key))
-                .or_insert_with(Vec::new)
+                .or_default()
                 .push(chain);
         }
 
@@ -808,7 +804,7 @@ impl PafFilter {
 
         for chain in chains {
             let key = (chain.query_name.clone(), chain.target_name.clone());
-            by_chr_pair.entry(key).or_insert_with(Vec::new).push(chain);
+            by_chr_pair.entry(key).or_default().push(chain);
         }
 
         // Keep only the best chain for each chromosome pair
@@ -850,7 +846,7 @@ impl PafFilter {
         for chain in chains {
             by_query
                 .entry(chain.query_name.clone())
-                .or_insert_with(Vec::new)
+                .or_default()
                 .push(chain);
         }
 
@@ -913,7 +909,7 @@ impl PafFilter {
         for chain in chains {
             by_query
                 .entry(chain.query_name.clone())
-                .or_insert_with(Vec::new)
+                .or_default()
                 .push(chain);
         }
 
@@ -966,7 +962,7 @@ impl PafFilter {
         for chain in chains {
             by_query
                 .entry(chain.query_name.clone())
-                .or_insert_with(Vec::new)
+                .or_default()
                 .push(chain);
         }
 
@@ -1073,7 +1069,7 @@ impl PafFilter {
         for meta in metadata {
             by_query
                 .entry(meta.query_name.clone())
-                .or_insert_with(Vec::new)
+                .or_default()
                 .push(meta);
         }
 
@@ -1110,7 +1106,7 @@ impl PafFilter {
             for meta in result {
                 by_query
                     .entry(meta.query_name.clone())
-                    .or_insert_with(Vec::new)
+                    .or_default()
                     .push(meta);
             }
 
@@ -1128,7 +1124,7 @@ impl PafFilter {
             for meta in result {
                 by_target
                     .entry(meta.target_name.clone())
-                    .or_insert_with(Vec::new)
+                    .or_default()
                     .push(meta);
             }
 
@@ -1166,7 +1162,7 @@ impl PafFilter {
 
                 // Add our annotations as tags
                 if let Some(ref chain_id) = meta.chain_id {
-                    line.push_str(&format!("\tch:Z:{}", chain_id));
+                    line.push_str(&format!("\tch:Z:{chain_id}"));
                 }
                 // Output status tag like wfmash does
                 let status_str = match meta.chain_status {
@@ -1174,9 +1170,9 @@ impl PafFilter {
                     ChainStatus::Rescued => "rescued",
                     ChainStatus::Unassigned => "unassigned",
                 };
-                line.push_str(&format!("\tst:Z:{}", status_str));
+                line.push_str(&format!("\tst:Z:{status_str}"));
 
-                writeln!(writer, "{}", line)?;
+                writeln!(writer, "{line}")?;
             }
         }
 

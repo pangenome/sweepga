@@ -174,7 +174,7 @@ fn mark_good(
     let _first_score = first.unwrap().score;
 
     // Keep up to mappings_to_keep mappings total
-    for (kept, mapping_order) in bst.into_iter().enumerate() {
+    for (kept, mapping_order) in bst.iter().enumerate() {
         // Stop if we've kept enough mappings
         if kept >= mappings_to_keep {
             break;

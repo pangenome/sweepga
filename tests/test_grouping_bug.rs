@@ -26,7 +26,7 @@ chrII_query\t15000\t2000\t3000\t+\tchrII_target2\t10000\t4000\t5000\t1000\t1000\
 
     // Run sweepga with plane sweep (n=0, keep only best)
     let output = Command::new("cargo")
-        .args(&[
+        .args([
             "run",
             "--release",
             "--bin",
@@ -63,9 +63,9 @@ chrII_query\t15000\t2000\t3000\t+\tchrII_target2\t10000\t4000\t5000\t1000\t1000\
         .filter(|line| line.starts_with("chrII_query"))
         .count();
 
-    eprintln!("chrI_query mappings: {}", chr1_mappings);
-    eprintln!("chrII_query mappings: {}", chr2_mappings);
-    eprintln!("Output:\n{}", result);
+    eprintln!("chrI_query mappings: {chr1_mappings}");
+    eprintln!("chrII_query mappings: {chr2_mappings}");
+    eprintln!("Output:\n{result}");
 
     // With CORRECT grouping by query only:
     // chrI_query has 3 overlapping mappings, should keep 1 (best)
@@ -114,7 +114,7 @@ query1\t5000\t1000\t2000\t+\ttarget_D\t10000\t1000\t2000\t1000\t1000\t60\tcg:Z:1
     fs::write(temp_path, paf_content).expect("Failed to write test PAF");
 
     let output = Command::new("cargo")
-        .args(&[
+        .args([
             "run",
             "--release",
             "--bin",

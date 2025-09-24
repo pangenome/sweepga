@@ -23,17 +23,9 @@ fn merge_mappings_quadratic(mappings: &[TestMapping], max_gap: u32) -> Vec<Vec<u
                 break; // Early termination
             }
 
-            let q_gap = if mappings[j].query_start >= mappings[i].query_end {
-                mappings[j].query_start - mappings[i].query_end
-            } else {
-                0 // Overlap
-            };
+            let q_gap = mappings[j].query_start.saturating_sub(mappings[i].query_end);
 
-            let t_gap = if mappings[j].target_start >= mappings[i].target_end {
-                mappings[j].target_start - mappings[i].target_end
-            } else {
-                0 // Overlap
-            };
+            let t_gap = mappings[j].target_start.saturating_sub(mappings[i].target_end);
 
             if q_gap <= max_gap && t_gap <= max_gap {
                 uf.union(i, j);
@@ -60,17 +52,9 @@ fn merge_mappings_binary_search(mappings: &[TestMapping], max_gap: u32) -> Vec<V
 
         // Only check mappings in the valid range
         for j in (i + 1)..j_end {
-            let q_gap = if mappings[j].query_start >= mappings[i].query_end {
-                mappings[j].query_start - mappings[i].query_end
-            } else {
-                0 // Overlap
-            };
+            let q_gap = mappings[j].query_start.saturating_sub(mappings[i].query_end);
 
-            let t_gap = if mappings[j].target_start >= mappings[i].target_end {
-                mappings[j].target_start - mappings[i].target_end
-            } else {
-                0 // Overlap
-            };
+            let t_gap = mappings[j].target_start.saturating_sub(mappings[i].target_end);
 
             if q_gap <= max_gap && t_gap <= max_gap {
                 uf.union(i, j);
@@ -84,8 +68,7 @@ fn merge_mappings_binary_search(mappings: &[TestMapping], max_gap: u32) -> Vec<V
 #[test]
 fn test_binary_search_finds_correct_range() {
     // Test that binary search finds exactly the right range of candidates
-    let mappings = vec![
-        TestMapping {
+    let mappings = [TestMapping {
             idx: 0,
             query_start: 100,
             query_end: 200,
@@ -119,8 +102,7 @@ fn test_binary_search_finds_correct_range() {
             query_end: 1100,
             target_start: 1000,
             target_end: 1100,
-        },
-    ];
+        }];
 
     let max_gap = 100;
 
@@ -323,13 +305,11 @@ fn test_edge_case_no_merging() {
     for i in 0..3 {
         assert!(
             result_quad.iter().any(|chain| chain == &vec![i]),
-            "Quadratic should have singleton chain for mapping {}",
-            i
+            "Quadratic should have singleton chain for mapping {i}"
         );
         assert!(
             result_binary.iter().any(|chain| chain == &vec![i]),
-            "Binary search should have singleton chain for mapping {}",
-            i
+            "Binary search should have singleton chain for mapping {i}"
         );
     }
 }
@@ -425,8 +405,7 @@ fn test_performance_scaling() {
         assert_eq!(
             result_quad.len(),
             result_binary.len(),
-            "Size {}: Different number of chains!",
-            size
+            "Size {size}: Different number of chains!"
         );
 
         let speedup = time_quad.as_nanos() as f64 / time_binary.as_nanos().max(1) as f64;
@@ -442,7 +421,7 @@ fn test_performance_scaling() {
         // Note: Due to overhead, binary search might not always be faster at smaller sizes
         if size >= 1000 {
             // At very large sizes, binary search should show improvement
-            println!("      Size {} speedup: {:.2}x", size, speedup);
+            println!("      Size {size} speedup: {speedup:.2}x");
         }
     }
 }
@@ -472,13 +451,13 @@ fn test_worst_case_dense_mappings() {
     let start = Instant::now();
     let result_quad = merge_mappings_quadratic(&mappings, max_gap);
     let time_quad = start.elapsed();
-    println!("  Quadratic: {:?}", time_quad);
+    println!("  Quadratic: {time_quad:?}");
 
     // Time binary search
     let start = Instant::now();
     let result_binary = merge_mappings_binary_search(&mappings, max_gap);
     let time_binary = start.elapsed();
-    println!("  Binary:    {:?}", time_binary);
+    println!("  Binary:    {time_binary:?}");
 
     // Verify correctness
     assert_eq!(
@@ -488,7 +467,7 @@ fn test_worst_case_dense_mappings() {
     );
 
     let speedup = time_quad.as_nanos() as f64 / time_binary.as_nanos().max(1) as f64;
-    println!("  Speedup:   {:.1}x", speedup);
+    println!("  Speedup:   {speedup:.1}x");
 
     // In worst case with dense data, binary search should still be competitive
     assert!(
@@ -534,8 +513,7 @@ fn test_large_scale_performance() {
         assert_eq!(
             result_quad.len(),
             result_binary.len(),
-            "Both algorithms must produce same number of chains at size {}",
-            size
+            "Both algorithms must produce same number of chains at size {size}"
         );
 
         let speedup = time_quad.as_micros() as f64 / time_binary.as_micros().max(1) as f64;

@@ -26,7 +26,7 @@ fn parse_metric_number(s: &str) -> Result<u32, String> {
 
     let base: f64 = num_part
         .parse()
-        .map_err(|e| format!("Invalid number: {}", e))?;
+        .map_err(|e| format!("Invalid number: {e}"))?;
 
     let multiplier = match suffix {
         Some('k') | Some('K') => 1000.0,
@@ -34,8 +34,7 @@ fn parse_metric_number(s: &str) -> Result<u32, String> {
         Some('g') | Some('G') => 1_000_000_000.0,
         Some(c) => {
             return Err(format!(
-                "Unknown suffix '{}'. Use k/K (1000), m/M (1e6), or g/G (1e9)",
-                c
+                "Unknown suffix '{c}'. Use k/K (1000), m/M (1e6), or g/G (1e9)"
             ))
         }
         None => 1.0,
@@ -44,7 +43,7 @@ fn parse_metric_number(s: &str) -> Result<u32, String> {
     let result = base * multiplier;
 
     if result > u32::MAX as f64 {
-        return Err(format!("Value {} too large for u32", result));
+        return Err(format!("Value {result} too large for u32"));
     }
 
     Ok(result as u32)
@@ -154,8 +153,7 @@ fn parse_filter_mode(mode: &str, filter_type: &str) -> (FilterMode, Option<usize
                 return (mode, per_query, per_target);
             }
             eprintln!(
-                "Warning: Invalid {} filter '{}', using default 1:1",
-                filter_type, s
+                "Warning: Invalid {filter_type} filter '{s}', using default 1:1"
             );
             (FilterMode::OneToOne, Some(1), Some(1))
         }
@@ -170,8 +168,7 @@ fn parse_filter_mode(mode: &str, filter_type: &str) -> (FilterMode, Option<usize
                 return (FilterMode::OneToMany, Some(n), None);
             }
             eprintln!(
-                "Warning: Invalid {} filter '{}', using default 1:1",
-                filter_type, mode
+                "Warning: Invalid {filter_type} filter '{mode}', using default 1:1"
             );
             (FilterMode::OneToOne, Some(1), Some(1))
         }

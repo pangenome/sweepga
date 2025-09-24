@@ -20,7 +20,7 @@ query2\t1500\t200\t1200\t+\ttarget2\t2500\t200\t1200\t1000\t1000\t60\tcg:Z:1000M
 
     // Run sweepga with plane sweep only (no scaffolding)
     let output = Command::new("cargo")
-        .args(&[
+        .args([
             "run",
             "--release",
             "--bin",
@@ -93,7 +93,7 @@ chr1\t10000\t1000\t2000\t+\tchr1_ref\t10000\t9000\t10000\t1000\t1000\t60\tcg:Z:1
 
     // Run with n=2 (keep best + 2 secondaries = 3 total)
     let output = Command::new("cargo")
-        .args(&[
+        .args([
             "run",
             "--release",
             "--bin",
@@ -142,7 +142,7 @@ read1\t5000\t3000\t3400\t+\tref1\t10000\t5000\t5400\t400\t400\t60\tcg:Z:400M
 
     // Run with n=-1 (keep all non-overlapping)
     let output = Command::new("cargo")
-        .args(&[
+        .args([
             "run",
             "--release",
             "--bin",
@@ -195,7 +195,7 @@ contig1\t8000\t4000\t5000\t+\tref1\t10000\t4000\t5000\t1000\t1000\t60\tcg:Z:1000
 
     // Run with overlap threshold
     let output = Command::new("cargo")
-        .args(&[
+        .args([
             "run",
             "--release",
             "--bin",
@@ -257,7 +257,7 @@ seq2\t4000\t200\t1200\t+\tref2\t8000\t300\t1300\t1000\t1000\t60\tcg:Z:1000M
 
     // Run with plane sweep filtering (default)
     let output = Command::new("cargo")
-        .args(&[
+        .args([
             "run",
             "--release",
             "--bin",
@@ -277,7 +277,7 @@ seq2\t4000\t200\t1200\t+\tref2\t8000\t300\t1300\t1000\t1000\t60\tcg:Z:1000M
 
     // Run without filtering
     let output = Command::new("cargo")
-        .args(&[
+        .args([
             "run",
             "--release",
             "--bin",

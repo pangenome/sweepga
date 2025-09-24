@@ -460,7 +460,7 @@ pub fn apply_plane_sweep(
         // Apply query axis filtering if needed
         if let Some(limit) = query_limit {
             if limit > 0 {
-                let secondaries = if limit > 1 { limit - 1 } else { 0 };
+                let secondaries = limit.saturating_sub(1);
                 filter_by_query(
                     &mut group_mappings,
                     &mut group_aux,
@@ -473,7 +473,7 @@ pub fn apply_plane_sweep(
         // Apply target axis filtering if needed
         if let Some(limit) = target_limit {
             if limit > 0 {
-                let secondaries = if limit > 1 { limit - 1 } else { 0 };
+                let secondaries = limit.saturating_sub(1);
                 filter_by_reference(
                     &mut group_mappings,
                     &mut group_aux,
@@ -521,7 +521,7 @@ fn group_by_prefix_pairs(
 
         groups
             .entry((query_prefix, target_prefix))
-            .or_insert_with(Vec::new)
+            .or_default()
             .push(idx);
     }
 

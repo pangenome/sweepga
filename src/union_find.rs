@@ -40,6 +40,7 @@ impl UnionFind {
     }
 
     /// Check if two elements are in the same set
+    #[allow(dead_code)]
     pub fn connected(&mut self, x: usize, y: usize) -> bool {
         self.find(x) == self.find(y)
     }

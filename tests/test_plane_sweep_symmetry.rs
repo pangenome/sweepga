@@ -114,8 +114,7 @@ fn test_symmetry_with_overlaps() {
         // For symmetric mappings, should get same results
         assert_eq!(
             query_kept, target_kept,
-            "Symmetry broken for n={}: query {:?} != target {:?}",
-            n, query_kept, target_kept
+            "Symmetry broken for n={n}: query {query_kept:?} != target {target_kept:?}"
         );
     }
 }
@@ -184,8 +183,7 @@ fn test_perfect_symmetry_all_axes() {
 
         assert_eq!(
             query_kept, target_kept,
-            "Perfect symmetry should give identical results for n={}",
-            n
+            "Perfect symmetry should give identical results for n={n}"
         );
 
         // All mappings are non-overlapping and equal score

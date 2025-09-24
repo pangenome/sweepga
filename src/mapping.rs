@@ -21,6 +21,7 @@ impl Mapping {
     pub const FLAG_DISCARD: u8 = 0x02;
     pub const FLAG_OVERLAPPED: u8 = 0x04;
 
+    #[allow(dead_code)]
     pub fn is_reverse(&self) -> bool {
         (self.flags & Self::FLAG_STRAND) != 0
     }
@@ -239,13 +240,13 @@ impl fmt::Display for PafRecord {
 
         // Write CIGAR if present
         if let Some(ref cigar) = self.cigar {
-            write!(f, "\tcg:Z:{}", cigar)?;
+            write!(f, "\tcg:Z:{cigar}")?;
         }
 
         // Write other tags
         for (key, val) in &self.tags {
             if key != "cg" {
-                write!(f, "\t{}:{}", key, val)?;
+                write!(f, "\t{key}:{val}")?;
             }
         }
 

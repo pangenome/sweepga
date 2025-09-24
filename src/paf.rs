@@ -105,7 +105,7 @@ impl<R: Read> PafReader<R> {
                     if tag == "cg" && typ == "Z" {
                         paf.cigar = Some(val.to_string());
                     } else {
-                        paf.tags.push((format!("{}:{}", tag, typ), val.to_string()));
+                        paf.tags.push((format!("{tag}:{typ}"), val.to_string()));
                     }
                 }
             }
