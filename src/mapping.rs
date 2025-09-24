@@ -3,6 +3,7 @@ use std::fmt;
 /// Compact 32-byte mapping structure matching wfmash's MappingResult
 #[repr(C, packed)]
 #[derive(Debug, Clone, Copy)]
+#[allow(dead_code)]
 pub struct Mapping {
     pub ref_seq_id: u32,         // 4 bytes - reference sequence ID
     pub ref_start_pos: u32,      // 4 bytes - reference start position
@@ -85,6 +86,7 @@ pub enum ChainStatus {
 
 /// Auxiliary data for mappings during filtering/merging
 #[derive(Debug, Clone)]
+#[allow(dead_code)]
 pub struct MappingAux {
     pub split_mapping_id: u64,
     pub chain_pair_score: f64,
@@ -117,6 +119,7 @@ impl Default for MappingAux {
 
 /// PAF record structure
 #[derive(Debug, Clone)]
+#[allow(dead_code)]
 pub struct PafRecord {
     pub query_name: String,
     pub query_len: u32,
@@ -182,7 +185,7 @@ impl PafRecord {
     }
 
     /// Convert PAF record to internal mapping structure
-    pub fn to_mapping(&self, ref_id: u32, query_id: i32) -> Mapping {
+    pub fn to_mapping(&self, ref_id: u32, _query_id: i32) -> Mapping {
         let mut mapping = Mapping {
             ref_seq_id: ref_id,
             ref_start_pos: self.ref_start,

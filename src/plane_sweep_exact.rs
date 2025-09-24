@@ -1,4 +1,6 @@
 // Exact implementation of wfmash plane sweep algorithm
+#![allow(dead_code)]
+
 use std::cmp::Ordering;
 use std::collections::BTreeSet;
 
@@ -163,7 +165,6 @@ fn mark_good(
 
     // First pass: mark best mappings as not discarded
     let mut kept_indices = Vec::new();
-    let mut kept = 0;
 
     // Get the best (first) mapping's score
     let first = bst.iter().next();
@@ -173,7 +174,7 @@ fn mark_good(
     let _first_score = first.unwrap().score;
 
     // Keep up to mappings_to_keep mappings total
-    for mapping_order in bst {
+    for (kept, mapping_order) in bst.into_iter().enumerate() {
         // Stop if we've kept enough mappings
         if kept >= mappings_to_keep {
             break;
@@ -182,7 +183,6 @@ fn mark_good(
         // Mark as good and increment kept
         mappings[mapping_order.idx].set_discard(false);
         kept_indices.push(mapping_order.idx);
-        kept += 1;
     }
 
     // Second pass: check for overlaps if threshold < 1.0
@@ -270,8 +270,7 @@ pub fn plane_sweep_query(
         }
 
         // Update BST by processing all events at current position
-        for k in i..j {
-            let event = &events[k];
+        for event in &events[i..j] {
             let mapping_order = MappingOrder {
                 idx: event.mapping_idx,
                 score: mappings[event.mapping_idx].score(),
@@ -353,8 +352,7 @@ pub fn plane_sweep_target(
             j += 1;
         }
 
-        for k in i..j {
-            let event = &events[k];
+        for event in &events[i..j] {
             let mapping_order = MappingOrder {
                 idx: event.mapping_idx,
                 score: mappings[event.mapping_idx].score(),
@@ -432,7 +430,7 @@ pub fn plane_sweep_grouped_query(
     for (idx, (_, query_name)) in mappings.iter().enumerate() {
         groups
             .entry(query_name.clone())
-            .or_insert_with(Vec::new)
+            .or_default()
             .push(idx);
     }
 
@@ -479,7 +477,7 @@ pub fn plane_sweep_grouped_target(
     for (idx, (_, target_name)) in mappings.iter().enumerate() {
         groups
             .entry(target_name.clone())
-            .or_insert_with(Vec::new)
+            .or_default()
             .push(idx);
     }
 

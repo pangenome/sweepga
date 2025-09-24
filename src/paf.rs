@@ -3,6 +3,7 @@ use anyhow::{bail, Result};
 use std::collections::HashMap;
 use std::io::{BufRead, BufReader, Read};
 
+#[allow(dead_code)]
 pub struct PafReader<R: Read> {
     reader: BufReader<R>,
     ref_name_to_id: HashMap<String, u32>,
@@ -123,6 +124,7 @@ impl<R: Read> PafReader<R> {
 }
 
 /// Read PAF from file
+#[allow(dead_code)]
 pub fn read_paf_file(path: &str) -> Result<Vec<(PafRecord, Mapping, MappingAux)>> {
     use std::fs::File;
     let file = File::open(path)?;
@@ -131,6 +133,7 @@ pub fn read_paf_file(path: &str) -> Result<Vec<(PafRecord, Mapping, MappingAux)>
 }
 
 /// Read PAF from stdin
+#[allow(dead_code)]
 pub fn read_paf_stdin() -> Result<Vec<(PafRecord, Mapping, MappingAux)>> {
     use std::io::stdin;
     let mut reader = PafReader::new(stdin());

@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 use crate::mapping::{Mapping, MappingAux};
 use std::cmp::Ordering;
 use std::collections::{BTreeSet, HashMap};
@@ -506,7 +508,7 @@ pub fn apply_plane_sweep(
 
 /// Group mappings by query-target prefix pairs
 fn group_by_prefix_pairs(
-    mappings: &[Mapping],
+    _mappings: &[Mapping],
     aux_data: &[MappingAux],
     prefix_delimiter: char,
     skip_prefix: bool,

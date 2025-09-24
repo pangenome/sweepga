@@ -1,4 +1,5 @@
 /// Union-Find (Disjoint Sets) data structure for transitive mapping merging
+#[allow(dead_code)]
 pub struct UnionFind {
     parent: Vec<usize>,
     rank: Vec<usize>,
@@ -51,7 +52,7 @@ impl UnionFind {
 
         for i in 0..n {
             let root = self.find(i);
-            root_to_group.entry(root).or_insert_with(Vec::new).push(i);
+            root_to_group.entry(root).or_default().push(i);
         }
 
         root_to_group.into_values().collect()

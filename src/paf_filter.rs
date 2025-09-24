@@ -18,6 +18,7 @@ pub enum FilterMode {
 
 /// Filter configuration
 #[derive(Clone)]
+#[allow(dead_code)]
 pub struct FilterConfig {
     pub chain_gap: u32,        // -c/--chain-jump
     pub min_block_length: u32, // -l/--block-length
@@ -46,6 +47,7 @@ pub struct FilterConfig {
 
 /// Record metadata for filtering without modifying records
 #[derive(Debug, Clone)]
+#[allow(dead_code)]
 struct RecordMeta {
     rank: usize, // 0-based index in original file
     query_name: String,
@@ -65,6 +67,7 @@ struct RecordMeta {
 
 /// Represents a merged chain for scaffold filtering
 #[derive(Debug, Clone)]
+#[allow(dead_code)]
 struct MergedChain {
     query_name: String,
     target_name: String,
@@ -80,11 +83,13 @@ struct MergedChain {
 /// PAF filter that preserves original records
 pub struct PafFilter {
     config: FilterConfig,
+    #[allow(dead_code)]
     temp_dir: Option<String>,
     keep_self: bool,
     scaffolds_only: bool,
 }
 
+#[allow(dead_code)]
 impl PafFilter {
     pub fn new(config: FilterConfig) -> Self {
         PafFilter {
@@ -781,7 +786,7 @@ impl PafFilter {
         let filtered_groups: Vec<Vec<MergedChain>> = prefix_groups
             .into_par_iter()
             .map(|((_q_prefix, _t_prefix), group)| {
-                let group_size = group.len();
+                let _group_size = group.len();
                 let filtered = match self.config.scaffold_filter_mode {
                     FilterMode::OneToOne => self.scaffold_one_to_one_filter(group),
                     FilterMode::OneToMany => self.scaffold_one_to_many_filter(group),
