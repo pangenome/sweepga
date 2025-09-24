@@ -21,7 +21,7 @@ cargo install --force --path .
 SweepGA filters PAF alignments from tools like wfmash, FASTGA, or minimap2. Basic usage:
 
 ```bash
-# Default: scaffolding + plane sweep + rescue (with -j 100000)
+# Default: scaffolding + plane sweep + rescue (with -j 10000)
 sweepga -i alignments.paf -o filtered.paf
 
 # Plane sweep only (no scaffolding)
@@ -42,7 +42,7 @@ fastga -T8 -pafx data/scerevisiae8.fa > data/scerevisiae8.raw.paf
 head -n1 data/scerevisiae8.raw.paf
 # SGDref#1#chrI  230218  0  2641  -  SGDref#1#chrIV  1531933  1522805  1525422  2341  2692  255  dv:f:.1135  df:i:351  cg:Z:6=1D2=1X1I6=...
 
-# Apply scaffold-based filtering (default: -j 100000, -s 10000)
+# Apply scaffold-based filtering (default: -j 10000, -s 10000)
 sweepga -i data/scerevisiae8.raw.paf -o data/scerevisiae8.filtered.paf
 # Reduces to 27,940 mappings: 336 scaffolds + 27,604 rescued
 
@@ -51,7 +51,7 @@ grep -c "st:Z:scaffold" data/scerevisiae8.filtered.paf  # 336 scaffold anchors
 grep -c "st:Z:rescued" data/scerevisiae8.filtered.paf   # 27,604 rescued mappings
 ```
 
-The default parameters work well for most eukaryotic genomes: scaffold mass of 10kb identifies major syntenic blocks, scaffold jump of 100kb allows chaining across typical intergenic distances, and rescue distance of 100kb captures local rearrangements and smaller homologous features near the main alignments.
+The default parameters work well for most eukaryotic genomes: scaffold mass of 10kb identifies major syntenic blocks, scaffold jump of 10kb allows chaining across gene boundaries, and rescue distance of 100kb captures local rearrangements and smaller homologous features near the main alignments.
 
 ## Parameters
 
@@ -65,9 +65,9 @@ The default parameters work well for most eukaryotic genomes: scaffold mass of 1
 
 ### Scaffolding Parameters
 
-`-j/--scaffold-jump` sets the maximum gap for merging mappings into scaffold chains (default 100000). Set to 0 to disable scaffolding and use plane sweep only.
+`-j/--scaffold-jump` sets the maximum gap for merging mappings into scaffold chains (default 10k). Set to 0 to disable scaffolding and use plane sweep only.
 
-`-s/--scaffold-mass` sets the minimum length for a chain to be considered a scaffold anchor (default 10000). Only used when scaffolding is enabled (`-j > 0`).
+`-s/--scaffold-mass` sets the minimum length for a chain to be considered a scaffold anchor (default 10k). Only used when scaffolding is enabled (`-j > 0`).
 
 `-D/--scaffold-dist` sets the maximum Euclidean distance for rescue (default 100000). Mappings further than this from any scaffold anchor are discarded.
 

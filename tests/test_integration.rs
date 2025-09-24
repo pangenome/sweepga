@@ -1,6 +1,5 @@
 // Integration tests for sweepga with plane sweep
 use std::fs;
-use std::io::Write;
 use std::process::Command;
 
 #[test]

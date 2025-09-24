@@ -170,7 +170,7 @@ fn mark_good(
     if first.is_none() {
         return;
     }
-    let first_score = first.unwrap().score;
+    let _first_score = first.unwrap().score;
 
     // Keep up to mappings_to_keep mappings total
     for mapping_order in bst {
@@ -439,7 +439,7 @@ pub fn plane_sweep_grouped_query(
     let mut all_kept = Vec::new();
 
     // Apply plane sweep to each query sequence group
-    for (query_name, indices) in groups {
+    for (_query_name, indices) in groups {
         if indices.is_empty() {
             continue;
         }

@@ -150,17 +150,15 @@ pub fn plane_sweep(
 /// Mark the best intervals at current position
 fn mark_best(
     active: &BTreeSet<(i64, usize)>,
-    intervals: &[Interval],
+    _intervals: &[Interval],
     max_to_keep: usize,
     kept_indices: &mut Vec<usize>,
 ) {
-    let mut count = 0;
-    for &(_, idx) in active.iter() {
+    for (count, &(_, idx)) in active.iter().enumerate() {
         if count >= max_to_keep {
             break;
         }
         kept_indices.push(idx);
-        count += 1;
     }
 }
 

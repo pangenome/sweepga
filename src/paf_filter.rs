@@ -1,11 +1,9 @@
 use anyhow::Result;
-use ordered_float::OrderedFloat;
 use rayon::prelude::*;
-use std::collections::{BTreeSet, HashMap, HashSet};
+use std::collections::{HashMap, HashSet};
 use std::fs::File;
 use std::io::{BufRead, BufReader, BufWriter, Write};
 use std::path::Path;
-use std::sync::Mutex;
 
 use crate::mapping::ChainStatus;
 use crate::plane_sweep_exact::{plane_sweep_grouped_query, PlaneSweepMapping};

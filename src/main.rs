@@ -11,6 +11,45 @@ use indicatif::{ProgressBar, ProgressStyle};
 
 use crate::paf_filter::{FilterConfig, FilterMode, PafFilter};
 
+/// Parse a number that may have metric suffix (k/K=1000, m/M=1e6, g/G=1e9)
+fn parse_metric_number(s: &str) -> Result<u32, String> {
+    if s.is_empty() {
+        return Err("Empty string".to_string());
+    }
+
+    let (num_part, suffix) = if s.ends_with(|c: char| c.is_ascii_alphabetic()) {
+        let last_char = s.chars().last().unwrap();
+        (&s[..s.len() - last_char.len_utf8()], Some(last_char))
+    } else {
+        (s, None)
+    };
+
+    let base: f64 = num_part
+        .parse()
+        .map_err(|e| format!("Invalid number: {}", e))?;
+
+    let multiplier = match suffix {
+        Some('k') | Some('K') => 1000.0,
+        Some('m') | Some('M') => 1_000_000.0,
+        Some('g') | Some('G') => 1_000_000_000.0,
+        Some(c) => {
+            return Err(format!(
+                "Unknown suffix '{}'. Use k/K (1000), m/M (1e6), or g/G (1e9)",
+                c
+            ))
+        }
+        None => 1.0,
+    };
+
+    let result = base * multiplier;
+
+    if result > u32::MAX as f64 {
+        return Err(format!("Value {} too large for u32", result));
+    }
+
+    Ok(result as u32)
+}
+
 /// SweepGA - Fast genome alignment with sophisticated filtering
 ///
 /// This tool applies wfmash's filtering algorithms to PAF input from FASTGA or other aligners
@@ -25,44 +64,40 @@ struct Args {
     #[clap(short = 'o', long = "output")]
     output: Option<String>,
 
-    /// Minimum block length [0]
-    #[clap(short = 'b', long = "block-length", default_value = "0")]
+    /// Minimum block length
+    #[clap(short = 'b', long = "block-length", default_value = "0", value_parser = parse_metric_number)]
     block_length: u32,
 
-    /// Maximum overlap ratio for plane sweep filtering [0.95]
+    /// Maximum overlap ratio for plane sweep filtering
     #[clap(short = 'p', long = "overlap", default_value = "0.95")]
     overlap: f64,
 
-    /// Keep this fraction of mappings [1.0]
+    /// Keep this fraction of mappings
     #[clap(short = 'x', long = "sparsify", default_value = "1.0")]
     sparsify: f64,
 
-    /// Plane sweep filter specification (default: "1:1" = best mapping per query and target)
-    /// Format: "1:1" (best on both axes), "1" or "1:∞" (best on query axis only),
-    /// "many:many" or "∞:∞" (no filtering), or "M:N" for custom limits
-    /// Examples: -n 1:1 (best only), -n 3:2 (top 3 per query, top 2 per target), -n many:many (no filter)
+    /// Mapping filter: "1:1" (best), "M:N" (top M per query, N per target; ∞/many for unbounded), "N" (no filter)
     #[clap(short = 'n', long = "num-mappings", default_value = "1:1")]
     num_mappings: String,
 
-    /// Scaffold filter when -s > 0 (default: 1:1)
-    /// Format: "1:1", "1" (=1:∞), "many:many" (no filtering), or "M:N"
+    /// Scaffold filter: "1:1" (best), "M:N" (top M per query, N per target; ∞/many for unbounded)
     #[clap(long = "scaffold-filter", default_value = "1:1")]
     scaffold_filter: String,
 
-    /// Scaffold jump (gap) distance. 0 = disable scaffolding (plane sweep only), >0 = enable scaffolding [100000]
-    #[clap(short = 'j', long = "scaffold-jump", default_value = "100000")]
+    /// Scaffold jump (gap) distance. 0 = disable scaffolding (plane sweep only), >0 = enable scaffolding
+    #[clap(short = 'j', long = "scaffold-jump", default_value = "10k", value_parser = parse_metric_number)]
     scaffold_jump: u32,
 
-    /// Minimum scaffold length when scaffolding is enabled [10000]
-    #[clap(short = 's', long = "scaffold-mass", default_value = "10000")]
+    /// Minimum scaffold length when scaffolding is enabled
+    #[clap(short = 's', long = "scaffold-mass", default_value = "10k", value_parser = parse_metric_number)]
     scaffold_mass: u32,
 
-    /// Scaffold chain overlap threshold [0.5]
+    /// Scaffold chain overlap threshold
     #[clap(short = 'O', long = "scaffold-overlap", default_value = "0.5")]
     scaffold_overlap: f64,
 
-    /// Maximum distance from scaffold anchor [100000]
-    #[clap(short = 'd', long = "scaffold-dist", default_value = "100000")]
+    /// Maximum distance from scaffold anchor
+    #[clap(short = 'd', long = "scaffold-dist", default_value = "100k", value_parser = parse_metric_number)]
     scaffold_dist: u32,
 
     /// Disable all filtering
@@ -146,8 +181,16 @@ fn parse_filter_mode(mode: &str, filter_type: &str) -> (FilterMode, Option<usize
 fn main() -> Result<()> {
     let args = Args::parse();
 
-    // If no input specified, print help and exit
-    if args.input.is_none() && !args.no_filter {
+    // Check if stdin is available when no input specified
+    let stdin_available = if args.input.is_none() {
+        use std::io::IsTerminal;
+        !std::io::stdin().is_terminal()
+    } else {
+        false
+    };
+
+    // If no input specified and no stdin, print help
+    if args.input.is_none() && !stdin_available && !args.no_filter {
         use clap::CommandFactory;
         Args::command().print_help()?;
         std::process::exit(0);
@@ -225,13 +268,26 @@ fn main() -> Result<()> {
         None
     };
 
-    // Input path is required (unless --no-filter)
-    let input_path = if let Some(ref path) = args.input {
-        path.clone()
+    // Handle input: if stdin, save to temp file for two-pass processing
+    let (_input_temp, input_path) = if let Some(ref path) = args.input {
+        (None, path.clone())
     } else {
-        // This shouldn't happen due to earlier check, but handle it gracefully
-        eprintln!("Error: Input file is required");
-        std::process::exit(1);
+        // Read from stdin into a temp file for two-pass processing
+        let temp = tempfile::NamedTempFile::new()?;
+        let temp_path = temp.path().to_str().unwrap().to_string();
+
+        // Copy stdin to temp file
+        {
+            use std::io::{self, BufRead, Write};
+            let stdin = io::stdin();
+            let mut temp_file = std::fs::File::create(&temp_path)?;
+
+            for line in stdin.lock().lines() {
+                writeln!(temp_file, "{}", line?)?;
+            }
+        }
+
+        (Some(temp), temp_path)
     };
 
     let (_output_temp, output_path) = if let Some(ref path) = args.output {

@@ -1,4 +1,3 @@
-use anyhow::Result;
 use std::fmt;
 
 /// Compact 32-byte mapping structure matching wfmash's MappingResult
