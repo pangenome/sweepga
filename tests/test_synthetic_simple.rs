@@ -21,11 +21,17 @@ fn test_duplicate_sequence_alignment() {
         sequence, duplicate
     )).unwrap();
 
-    // Run self-alignment
-    let result = Command::new("cargo")
-        .args(&["run", "--release", "--quiet", "--"])
+    // Run self-alignment using compiled binary
+    let sweepga_path = if cfg!(debug_assertions) {
+        "target/debug/sweepga"
+    } else {
+        "target/release/sweepga"
+    };
+
+    let result = Command::new(sweepga_path)
         .arg(&test_fa)
         .arg("-t").arg("1")
+        .arg("--self")  // Include self-mappings
         .arg("-o").arg(&output)
         .output()
         .expect("Failed to run");
@@ -60,11 +66,17 @@ fn test_repetitive_sequence() {
 
     fs::write(&test_fa, format!(">repetitive\n{}\n", sequence)).unwrap();
 
-    // Run self-alignment
-    let result = Command::new("cargo")
-        .args(&["run", "--release", "--quiet", "--"])
+    // Run self-alignment using compiled binary
+    let sweepga_path = if cfg!(debug_assertions) {
+        "target/debug/sweepga"
+    } else {
+        "target/release/sweepga"
+    };
+
+    let result = Command::new(sweepga_path)
         .arg(&test_fa)
         .arg("-t").arg("1")
+        .arg("--self")  // Include self-mappings
         .arg("-o").arg(&output)
         .output()
         .expect("Failed to run");
