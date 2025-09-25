@@ -1,3 +1,4 @@
+mod fastga_integration;
 mod mapping;
 mod paf;
 mod paf_filter;
@@ -55,8 +56,13 @@ fn parse_metric_number(s: &str) -> Result<u32, String> {
 #[derive(Parser, Debug)]
 #[clap(author, version, about, long_about = None)]
 struct Args {
-    /// Input PAF file
-    #[clap(short = 'i', long = "input")]
+    /// FASTA files: either one (self-alignment) or two (target then query)
+    /// If no FASTA provided, reads PAF from stdin or -i flag
+    #[clap(value_name = "FASTA", num_args = 0..=2)]
+    fasta_files: Vec<String>,
+
+    /// Input PAF file (alternative to FASTA files)
+    #[clap(short = 'i', long = "input", conflicts_with = "fasta_files")]
     input: Option<String>,
 
     /// Output PAF file (stdout if not specified)
@@ -176,7 +182,55 @@ fn parse_filter_mode(mode: &str, filter_type: &str) -> (FilterMode, Option<usize
 }
 
 fn main() -> Result<()> {
-    let args = Args::parse();
+    let mut args = Args::parse();
+
+    // Handle FASTA input mode (FastGA alignment)
+    let _temp_paf = if !args.fasta_files.is_empty() {
+        use crate::fastga_integration::FastGAIntegration;
+        use std::path::Path;
+
+        let (targets, queries) = match args.fasta_files.len() {
+            1 => {
+                // Self-alignment
+                let path = Path::new(&args.fasta_files[0]);
+                (path, path)
+            }
+            2 => {
+                // Two files: first is target, second is query
+                (Path::new(&args.fasta_files[0]), Path::new(&args.fasta_files[1]))
+            }
+            _ => {
+                anyhow::bail!("Expected 1 or 2 FASTA files, got {}", args.fasta_files.len());
+            }
+        };
+
+        if !args.quiet {
+            if args.fasta_files.len() == 1 {
+                eprintln!("Running FastGA self-alignment on {}...", args.fasta_files[0]);
+            } else {
+                eprintln!("Running FastGA alignment: {} -> {}...",
+                         args.fasta_files[0], args.fasta_files[1]);
+            }
+        }
+
+        // Configure FastGA with minimal parameters (just threads)
+        // FastGA will use its own defaults for identity and alignment length
+        let fastga = FastGAIntegration::new(args.threads);
+
+        // Run alignment and get temp PAF file
+        let temp_paf = fastga.align_to_temp_paf(targets, queries)?;
+
+        if !args.quiet {
+            eprintln!("FastGA complete. Processing alignments from temp file: {:?}", temp_paf.path());
+        }
+
+        // Update args to use the generated PAF file
+        args.input = Some(temp_paf.path().to_string_lossy().into_owned());
+
+        Some(temp_paf)
+    } else {
+        None
+    };
 
     // Check if stdin is available when no input specified
     let stdin_available = if args.input.is_none() {
@@ -187,7 +241,7 @@ fn main() -> Result<()> {
     };
 
     // If no input specified and no stdin, print help
-    if args.input.is_none() && !stdin_available && !args.no_filter {
+    if args.input.is_none() && !stdin_available && !args.no_filter && args.fasta_files.is_empty() {
         use clap::CommandFactory;
         Args::command().print_help()?;
         std::process::exit(0);
