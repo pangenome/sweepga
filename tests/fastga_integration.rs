@@ -25,7 +25,7 @@ fn has_extended_cigar(path: &Path) -> bool {
 /// Helper to run sweepga command
 fn run_sweepga(args: &[&str]) -> Result<String, String> {
     let output = Command::new("cargo")
-        .args(&["run", "--release", "--quiet", "--"])
+        .args(&["run", "--bin", "sweepga", "--release", "--quiet", "--"])
         .args(args)
         .output()
         .expect("Failed to run sweepga");
@@ -42,10 +42,13 @@ fn test_fastga_self_alignment() {
     let temp_dir = TempDir::new().unwrap();
     let output_path = temp_dir.path().join("self_align.paf");
 
-    // Run self-alignment on yeast data
+    // Run self-alignment on yeast data (minimal filtering to keep more alignments)
     let result = run_sweepga(&[
         "data/scerevisiae8.fa",
         "-t", "2",
+        "--self",  // Include self-mappings
+        "-n", "N",  // No mapping filter
+        "-j", "0",  // No scaffolding
         "-o", output_path.to_str().unwrap(),
     ]);
 
@@ -110,6 +113,7 @@ fn test_thread_parameter() {
     let result1 = run_sweepga(&[
         test_fa.to_str().unwrap(),
         "-t", "1",
+        "--self",  // Include self-mappings for consistency
         "-o", output1.to_str().unwrap(),
     ]);
 
@@ -117,6 +121,7 @@ fn test_thread_parameter() {
     let result4 = run_sweepga(&[
         test_fa.to_str().unwrap(),
         "-t", "4",
+        "--self",  // Include self-mappings for consistency
         "-o", output4.to_str().unwrap(),
     ]);
 
@@ -142,6 +147,7 @@ fn test_filtering_with_fastga() {
         "data/scerevisiae8.fa",
         "-b", "0",  // No minimum block length
         "-t", "2",
+        "--self",
         "-o", loose.to_str().unwrap(),
     ]);
 
@@ -149,6 +155,7 @@ fn test_filtering_with_fastga() {
         "data/scerevisiae8.fa",
         "-b", "10k",  // 10kb minimum
         "-t", "2",
+        "--self",
         "-o", strict.to_str().unwrap(),
     ]);
 
@@ -175,6 +182,7 @@ fn test_scaffold_filtering() {
         "-j", "100k",  // Enable scaffolding with 100kb jump
         "-s", "50k",   // Minimum scaffold mass
         "-t", "2",
+        "--self",
         "-o", with_scaffold.to_str().unwrap(),
     ]);
 
@@ -183,6 +191,7 @@ fn test_scaffold_filtering() {
         "data/scerevisiae8.fa",
         "-j", "0",  // Disable scaffolding
         "-t", "2",
+        "--self",
         "-o", no_scaffold.to_str().unwrap(),
     ]);
 
@@ -241,6 +250,7 @@ fn test_large_sequence_handling() {
     let result = run_sweepga(&[
         large_fa.to_str().unwrap(),
         "-t", "2",
+        "--self",  // Include self-mappings
         "-o", output.to_str().unwrap(),
     ]);
 
@@ -277,6 +287,7 @@ fn test_multisequence_fasta() {
     let result = run_sweepga(&[
         multi_fa.to_str().unwrap(),
         "-t", "1",
+        "--self",  // Include self-mappings
         "-o", output.to_str().unwrap(),
     ]);
 
@@ -306,6 +317,7 @@ fn test_performance_regression() {
     let result = run_sweepga(&[
         "data/scerevisiae8.fa",
         "-t", "4",
+        "--self",
         "-o", output.to_str().unwrap(),
     ]);
 

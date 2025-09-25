@@ -48,9 +48,14 @@ impl FastGAIntegration {
         let alignments = aligner.align_files(queries, targets)
             .context("Failed to run FastGA alignment")?;
 
+        eprintln!("[FastGA Integration] Got {} alignments", alignments.len());
+
         // Convert to PAF format with extended CIGAR
         let paf_output = alignments.to_paf()
             .context("Failed to convert alignments to PAF format")?;
+
+        eprintln!("[FastGA Integration] PAF output: {} bytes, {} lines",
+                  paf_output.len(), paf_output.lines().count());
 
         // Write to temporary file
         let mut temp_file = NamedTempFile::new()
