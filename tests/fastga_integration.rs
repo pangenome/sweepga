@@ -24,8 +24,15 @@ fn has_extended_cigar(path: &Path) -> bool {
 
 /// Helper to run sweepga command
 fn run_sweepga(args: &[&str]) -> Result<String, String> {
-    let output = Command::new("cargo")
-        .args(&["run", "--bin", "sweepga", "--release", "--quiet", "--"])
+    // Use the compiled binary directly instead of cargo run
+    // This assumes tests are run with `cargo test --release`
+    let sweepga_path = if cfg!(debug_assertions) {
+        "target/debug/sweepga"
+    } else {
+        "target/release/sweepga"
+    };
+
+    let output = Command::new(sweepga_path)
         .args(args)
         .output()
         .expect("Failed to run sweepga");
