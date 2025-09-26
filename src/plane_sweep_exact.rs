@@ -21,13 +21,15 @@ impl PlaneSweepMapping {
     pub const FLAG_OVERLAPPED: u8 = 0x02;
 
     pub fn score(&self) -> f64 {
-        // Score based on identity * log(length)
+        // For highly similar sequences, prioritize identity over length
+        // Use identity as primary score with small length bonus
         let length = (self.query_end - self.query_start) as f64;
         if length <= 0.0 || self.identity <= 0.0 {
             f64::NEG_INFINITY
         } else {
-            // Use identity * log(length) for scoring
-            self.identity * length.ln()
+            // Primary score is identity (0-1), add small bonus for length
+            // This ensures high-identity alignments aren't discarded for slightly longer ones
+            self.identity + (length.ln() / 1000.0)  // Small length bonus
         }
     }
 
