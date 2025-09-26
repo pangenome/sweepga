@@ -458,6 +458,60 @@ pub fn plane_sweep_grouped_query(
     all_kept
 }
 
+/// Apply plane sweep grouped by (query, target) pairs
+/// This is for prefix-aware filtering where we want 1:1 per genome pair
+pub fn plane_sweep_grouped_pairs(
+    mappings: &mut [(PlaneSweepMapping, String, String)], // (mapping, query_group, target_group)
+    mappings_to_keep: usize,
+    overlap_threshold: f64,
+) -> Vec<usize> {
+    use std::collections::HashMap;
+
+    if mappings.is_empty() {
+        return Vec::new();
+    }
+
+    // Group by (query_prefix, target_prefix) pairs
+    let mut groups: HashMap<(String, String), Vec<usize>> = HashMap::new();
+    for (idx, (_, query_group, target_group)) in mappings.iter().enumerate() {
+        groups
+            .entry((query_group.clone(), target_group.clone()))
+            .or_default()
+            .push(idx);
+    }
+
+    let mut all_kept = Vec::new();
+
+    // Apply plane sweep to each genome pair group
+    for (_pair, indices) in groups {
+        if indices.is_empty() {
+            continue;
+        }
+
+        // Extract mappings for this group
+        let mut group_mappings: Vec<PlaneSweepMapping> =
+            indices.iter().map(|&idx| mappings[idx].0).collect();
+
+        // Apply plane sweep to this group
+        // For 1:1 filtering, we need to apply constraints on BOTH axes
+        let kept_in_group = if mappings_to_keep == 1 {
+            // True 1:1 - keep best mapping that satisfies both query and target constraints
+            plane_sweep_both(&mut group_mappings, 1, 1, overlap_threshold)
+        } else {
+            // Otherwise just filter on query axis
+            plane_sweep_query(&mut group_mappings, mappings_to_keep, overlap_threshold)
+        };
+
+        // Map back to original indices
+        for &local_idx in &kept_in_group {
+            all_kept.push(indices[local_idx]);
+        }
+    }
+
+    all_kept.sort_unstable();
+    all_kept
+}
+
 /// Group mappings by target sequence and apply plane sweep to each group
 pub fn plane_sweep_grouped_target(
     mappings: &mut [(PlaneSweepMapping, String)], // (mapping, target_seq_name)

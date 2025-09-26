@@ -6,7 +6,7 @@ use std::io::{BufRead, BufReader, BufWriter, Write};
 use std::path::Path;
 
 use crate::mapping::ChainStatus;
-use crate::plane_sweep_exact::{plane_sweep_grouped_query, PlaneSweepMapping};
+use crate::plane_sweep_exact::{plane_sweep_grouped_pairs, PlaneSweepMapping};
 
 /// Filtering mode
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -720,8 +720,8 @@ impl PafFilter {
             return Ok(mappings.to_vec());
         }
 
-        // Convert RecordMeta to PlaneSweepMapping with query names
-        let mut plane_sweep_mappings: Vec<(PlaneSweepMapping, String)> = mappings
+        // Convert RecordMeta to PlaneSweepMapping with grouping keys
+        let mut plane_sweep_mappings: Vec<(PlaneSweepMapping, String, String)> = mappings
             .iter()
             .enumerate()
             .map(|(idx, meta)| {
@@ -734,9 +734,12 @@ impl PafFilter {
                     identity: 1.0, // Use 1.0 for now (length-based scoring)
                     flags: 0,
                 };
-                // Use prefix for grouping if enabled, otherwise full name
-                let group_key = self.extract_prefix(&meta.query_name);
-                (mapping, group_key)
+                // For 1:1 filtering with prefix grouping:
+                // We want to keep the best alignment for each chromosome WITHIN each genome pair
+                // So we group by full chromosome names (which include the genome prefix)
+                let query_group = meta.query_name.clone();
+                let target_group = meta.target_name.clone();
+                (mapping, query_group, target_group)
             })
             .collect();
 
@@ -747,9 +750,9 @@ impl PafFilter {
 
         let overlap_threshold = self.config.overlap_threshold;
 
-        // Apply plane sweep grouped by query sequence
+        // Apply plane sweep grouped by (query, target) pairs for proper genome pair filtering
         let kept_indices =
-            plane_sweep_grouped_query(&mut plane_sweep_mappings, query_limit, overlap_threshold);
+            plane_sweep_grouped_pairs(&mut plane_sweep_mappings, query_limit, overlap_threshold);
 
         // Convert back to RecordMeta
         let result: Vec<RecordMeta> = kept_indices
