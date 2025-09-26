@@ -86,11 +86,11 @@ struct Args {
     num_mappings: String,
 
     /// Scaffold filter: "1:1" (best), "M:N" (top M per query, N per target; ∞/many for unbounded)
-    #[clap(long = "scaffold-filter", default_value = "1:1")]
+    #[clap(long = "scaffold-filter", default_value = "many")]
     scaffold_filter: String,
 
     /// Scaffold jump (gap) distance. 0 = disable scaffolding (plane sweep only), >0 = enable scaffolding
-    #[clap(short = 'j', long = "scaffold-jump", default_value = "10k", value_parser = parse_metric_number)]
+    #[clap(short = 'j', long = "scaffold-jump", default_value = "0", value_parser = parse_metric_number)]
     scaffold_jump: u32,
 
     /// Minimum scaffold length when scaffolding is enabled
