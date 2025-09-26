@@ -506,18 +506,16 @@ impl PafFilter {
                 let mapping = &all_original_mappings[mapping_idx];
 
                 if anchor_ranks.contains(&mapping.rank) {
-                    // This is an anchor - keep it with its chain ID
+                    // This is an anchor (member of a scaffold chain) - keep it with its chain ID
                     let mut anchor_mapping = mapping.clone();
                     if let Some(chain_id) = rank_to_chain_id.get(&mapping.rank) {
                         anchor_mapping.chain_id = Some(chain_id.clone());
                     }
                     kept_mappings.push(anchor_mapping);
-                    if mapping.block_length >= self.config.min_scaffold_length {
-                        kept_status.insert(mapping.rank, ChainStatus::Scaffold);
-                    } else {
-                        kept_status.insert(mapping.rank, ChainStatus::Rescued);
-                    }
-                } else {
+                    // All anchors are scaffold members by definition
+                    kept_status.insert(mapping.rank, ChainStatus::Scaffold);
+                } else if max_deviation > 0 {
+                    // Only attempt rescue if max_deviation > 0
                     // Check if within deviation distance of any anchor
                     // Use binary search to find anchors within query range
                     let mapping_q_center = (mapping.query_start + mapping.query_end) / 2;
@@ -567,6 +565,7 @@ impl PafFilter {
                         kept_status.insert(mapping.rank, ChainStatus::Rescued);
                     }
                 }
+                // If max_deviation == 0 and not an anchor, mapping is not kept
             }
         }
 

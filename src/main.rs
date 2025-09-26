@@ -104,8 +104,8 @@ struct Args {
     #[clap(short = 'O', long = "scaffold-overlap", default_value = "0.5")]
     scaffold_overlap: f64,
 
-    /// Maximum distance from scaffold anchor
-    #[clap(short = 'd', long = "scaffold-dist", default_value = "100k", value_parser = parse_metric_number)]
+    /// Maximum distance from scaffold anchor (0 = no rescue, only keep scaffold members)
+    #[clap(short = 'd', long = "scaffold-dist", default_value = "0", value_parser = parse_metric_number)]
     scaffold_dist: u64,
 
     /// Disable all filtering
