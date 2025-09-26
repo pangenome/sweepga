@@ -20,8 +20,8 @@ pub enum FilterMode {
 #[derive(Clone)]
 #[allow(dead_code)]
 pub struct FilterConfig {
-    pub chain_gap: u32,        // -c/--chain-jump
-    pub min_block_length: u32, // -l/--block-length
+    pub chain_gap: u64,        // -c/--chain-jump
+    pub min_block_length: u64, // -l/--block-length
 
     // Primary mapping filter (applied to raw mappings before scaffold creation)
     pub mapping_filter_mode: FilterMode, // Default: N:N (no filtering)
@@ -37,10 +37,10 @@ pub struct FilterConfig {
     pub overlap_threshold: f64,   // -O/--overlap
     pub sparsity: f64,            // -x/--sparsify
     pub no_merge: bool,           // -M/--no-merge
-    pub scaffold_gap: u32,        // -j/--scaffold-jump
-    pub min_scaffold_length: u32, // -S/--scaffold-mass
+    pub scaffold_gap: u64,        // -j/--scaffold-jump
+    pub min_scaffold_length: u64, // -S/--scaffold-mass
     pub scaffold_overlap_threshold: f64,
-    pub scaffold_max_deviation: u32, // -D/--scaffold-dist
+    pub scaffold_max_deviation: u64, // -D/--scaffold-dist
     pub prefix_delimiter: char,
     pub skip_prefix: bool,
 }
@@ -52,11 +52,11 @@ struct RecordMeta {
     rank: usize, // 0-based index in original file
     query_name: String,
     target_name: String,
-    query_start: u32,
-    query_end: u32,
-    target_start: u32,
-    target_end: u32,
-    block_length: u32,
+    query_start: u64,
+    query_end: u64,
+    target_start: u64,
+    target_end: u64,
+    block_length: u64,
     identity: f64,
     strand: char,
     chain_id: Option<String>,
@@ -71,12 +71,12 @@ struct RecordMeta {
 struct MergedChain {
     query_name: String,
     target_name: String,
-    query_start: u32,
-    query_end: u32,
-    target_start: u32,
-    target_end: u32,
+    query_start: u64,
+    query_end: u64,
+    target_start: u64,
+    target_end: u64,
     strand: char,
-    total_length: u32,
+    total_length: u64,
     member_indices: Vec<usize>, // Indices of original mappings in this chain
 }
 
@@ -159,16 +159,16 @@ impl PafFilter {
 
             // Parse essential fields
             let query_name = fields[0].to_string();
-            let _query_len = fields[1].parse::<u32>().unwrap_or(0);
-            let query_start = fields[2].parse::<u32>().unwrap_or(0);
-            let query_end = fields[3].parse::<u32>().unwrap_or(0);
+            let _query_len = fields[1].parse::<u64>().unwrap_or(0);
+            let query_start = fields[2].parse::<u64>().unwrap_or(0);
+            let query_end = fields[3].parse::<u64>().unwrap_or(0);
             let strand = if fields[4] == "+" { '+' } else { '-' };
             let target_name = fields[5].to_string();
-            let _target_len = fields[6].parse::<u32>().unwrap_or(0);
-            let target_start = fields[7].parse::<u32>().unwrap_or(0);
-            let target_end = fields[8].parse::<u32>().unwrap_or(0);
-            let matches = fields[9].parse::<u32>().unwrap_or(0);
-            let block_length = fields[10].parse::<u32>().unwrap_or(1);
+            let _target_len = fields[6].parse::<u64>().unwrap_or(0);
+            let target_start = fields[7].parse::<u64>().unwrap_or(0);
+            let target_end = fields[8].parse::<u64>().unwrap_or(0);
+            let matches = fields[9].parse::<u64>().unwrap_or(0);
+            let block_length = fields[10].parse::<u64>().unwrap_or(1);
 
             // Look for divergence tag from FASTGA
             let mut identity = matches as f64 / block_length.max(1) as f64;
@@ -447,7 +447,7 @@ impl PafFilter {
                     let mapping_q_center = (mapping.query_start + mapping.query_end) / 2;
                     let mapping_t_center = (mapping.target_start + mapping.target_end) / 2;
 
-                    let mut min_distance = u32::MAX;
+                    let mut min_distance = u64::MAX;
                     let mut closest_anchor_rank = None;
 
                     // Only check anchors that are within max_deviation in query space
@@ -467,7 +467,7 @@ impl PafFilter {
                             (mapping_t_center as i64 - anchor_t_center as i64).unsigned_abs();
 
                         // Euclidean distance
-                        let distance = ((q_diff * q_diff + t_diff * t_diff) as f64).sqrt() as u32;
+                        let distance = ((q_diff * q_diff + t_diff * t_diff) as f64).sqrt() as u64;
                         if distance < min_distance {
                             min_distance = distance;
                             closest_anchor_rank = Some(anchor.rank);
@@ -524,7 +524,7 @@ impl PafFilter {
     fn merge_mappings_into_chains(
         &self,
         metadata: &[RecordMeta],
-        max_gap: u32,
+        max_gap: u64,
     ) -> Result<Vec<MergedChain>> {
         use crate::union_find::UnionFind;
 
@@ -644,9 +644,9 @@ impl PafFilter {
                 }
 
                 // Calculate merged chain boundaries (like wfmash's merging)
-                let mut q_min = u32::MAX;
+                let mut q_min = u64::MAX;
                 let mut q_max = 0;
-                let mut t_min = u32::MAX;
+                let mut t_min = u64::MAX;
                 let mut t_max = 0;
                 let mut member_ranks = Vec::new();
 

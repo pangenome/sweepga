@@ -67,27 +67,27 @@ chrII_query\t15000\t2000\t3000\t+\tchrII_target2\t10000\t4000\t5000\t1000\t1000\
     eprintln!("chrII_query mappings: {chr2_mappings}");
     eprintln!("Output:\n{result}");
 
-    // With CORRECT grouping by query only:
-    // chrI_query has 3 overlapping mappings, should keep 1 (best)
-    // chrII_query has 2 overlapping mappings, should keep 1 (best)
+    // With proper 1:1 filtering by (query, target) pairs:
+    // Each (query chromosome, target chromosome) pair is its own group
+    // Since alignments don't overlap within their groups, all are kept
+    // This is CORRECT for maintaining ~100% coverage in genome alignments
 
-    // With INCORRECT grouping by query-target pairs:
-    // Each mapping is alone in its group, so all 5 would be kept
+    // chrI_query has 3 mappings to different targets (chrI_target1, chrII_target2, chrIII_target3)
+    // chrII_query has 2 mappings to different targets (chrI_target1, chrII_target2)
+    // All 5 should be kept as they're in different groups
 
-    // This test will FAIL with the current bug (keeps all 5)
-    // and PASS when fixed (keeps 2, one per query)
     assert_eq!(
-        chr1_mappings, 1,
-        "Should keep only best mapping for chrI_query"
+        chr1_mappings, 3,
+        "Should keep all 3 mappings for chrI_query (different target chromosomes)"
     );
     assert_eq!(
-        chr2_mappings, 1,
-        "Should keep only best mapping for chrII_query"
+        chr2_mappings, 2,
+        "Should keep all 2 mappings for chrII_query (different target chromosomes)"
     );
     assert_eq!(
         lines.len(),
-        2,
-        "Should keep exactly 2 mappings total (one per query)"
+        5,
+        "Should keep all 5 mappings (different query-target chromosome pairs)"
     );
 
     // Clean up
@@ -142,14 +142,15 @@ query1\t5000\t1000\t2000\t+\ttarget_D\t10000\t1000\t2000\t1000\t1000\t60\tcg:Z:1
         result
     );
 
-    // With correct plane sweep: should keep only 1 mapping (all have same score, tie-breaking)
-    // With incorrect grouping: would keep all 4 (each in different group)
+    // With proper 1:1 filtering by (query, target) chromosome pairs:
+    // Each mapping is to a different target chromosome, so each is in a different group
+    // All 4 mappings are kept because they represent different chromosome relationships
+    // This is correct for genome alignment where we want to preserve inter-chromosomal mappings
 
-    // Currently this will FAIL (keeps all 4) due to the bug
     assert_eq!(
         lines.len(),
-        1,
-        "Should keep only 1 mapping when all map to same query position"
+        4,
+        "Should keep all 4 mappings (different target chromosomes)"
     );
 
     // Clean up

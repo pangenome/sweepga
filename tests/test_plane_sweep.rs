@@ -6,10 +6,10 @@ use sweepga::plane_sweep_exact::{
 /// Helper function to create a mapping
 fn make_mapping(
     idx: usize,
-    q_start: u32,
-    q_end: u32,
-    t_start: u32,
-    t_end: u32,
+    q_start: u64,
+    q_end: u64,
+    t_start: u64,
+    t_end: u64,
 ) -> PlaneSweepMapping {
     PlaneSweepMapping {
         idx,
@@ -217,8 +217,8 @@ fn test_score_calculation() {
     let score_100 = mapping_100.score();
     let score_1000 = mapping_1000.score();
 
-    // log(1000) / log(100) ≈ 1.5, not 10
-    assert!(score_1000 / score_100 < 2.0, "Score uses log scaling");
+    // Linear scoring: 1000 / 100 = 10
+    assert!((score_1000 / score_100 - 10.0).abs() < 0.001, "Score uses linear length scaling");
 }
 
 #[test]

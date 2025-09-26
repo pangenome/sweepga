@@ -8,10 +8,10 @@ use std::collections::BTreeSet;
 #[derive(Debug, Clone, Copy)]
 pub struct PlaneSweepMapping {
     pub idx: usize, // Original index in input
-    pub query_start: u32,
-    pub query_end: u32,
-    pub target_start: u32,
-    pub target_end: u32,
+    pub query_start: u64,
+    pub query_end: u64,
+    pub target_start: u64,
+    pub target_end: u64,
     pub identity: f64, // 0.0 - 1.0
     pub flags: u8,     // bit 0: discard, bit 1: overlapped
 }
@@ -103,7 +103,7 @@ impl PlaneSweepMapping {
 /// Event for plane sweep
 #[derive(Debug, Clone)]
 struct Event {
-    position: u32,
+    position: u64,
     event_type: EventType,
     mapping_idx: usize,
 }
@@ -119,7 +119,7 @@ enum EventType {
 struct MappingOrder {
     idx: usize,
     score: f64,
-    start_pos: u32,
+    start_pos: u64,
 }
 
 impl PartialEq for MappingOrder {
@@ -753,8 +753,8 @@ mod tests {
             },
             PlaneSweepMapping {
                 idx: 1,
-                query_start: u32::MAX - 100,
-                query_end: u32::MAX,
+                query_start: u64::MAX - 100,
+                query_end: u64::MAX,
                 target_start: 1000,
                 target_end: 1100,
                 identity: 0.90,

@@ -13,7 +13,7 @@ use indicatif::{ProgressBar, ProgressStyle};
 use crate::paf_filter::{FilterConfig, FilterMode, PafFilter};
 
 /// Parse a number that may have metric suffix (k/K=1000, m/M=1e6, g/G=1e9)
-fn parse_metric_number(s: &str) -> Result<u32, String> {
+fn parse_metric_number(s: &str) -> Result<u64, String> {
     if s.is_empty() {
         return Err("Empty string".to_string());
     }
@@ -43,11 +43,11 @@ fn parse_metric_number(s: &str) -> Result<u32, String> {
 
     let result = base * multiplier;
 
-    if result > u32::MAX as f64 {
-        return Err(format!("Value {result} too large for u32"));
+    if result > u64::MAX as f64 {
+        return Err(format!("Value {result} too large for u64"));
     }
 
-    Ok(result as u32)
+    Ok(result as u64)
 }
 
 /// SweepGA - Fast genome alignment with sophisticated filtering
@@ -71,7 +71,7 @@ struct Args {
 
     /// Minimum block length
     #[clap(short = 'b', long = "block-length", default_value = "0", value_parser = parse_metric_number)]
-    block_length: u32,
+    block_length: u64,
 
     /// Maximum overlap ratio for plane sweep filtering
     #[clap(short = 'p', long = "overlap", default_value = "0.95")]
@@ -91,11 +91,11 @@ struct Args {
 
     /// Scaffold jump (gap) distance. 0 = disable scaffolding (plane sweep only), >0 = enable scaffolding
     #[clap(short = 'j', long = "scaffold-jump", default_value = "0", value_parser = parse_metric_number)]
-    scaffold_jump: u32,
+    scaffold_jump: u64,
 
     /// Minimum scaffold length when scaffolding is enabled
     #[clap(short = 's', long = "scaffold-mass", default_value = "10k", value_parser = parse_metric_number)]
-    scaffold_mass: u32,
+    scaffold_mass: u64,
 
     /// Scaffold chain overlap threshold
     #[clap(short = 'O', long = "scaffold-overlap", default_value = "0.5")]
@@ -103,7 +103,7 @@ struct Args {
 
     /// Maximum distance from scaffold anchor
     #[clap(short = 'd', long = "scaffold-dist", default_value = "100k", value_parser = parse_metric_number)]
-    scaffold_dist: u32,
+    scaffold_dist: u64,
 
     /// Disable all filtering
     #[clap(short = 'f', long = "no-filter")]
