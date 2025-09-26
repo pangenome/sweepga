@@ -1,4 +1,6 @@
+mod compact_mapping;
 mod fastga_integration;
+mod grouped_mappings;
 mod mapping;
 mod paf;
 mod paf_filter;

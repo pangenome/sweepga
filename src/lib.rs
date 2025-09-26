@@ -1,4 +1,7 @@
 // Library exports for sweepga
+pub mod compact_mapping;
+pub mod grouped_mappings;
+pub mod mapping;
 pub mod plane_sweep_core;
 pub mod plane_sweep_exact;
 pub mod sequence_index;
