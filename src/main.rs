@@ -302,7 +302,7 @@ fn main() -> Result<()> {
         scaffold_overlap_threshold: args.scaffold_overlap,
         scaffold_max_deviation: args.scaffold_dist,
         prefix_delimiter: '#', // Default PanSN delimiter
-        skip_prefix: false,    // false = enable prefix grouping (like wfmash -K)
+        skip_prefix: false,    // false = GROUP BY PREFIX for 1:1 filtering within genome pairs
     };
 
     // Progress indicator

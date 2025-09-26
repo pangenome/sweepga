@@ -734,7 +734,9 @@ impl PafFilter {
                     identity: 1.0, // Use 1.0 for now (length-based scoring)
                     flags: 0,
                 };
-                (mapping, meta.query_name.clone())
+                // Use prefix for grouping if enabled, otherwise full name
+                let group_key = self.extract_prefix(&meta.query_name);
+                (mapping, group_key)
             })
             .collect();
 
