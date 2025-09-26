@@ -1,5 +1,4 @@
 /// Test module declarations
-
 mod fastga_integration;
 mod synthetic_genomes;
 mod unit_tests;

@@ -1,6 +1,5 @@
 /// Comprehensive integration tests for FastGA-RS
 /// These tests verify that FastGA correctly generates alignments from FASTA inputs
-
 use std::fs;
 use std::path::Path;
 use std::process::Command;
@@ -59,21 +58,21 @@ fn test_fastga_self_alignment() {
         "-o", output_path.to_str().unwrap(),
     ]);
 
-    assert!(result.is_ok(), "FastGA self-alignment failed: {:?}", result);
+    assert!(result.is_ok(), "FastGA self-alignment failed: {result:?}");
     assert!(output_path.exists(), "Output PAF not created");
 
     let line_count = count_lines(&output_path);
     assert!(line_count > 0, "No alignments produced");
     // With 8 yeast genomes, we expect at least the self-mappings for each chromosome
     // There are ~17 chromosomes per genome, so 8 * 17 = ~136 minimum
-    assert!(line_count > 100, "Too few alignments for yeast self-alignment (got {})", line_count);
+    assert!(line_count > 100, "Too few alignments for yeast self-alignment (got {line_count})");
 
     assert!(has_extended_cigar(&output_path), "Missing extended CIGAR format");
 }
 
 #[test]
 fn test_fastga_pairwise_alignment() {
-    // Import from parent module (tests/)
+    // Import from synthetic_genomes module
     #[path = "synthetic_genomes.rs"]
     mod synthetic_genomes;
     use synthetic_genomes::generate_test_pair;
@@ -87,15 +86,15 @@ fn test_fastga_pairwise_alignment() {
 
     // Generate related sequences (20kb with 1% divergence for better alignment)
     let (seq1, seq2) = generate_test_pair(20000, 0.01);
-    fs::write(&fasta1, format!(">seq1\n{}\n", seq1)).unwrap();
-    fs::write(&fasta2, format!(">seq2\n{}\n", seq2)).unwrap();
+    fs::write(&fasta1, format!(">seq1\n{seq1}\n")).unwrap();
+    fs::write(&fasta2, format!(">seq2\n{seq2}\n")).unwrap();
 
     // Debug: Check if files were created correctly
     assert!(fasta1.exists() && fasta2.exists(), "Input files not created");
     let seq1_size = fs::metadata(&fasta1).unwrap().len();
     let seq2_size = fs::metadata(&fasta2).unwrap().len();
     // Sequences should be around 10kb (with header, at least 9.5kb)
-    assert!(seq1_size > 9500 && seq2_size > 9500, "Input files too small: {} and {}", seq1_size, seq2_size);
+    assert!(seq1_size > 9500 && seq2_size > 9500, "Input files too small: {seq1_size} and {seq2_size}");
 
     // Run pairwise alignment
     eprintln!("Running alignment: {} vs {}", fasta1.display(), fasta2.display());
@@ -107,18 +106,18 @@ fn test_fastga_pairwise_alignment() {
     ]);
 
     if let Err(ref e) = result {
-        eprintln!("Alignment error: {}", e);
+        eprintln!("Alignment error: {e}");
         // Try to preserve the files for debugging
         let _ = fs::copy(&fasta1, "/tmp/debug_seq1.fa");
         let _ = fs::copy(&fasta2, "/tmp/debug_seq2.fa");
     }
 
-    assert!(result.is_ok(), "Pairwise alignment failed: {:?}", result);
+    assert!(result.is_ok(), "Pairwise alignment failed: {result:?}");
     assert!(output.exists(), "Output not created");
 
     // Should produce at least one alignment between similar sequences
     let content = fs::read_to_string(&output).unwrap_or_else(|e| {
-        panic!("Failed to read output file: {}", e);
+        panic!("Failed to read output file: {e}");
     });
     assert!(!content.is_empty(), "No alignments produced (file has {} bytes)", content.len());
     assert!(content.contains("seq1"), "Missing query sequence name");
@@ -159,7 +158,7 @@ fn test_thread_parameter() {
     // Results should be deterministic (same number of alignments)
     let lines1 = count_lines(&output1);
     let lines4 = count_lines(&output4);
-    assert_eq!(lines1, lines4, "Thread count affected output ({} vs {})", lines1, lines4);
+    assert_eq!(lines1, lines4, "Thread count affected output ({lines1} vs {lines4})");
 }
 
 #[test]
@@ -191,8 +190,7 @@ fn test_filtering_with_fastga() {
     let strict_count = count_lines(&strict);
 
     assert!(strict_count < loose_count,
-            "Strict filter should produce fewer alignments ({} >= {})",
-            strict_count, loose_count);
+            "Strict filter should produce fewer alignments ({strict_count} >= {loose_count})");
     assert!(strict_count > 0, "Strict filter removed all alignments");
 }
 
@@ -270,7 +268,7 @@ fn test_large_sequence_handling() {
     let base = generate_base_sequence(50000, 999);
     // Duplicate part of it to create self-similarity
     let seq = format!("{}{}", &base[..25000], &base);
-    fs::write(&large_fa, format!(">large_seq\n{}\n", seq)).unwrap();
+    fs::write(&large_fa, format!(">large_seq\n{seq}\n")).unwrap();
 
     // Should handle without hanging or crashing
     let result = run_sweepga(&[
@@ -307,8 +305,7 @@ fn test_multisequence_fasta() {
     let seq3 = mutate_sequence(&base, 400, 125); // 2% divergence (400/20000)
 
     fs::write(&multi_fa, format!(
-        ">seq1\n{}\n>seq2\n{}\n>seq3\n{}\n",
-        seq1, seq2, seq3
+        ">seq1\n{seq1}\n>seq2\n{seq2}\n>seq3\n{seq3}\n"
     )).unwrap();
 
     let result = run_sweepga(&[
@@ -327,7 +324,7 @@ fn test_multisequence_fasta() {
 
         // Check that we found alignments between sequences
         let lines: Vec<&str> = content.lines().collect();
-        assert!(lines.len() > 0, "Should have at least one alignment");
+        assert!(!lines.is_empty(), "Should have at least one alignment");
     }
 }
 
@@ -354,10 +351,10 @@ fn test_performance_regression() {
 
     // Yeast self-alignment should complete in reasonable time
     assert!(duration.as_secs() < 60,
-            "Alignment took too long: {:?}", duration);
+            "Alignment took too long: {duration:?}");
 
     // Should produce expected number of alignments
     let line_count = count_lines(&output);
     assert!(line_count > 1000 && line_count < 5000,
-            "Unexpected alignment count: {}", line_count);
+            "Unexpected alignment count: {line_count}");
 }

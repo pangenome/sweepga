@@ -1,7 +1,5 @@
 /// Unit tests for sweepga components
-
 use std::fs;
-use std::path::PathBuf;
 use tempfile::NamedTempFile;
 
 #[test]
@@ -21,13 +19,13 @@ fn test_metric_number_parsing() {
 
     for (input, _expected) in test_cases {
         let output = Command::new("cargo")
-            .args(&["run", "--quiet", "--", "--help"])
+            .args(["run", "--quiet", "--", "--help"])
             .output()
             .expect("Failed to run help");
 
         // Just verify the program accepts these formats
         assert!(output.status.success() || output.status.code() == Some(0),
-                "Failed to parse metric number: {}", input);
+                "Failed to parse metric number: {input}");
     }
 }
 
@@ -75,14 +73,14 @@ fn test_filter_modes() {
     for (mode, _expected) in modes {
         // Would need to expose parse_filter_mode or test via integration
         // For now, just document expected behavior
-        assert!(mode.len() > 0, "Mode string should not be empty");
+        assert!(!mode.is_empty(), "Mode string should not be empty");
     }
 }
 
 #[test]
 fn test_temp_file_cleanup() {
     use std::process::Command;
-    use std::path::Path;
+    
 
     // Create test FASTA
     let test_fa = "/tmp/test_cleanup.fa";
@@ -101,7 +99,7 @@ fn test_temp_file_cleanup() {
 
     // Run sweepga
     let _output = Command::new("cargo")
-        .args(&["run", "--release", "--quiet", "--",
+        .args(["run", "--release", "--quiet", "--",
                 test_fa, "-t", "1"])
         .output()
         .expect("Failed to run");
@@ -156,7 +154,7 @@ fn test_cigar_extended_format() {
                 assert!(
                     op == '=' || op == 'X' || op == 'I' || op == 'D' ||
                     op == 'M' || op == 'S' || op == 'H',
-                    "Invalid CIGAR operation: {}", op
+                    "Invalid CIGAR operation: {op}"
                 );
                 pos += 1;
             }
@@ -187,7 +185,7 @@ fn test_scaffold_annotations() {
 
 #[cfg(test)]
 mod fastga_config_tests {
-    use super::*;
+    
 
     #[test]
     fn test_config_builder() {

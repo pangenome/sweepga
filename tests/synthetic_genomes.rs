@@ -1,6 +1,5 @@
 /// Generate synthetic genomes with controlled mutations for testing
 /// This ensures FastGA can find homologous regions to align
-
 use std::fs;
 use std::path::{Path, PathBuf};
 use rand::{Rng, SeedableRng};
@@ -107,15 +106,15 @@ pub fn create_scaled_test_files(dir: &Path) -> Vec<(PathBuf, PathBuf, usize)> {
     let mut results = Vec::new();
 
     for size in sizes {
-        let file1 = dir.join(format!("test_{}bp_1.fa", size));
-        let file2 = dir.join(format!("test_{}bp_2.fa", size));
+        let file1 = dir.join(format!("test_{size}bp_1.fa"));
+        let file2 = dir.join(format!("test_{size}bp_2.fa"));
 
         // Generate sequences with 5% divergence
         let (seq1, seq2) = generate_test_pair(size, 0.05);
 
         // Write FASTA files
-        fs::write(&file1, format!(">seq_{}_1\n{}\n", size, seq1)).unwrap();
-        fs::write(&file2, format!(">seq_{}_2\n{}\n", size, seq2)).unwrap();
+        fs::write(&file1, format!(">seq_{size}_1\n{seq1}\n")).unwrap();
+        fs::write(&file2, format!(">seq_{size}_2\n{seq2}\n")).unwrap();
 
         results.push((file1, file2, size));
     }
@@ -130,7 +129,7 @@ pub fn create_multichrom_genome(path: &Path, size_per_chr: usize, num_chromosome
     for i in 1..=num_chromosomes {
         // Each chromosome has a different seed for variety
         let seq = generate_base_sequence(size_per_chr, (i * 100) as u64);
-        content.push_str(&format!(">chr{}\n{}\n", i, seq));
+        content.push_str(&format!(">chr{i}\n{seq}\n"));
     }
 
     fs::write(path, content).unwrap();
@@ -148,7 +147,7 @@ pub fn create_genome_with_repeats(path: &Path, base_size: usize) {
 
     // Add interspersed repeats
     let transposon = "AAAATTTTGGGGCCCC";
-    let positions = vec![base_size / 4, base_size / 2, 3 * base_size / 4];
+    let positions = [base_size / 4, base_size / 2, 3 * base_size / 4];
 
     let mut chars: Vec<char> = sequence.chars().collect();
     for pos in positions.iter().rev() {
@@ -158,7 +157,7 @@ pub fn create_genome_with_repeats(path: &Path, base_size: usize) {
     }
 
     let final_seq: String = chars.iter().collect();
-    fs::write(path, format!(">genome_with_repeats\n{}\n", final_seq)).unwrap();
+    fs::write(path, format!(">genome_with_repeats\n{final_seq}\n")).unwrap();
 }
 
 #[cfg(test)]

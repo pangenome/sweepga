@@ -1,8 +1,6 @@
 /// Utility functions for testing
-
 use std::fs;
 use std::path::{Path, PathBuf};
-use tempfile::TempDir;
 
 /// Generate a random DNA sequence of given length
 pub fn generate_dna_sequence(length: usize) -> String {
@@ -19,7 +17,7 @@ pub fn generate_dna_sequence(length: usize) -> String {
 pub fn create_fasta_file(path: &Path, sequences: &[(&str, &str)]) {
     let mut content = String::new();
     for (name, seq) in sequences {
-        content.push_str(&format!(">{}\n{}\n", name, seq));
+        content.push_str(&format!(">{name}\n{seq}\n"));
     }
     fs::write(path, content).expect("Failed to write FASTA file");
 }
@@ -29,7 +27,7 @@ pub fn generate_test_genome(path: &Path, size: usize, num_chromosomes: usize) {
     let mut sequences = Vec::new();
 
     for i in 1..=num_chromosomes {
-        let chr_name = format!("chr{}", i);
+        let chr_name = format!("chr{i}");
         let mut seq = generate_dna_sequence(size / num_chromosomes);
 
         // Add some repeats within the sequence
@@ -57,7 +55,7 @@ pub fn generate_test_genome(path: &Path, size: usize, num_chromosomes: usize) {
 
     let content: String = sequences
         .iter()
-        .map(|(name, seq)| format!(">{}\n{}\n", name, seq))
+        .map(|(name, seq)| format!(">{name}\n{seq}\n"))
         .collect();
 
     fs::write(path, content).expect("Failed to write test genome");
@@ -78,7 +76,7 @@ pub fn create_homologous_genomes(dir: &Path) -> (PathBuf, PathBuf) {
     ]);
 
     // Genome 2: with variations
-    let mut variant_seq = base_seq.clone();
+    let variant_seq = base_seq.clone();
 
     // Introduce SNPs every 100 bases
     let mut chars: Vec<char> = variant_seq.chars().collect();
@@ -173,7 +171,7 @@ pub fn analyze_paf(path: &Path) -> PafStats {
         num_queries: queries.len(),
         num_targets: targets.len(),
         has_extended_cigar: has_cigar,
-        has_scaffolds: has_scaffolds,
+        has_scaffolds,
         total_aligned_bases: total_bases,
         average_identity: if lines.is_empty() { 0.0 } else { total_identity / lines.len() as f64 },
     }
