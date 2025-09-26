@@ -21,15 +21,13 @@ impl PlaneSweepMapping {
     pub const FLAG_OVERLAPPED: u8 = 0x02;
 
     pub fn score(&self) -> f64 {
-        // For now, use mapping block length as score
-        // TODO: Later we can derive identity from CIGAR string
+        // Score based on identity * log(length)
         let length = (self.query_end - self.query_start) as f64;
-        if length <= 0.0 {
+        if length <= 0.0 || self.identity <= 0.0 {
             f64::NEG_INFINITY
         } else {
-            // Simple length-based score for now
-            // Can be enhanced to: self.identity * length.ln() when we parse CIGAR
-            length.ln()
+            // Use identity * log(length) for scoring
+            self.identity * length.ln()
         }
     }
 

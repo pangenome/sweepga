@@ -29,10 +29,10 @@ The filtering process follows this exact sequence:
    - Filter by minimum block length and optionally exclude self-mappings
    - Store all original mappings for potential rescue later
 
-2. **Primary Mapping Filter** (Optional, default: N = no filtering)
+2. **Primary Mapping Filter** (default: 1:1)
    - Apply plane sweep filtering to raw mappings BEFORE scaffold creation
    - Respects PanSN prefix grouping when `-Y` is set
-   - Controlled by `-n/--num-mappings` (default: "N")
+   - Controlled by `-n/--num-mappings` (default: "1:1")
    - Options: "1:1", "1" (same as "1:∞"), "N" (no filtering)
 
 3. **Scaffold Creation** (if `-S` > 0)
@@ -57,7 +57,7 @@ The filtering process follows this exact sequence:
 
 ## Key Parameters
 
-- `-n/--num-mappings`: Primary mapping filter before scaffolds (default: "N" = no filtering)
+- `-n/--num-mappings`: Primary mapping filter before scaffolds (default: "1:1")
 - `--scaffold-filter`: Filter for scaffold chains (default: "1:1")
 - `-S/--scaffold-mass`: Minimum scaffold length (default: 10kb)
 - `-j/--scaffold-jump`: Maximum gap to merge mappings into scaffolds (default: 100kb)
