@@ -82,7 +82,7 @@ struct Args {
     sparsify: f64,
 
     /// Mapping filter: "1:1" (best), "M:N" (top M per query, N per target; ∞/many for unbounded), "many" (no filter)
-    #[clap(short = 'n', long = "num-mappings", default_value = "many")]
+    #[clap(short = 'n', long = "num-mappings", default_value = "1:1")]
     num_mappings: String,
 
     /// Scaffold filter: "1:1" (best), "M:N" (top M per query, N per target; ∞/many for unbounded)
@@ -302,7 +302,7 @@ fn main() -> Result<()> {
         scaffold_overlap_threshold: args.scaffold_overlap,
         scaffold_max_deviation: args.scaffold_dist,
         prefix_delimiter: '#', // Default PanSN delimiter
-        skip_prefix: true,     // true = don't group by prefix (filter per sequence, not per genome)
+        skip_prefix: true,     // true = no prefix grouping (filter per chromosome pair)
     };
 
     // Progress indicator
