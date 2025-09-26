@@ -4,6 +4,7 @@ mod paf;
 mod paf_filter;
 mod plane_sweep;
 mod plane_sweep_exact;
+mod sequence_index;
 mod union_find;
 
 use anyhow::Result;

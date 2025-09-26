@@ -7,6 +7,7 @@ use std::path::Path;
 
 use crate::mapping::ChainStatus;
 use crate::plane_sweep_exact::{plane_sweep_grouped_pairs, PlaneSweepMapping};
+use crate::sequence_index::SequenceIndex;
 
 /// Filtering mode
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -65,6 +66,67 @@ struct RecordMeta {
     overlapped: bool,
 }
 
+/// Compact record metadata using sequence IDs instead of strings
+#[derive(Debug, Clone)]
+struct CompactRecordMeta {
+    rank: usize, // 0-based index in original file
+    query_id: u32,
+    target_id: u32,
+    query_start: u64,
+    query_end: u64,
+    target_start: u64,
+    target_end: u64,
+    block_length: u64,
+    identity: f64,
+    strand: char,
+    chain_id: Option<String>, // Still a string for now
+    chain_status: ChainStatus,
+    discard: bool,
+    overlapped: bool,
+}
+
+impl CompactRecordMeta {
+    /// Convert from regular RecordMeta using a sequence index
+    fn from_record_meta(meta: &RecordMeta, seq_index: &mut SequenceIndex) -> Self {
+        Self {
+            rank: meta.rank,
+            query_id: seq_index.get_or_insert(&meta.query_name),
+            target_id: seq_index.get_or_insert(&meta.target_name),
+            query_start: meta.query_start,
+            query_end: meta.query_end,
+            target_start: meta.target_start,
+            target_end: meta.target_end,
+            block_length: meta.block_length,
+            identity: meta.identity,
+            strand: meta.strand,
+            chain_id: meta.chain_id.clone(),
+            chain_status: meta.chain_status.clone(),
+            discard: meta.discard,
+            overlapped: meta.overlapped,
+        }
+    }
+
+    /// Convert back to RecordMeta for output
+    fn to_record_meta(&self, seq_index: &SequenceIndex) -> RecordMeta {
+        RecordMeta {
+            rank: self.rank,
+            query_name: seq_index.name(self.query_id).to_string(),
+            target_name: seq_index.name(self.target_id).to_string(),
+            query_start: self.query_start,
+            query_end: self.query_end,
+            target_start: self.target_start,
+            target_end: self.target_end,
+            block_length: self.block_length,
+            identity: self.identity,
+            strand: self.strand,
+            chain_id: self.chain_id.clone(),
+            chain_status: self.chain_status.clone(),
+            discard: self.discard,
+            overlapped: self.overlapped,
+        }
+    }
+}
+
 /// Represents a merged chain for scaffold filtering
 #[derive(Debug, Clone)]
 #[allow(dead_code)]
@@ -78,6 +140,20 @@ struct MergedChain {
     strand: char,
     total_length: u64,
     member_indices: Vec<usize>, // Indices of original mappings in this chain
+}
+
+/// Compact merged chain using sequence IDs
+#[derive(Debug, Clone)]
+struct CompactMergedChain {
+    query_id: u32,
+    target_id: u32,
+    query_start: u64,
+    query_end: u64,
+    target_start: u64,
+    target_end: u64,
+    strand: char,
+    total_length: u64,
+    member_indices: Vec<usize>,
 }
 
 /// PAF filter that preserves original records
