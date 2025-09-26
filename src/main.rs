@@ -82,7 +82,7 @@ struct Args {
     sparsify: f64,
 
     /// Mapping filter: "1:1" (best), "M:N" (top M per query, N per target; ∞/many for unbounded), "many" (no filter)
-    #[clap(short = 'n', long = "num-mappings", default_value = "1:1")]
+    #[clap(short = 'n', long = "num-mappings", default_value = "many")]
     num_mappings: String,
 
     /// Scaffold filter: "1:1" (best), "M:N" (top M per query, N per target; ∞/many for unbounded)
