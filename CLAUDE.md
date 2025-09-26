@@ -32,7 +32,7 @@ The filtering process follows this exact sequence:
 2. **Primary Mapping Filter** (Optional, default: N = no filtering)
    - Apply plane sweep filtering to raw mappings BEFORE scaffold creation
    - Respects PanSN prefix grouping when `-Y` is set
-   - Controlled by `-m/--mapping-filter` (default: "N")
+   - Controlled by `-n/--num-mappings` (default: "N")
    - Options: "1:1", "1" (same as "1:∞"), "N" (no filtering)
 
 3. **Scaffold Creation** (if `-S` > 0)
@@ -44,7 +44,7 @@ The filtering process follows this exact sequence:
 4. **Scaffold Filter** (default: 1:1)
    - Apply plane sweep filtering to the SCAFFOLD chains
    - Respects PanSN prefix grouping when `-Y` is set
-   - Controlled by `-n/--scaffold-filter` (default: "1:1")
+   - Controlled by `--scaffold-filter` (default: "1:1")
    - Options: "1:1", "1" (same as "1:∞"), "N" (no filtering)
    - Keeps best scaffolds per query/target pair within each prefix group
 
@@ -57,8 +57,8 @@ The filtering process follows this exact sequence:
 
 ## Key Parameters
 
-- `-m/--mapping-filter`: Primary mapping filter before scaffolds (default: "N" = no filtering)
-- `-n/--scaffold-filter`: Filter for scaffold chains (default: "1:1")
+- `-n/--num-mappings`: Primary mapping filter before scaffolds (default: "N" = no filtering)
+- `--scaffold-filter`: Filter for scaffold chains (default: "1:1")
 - `-S/--scaffold-mass`: Minimum scaffold length (default: 10kb)
 - `-j/--scaffold-jump`: Maximum gap to merge mappings into scaffolds (default: 100kb)
 - `-D/--scaffold-dist`: Maximum distance for rescue (default: 100kb)
@@ -81,17 +81,17 @@ The filtering process follows this exact sequence:
 
 2. **Aggressive filtering**: 1:1 pre-filtering, 1:1 scaffold filtering
    ```
-   sweepga -S 10000 -m 1:1 -n 1:1
+   sweepga -S 10000 -n 1:1 --scaffold-filter 1:1
    ```
 
 3. **Pre-filter only**: No scaffolding
    ```
-   sweepga -m 1:1  # Apply 1:1 filter to mappings, no scaffolds
+   sweepga -n 1:1 -j 0  # Apply 1:1 filter to mappings, no scaffolds
    ```
 
 4. **Keep more mappings**: 1:∞ for both filters
    ```
-   sweepga -S 10000 -m 1 -n 1   # "1" is shorthand for "1:∞"
+   sweepga -S 10000 -n 1 --scaffold-filter 1   # "1" is shorthand for "1:∞"
    ```
 
 ## Key Differences from Original Description
