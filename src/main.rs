@@ -302,7 +302,7 @@ fn main() -> Result<()> {
         scaffold_overlap_threshold: args.scaffold_overlap,
         scaffold_max_deviation: args.scaffold_dist,
         prefix_delimiter: '#', // Default PanSN delimiter
-        skip_prefix: true,     // true = group by prefix (default behavior for PanSN)
+        skip_prefix: true,     // true = don't group by prefix (filter per sequence, not per genome)
     };
 
     // Progress indicator
