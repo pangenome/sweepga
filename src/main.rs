@@ -96,7 +96,7 @@ struct Args {
     num_mappings: String,
 
     /// Scaffold filter: "1:1" (best), "M:N" (top M per query, N per target; ∞/many for unbounded)
-    #[clap(long = "scaffold-filter", default_value = "1:1")]
+    #[clap(short = 'm', long = "scaffold-filter", default_value = "1:1")]
     scaffold_filter: String,
 
     /// Scaffold jump (gap) distance. 0 = disable scaffolding (plane sweep only), >0 = enable scaffolding

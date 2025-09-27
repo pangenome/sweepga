@@ -87,7 +87,7 @@ The filtering process follows this exact sequence:
 4. **Scaffold Filter** (default: 1:1)
    - Apply plane sweep filtering to the SCAFFOLD chains
    - Respects PanSN prefix grouping when `-Y` is set
-   - Controlled by `--scaffold-filter` (default: "1:1")
+   - Controlled by `-m/--scaffold-filter` (default: "1:1")
    - Options: "1:1", "1" (same as "1:∞"), "N" (no filtering)
    - Keeps best scaffolds per query/target pair within each prefix group
 
@@ -101,7 +101,7 @@ The filtering process follows this exact sequence:
 ## Key Parameters
 
 - `-n/--num-mappings`: Primary mapping filter before scaffolds (default: "many" = no filtering)
-- `--scaffold-filter`: Filter for scaffold chains (default: "1:1")
+- `-m/--scaffold-filter`: Filter for scaffold chains (default: "1:1")
 - `-s/--scaffold-mass`: Minimum scaffold length (default: 10kb)
 - `-j/--scaffold-jump`: Maximum gap to merge mappings into scaffolds (default: 10kb)
 - `-d/--scaffold-dist`: Maximum distance for rescue (default: 20kb)
@@ -148,12 +148,12 @@ This would make the pipeline stages explicit and composable, reducing confusion 
 
 1. **Default (wfmash-like)**: No pre-filtering, 1:1 scaffold filtering
    ```
-   sweepga -S 10000  # Creates scaffolds, keeps best per genome pair
+   sweepga  # Creates scaffolds, keeps best per chromosome pair
    ```
 
 2. **Aggressive filtering**: 1:1 pre-filtering, 1:1 scaffold filtering
    ```
-   sweepga -S 10000 -n 1:1 --scaffold-filter 1:1
+   sweepga -n 1:1 -m 1:1
    ```
 
 3. **Pre-filter only**: No scaffolding
@@ -163,7 +163,7 @@ This would make the pipeline stages explicit and composable, reducing confusion 
 
 4. **Keep more mappings**: 1:∞ for both filters
    ```
-   sweepga -S 10000 -n 1 --scaffold-filter 1   # "1" is shorthand for "1:∞"
+   sweepga -n 1 -m 1   # "1" is shorthand for "1:∞"
    ```
 
 ## Key Differences from Original Description

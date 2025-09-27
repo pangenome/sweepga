@@ -70,7 +70,7 @@ grep -c "st:Z:rescued" data/scerevisiae8.filtered.paf   # Rescued mappings
 - **No pre-filtering** (`-n many`): All mappings participate in scaffold building
 - **Scaffold creation** (`-j 10k`): Merge mappings within 10kb gaps
 - **Min scaffold** (`-s 10k`): Scaffolds must be ≥10kb
-- **1:1 scaffold filter** (`--scaffold-filter 1:1`): Keep best scaffold per chromosome pair
+- **1:1 scaffold filter** (`-m 1:1`): Keep best scaffold per chromosome pair
 - **Rescue distance** (`-d 20k`): Rescue mappings within 20kb of scaffolds
 
 ## Parameters
@@ -91,7 +91,7 @@ grep -c "st:Z:rescued" data/scerevisiae8.filtered.paf   # Rescued mappings
 
 `-d/--scaffold-dist` sets the maximum Euclidean distance for rescue (default 20k). Mappings further than this from any scaffold anchor are discarded.
 
-`--scaffold-filter` controls scaffold filtering (default "1:1"). Options: "1:1", "1" (1:many), "many" (no filter).
+`-m/--scaffold-filter` controls scaffold filtering (default "1:1"). Options: "1:1", "1" (1:many), "many" (no filter).
 
 ### Chain Annotations
 
