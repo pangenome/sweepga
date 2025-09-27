@@ -90,8 +90,8 @@ struct Args {
     #[clap(short = 'x', long = "sparsify", default_value = "1.0")]
     sparsify: f64,
 
-    /// Mapping filter: "1:1" (best), "M:N" (top M per query, N per target; ∞/many for unbounded), "many" (no filter)
-    #[clap(short = 'n', long = "num-mappings", default_value = "many")]
+    /// Mapping filter: "1:1" (best), "M:N" (top M per query, N per target; ∞/many for unbounded)
+    #[clap(short = 'n', long = "num-mappings", default_value = "many:many")]
     num_mappings: String,
 
     /// Scaffold filter: "1:1" (best), "M:N" (top M per query, N per target; ∞/many for unbounded)
