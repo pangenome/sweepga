@@ -156,7 +156,38 @@ struct MergedChain {
     target_end: u64,
     strand: char,
     total_length: u64,
+    weighted_identity: f64,      // Identity over entire chain span (matches/span)
+    sum_matches: u64,            // Sum of matches from all mappings
+    sum_block_lengths: u64,      // Sum of actual mapped lengths
     member_indices: Vec<usize>, // Indices of original mappings in this chain
+}
+
+impl MergedChain {
+    /// Calculate score for this chain based on the scoring function
+    fn score(&self, scoring: ScoringFunction) -> f64 {
+        match scoring {
+            ScoringFunction::Identity => {
+                // Use weighted identity over entire span
+                self.weighted_identity
+            }
+            ScoringFunction::Length => {
+                // Use total span length
+                self.total_length as f64
+            }
+            ScoringFunction::LengthIdentity => {
+                // Length * weighted identity
+                self.total_length as f64 * self.weighted_identity
+            }
+            ScoringFunction::LogLengthIdentity => {
+                // log(length) * weighted identity
+                if self.total_length > 0 {
+                    (self.total_length as f64).ln() * self.weighted_identity
+                } else {
+                    0.0
+                }
+            }
+        }
+    }
 }
 
 /// Compact merged chain using sequence IDs
@@ -742,12 +773,14 @@ impl PafFilter {
                     continue;
                 }
 
-                // Calculate merged chain boundaries (like wfmash's merging)
+                // Calculate merged chain boundaries and weighted identity
                 let mut q_min = u64::MAX;
                 let mut q_max = 0;
                 let mut t_min = u64::MAX;
                 let mut t_max = 0;
                 let mut member_ranks = Vec::new();
+                let mut sum_matches = 0u64;
+                let mut sum_block_lengths = 0u64;
 
                 for &(rank, idx) in &chain_indices {
                     let meta = &metadata[idx];
@@ -756,9 +789,21 @@ impl PafFilter {
                     t_min = t_min.min(meta.target_start);
                     t_max = t_max.max(meta.target_end);
                     member_ranks.push(rank); // Store the original rank
+
+                    // Sum up matches and block lengths for weighted identity
+                    sum_matches += meta.matches;
+                    sum_block_lengths += meta.block_length;
                 }
 
                 let total_length = q_max - q_min;
+
+                // Calculate weighted identity over the entire chain span
+                // This accounts for gaps as mismatches
+                let weighted_identity = if total_length > 0 {
+                    sum_matches as f64 / total_length as f64
+                } else {
+                    0.0
+                };
 
                 all_chains.push(MergedChain {
                     query_name: query.clone(),
@@ -769,6 +814,9 @@ impl PafFilter {
                     target_end: t_max,
                     strand,
                     total_length,
+                    weighted_identity,
+                    sum_matches,
+                    sum_block_lengths,
                     member_indices: member_ranks, // Now storing ranks, not indices
                 });
             }
@@ -879,7 +927,7 @@ impl PafFilter {
                     query_end: chain.query_end,
                     target_start: chain.target_start,
                     target_end: chain.target_end,
-                    identity: chain.total_length as f64 / 1_000_000.0, // Use length as score
+                    identity: chain.weighted_identity, // Use weighted identity for scoring
                     flags: 0,
                 };
                 let query_group = chain.query_name.clone();
@@ -973,7 +1021,7 @@ impl PafFilter {
                     query_end: chain.query_end,
                     target_start: chain.target_start,
                     target_end: chain.target_end,
-                    identity: chain.total_length as f64 / 1_000_000.0, // Use normalized score
+                    identity: chain.weighted_identity, // Use weighted identity for scoring
                     flags: 0,
                 })
                 .collect();
@@ -1028,7 +1076,7 @@ impl PafFilter {
                     query_end: chain.query_end,
                     target_start: chain.target_start,
                     target_end: chain.target_end,
-                    identity: chain.total_length as f64 / 1_000_000.0, // Use normalized score
+                    identity: chain.weighted_identity, // Use weighted identity for scoring
                     flags: 0,
                 })
                 .collect();
@@ -1068,8 +1116,13 @@ impl PafFilter {
         let mut filtered = Vec::new();
 
         for (_query, mut query_chains) in by_query {
-            // Sort by total length (descending) to prioritize longer chains
-            query_chains.sort_by(|a, b| b.total_length.cmp(&a.total_length));
+            // Sort by chain score (descending) to prioritize better chains
+            let scoring = self.config.scoring_function;
+            query_chains.sort_by(|a, b| {
+                let score_a = a.score(scoring);
+                let score_b = b.score(scoring);
+                score_b.partial_cmp(&score_a).unwrap_or(std::cmp::Ordering::Equal)
+            });
 
             let mut kept: Vec<MergedChain> = Vec::new();
 
@@ -1126,6 +1179,7 @@ impl PafFilter {
 
             // Plane sweep to remove overlaps
             let mut kept: Vec<MergedChain> = Vec::new();
+            let scoring_func = self.config.scoring_function;
 
             for chain in query_chains {
                 // Check overlap with already kept chains
@@ -1145,8 +1199,8 @@ impl PafFilter {
                         if overlap_len as f64 / min_len as f64
                             > self.config.scaffold_overlap_threshold
                         {
-                            // Keep the longer chain
-                            if existing.total_length > chain.total_length {
+                            // Keep the better scoring chain
+                            if existing.score(scoring_func) > chain.score(scoring_func) {
                                 has_significant_overlap = true;
                                 true // Keep existing
                             } else {
