@@ -1,6 +1,7 @@
 // Exact implementation of wfmash plane sweep algorithm
 #![allow(dead_code)]
 
+use crate::paf_filter::ScoringFunction;
 use std::cmp::Ordering;
 use std::collections::BTreeSet;
 
@@ -21,8 +22,30 @@ impl PlaneSweepMapping {
     pub const FLAG_OVERLAPPED: u8 = 0x02;
 
     pub fn score(&self) -> f64 {
-        // Use length as the primary scoring metric
-        // This works well when alignments are already filtered by identity
+        // Default scoring: log(length) * identity
+        self.score_log_length_identity()
+    }
+
+    pub fn score_with_function(&self, scoring: ScoringFunction) -> f64 {
+        match scoring {
+            ScoringFunction::Identity => self.score_identity(),
+            ScoringFunction::Length => self.score_length(),
+            ScoringFunction::LengthIdentity => self.score_length_identity(),
+            ScoringFunction::LogLengthIdentity => self.score_log_length_identity(),
+        }
+    }
+
+    pub fn score_identity(&self) -> f64 {
+        // Identity only
+        if self.identity <= 0.0 {
+            f64::NEG_INFINITY
+        } else {
+            self.identity
+        }
+    }
+
+    pub fn score_length(&self) -> f64 {
+        // Length only
         let length = (self.query_end - self.query_start) as f64;
         if length <= 0.0 {
             f64::NEG_INFINITY
@@ -31,8 +54,18 @@ impl PlaneSweepMapping {
         }
     }
 
-    pub fn score_with_identity(&self) -> f64 {
-        // Original scoring with identity (for future use when we parse CIGAR)
+    pub fn score_length_identity(&self) -> f64 {
+        // Length * Identity
+        let length = (self.query_end - self.query_start) as f64;
+        if length <= 0.0 || self.identity <= 0.0 {
+            f64::NEG_INFINITY
+        } else {
+            length * self.identity
+        }
+    }
+
+    pub fn score_log_length_identity(&self) -> f64 {
+        // log(Length) * Identity (wfmash default)
         let length = (self.query_end - self.query_start) as f64;
         if length <= 0.0 || self.identity <= 0.0 {
             f64::NEG_INFINITY
@@ -225,6 +258,7 @@ pub fn plane_sweep_query(
     mappings: &mut [PlaneSweepMapping],
     mappings_to_keep: usize,
     overlap_threshold: f64,
+    scoring: ScoringFunction,
 ) -> Vec<usize> {
     if mappings.is_empty() || mappings.len() == 1 {
         return (0..mappings.len()).collect();
@@ -271,7 +305,7 @@ pub fn plane_sweep_query(
         for event in &events[i..j] {
             let mapping_order = MappingOrder {
                 idx: event.mapping_idx,
-                score: mappings[event.mapping_idx].score(),
+                score: mappings[event.mapping_idx].score_with_function(scoring),
                 start_pos: mappings[event.mapping_idx].query_start,
             };
 
@@ -311,6 +345,7 @@ pub fn plane_sweep_target(
     mappings: &mut [PlaneSweepMapping],
     mappings_to_keep: usize,
     overlap_threshold: f64,
+    scoring: ScoringFunction,
 ) -> Vec<usize> {
     if mappings.is_empty() || mappings.len() == 1 {
         return (0..mappings.len()).collect();
@@ -353,7 +388,7 @@ pub fn plane_sweep_target(
         for event in &events[i..j] {
             let mapping_order = MappingOrder {
                 idx: event.mapping_idx,
-                score: mappings[event.mapping_idx].score(),
+                score: mappings[event.mapping_idx].score_with_function(scoring),
                 start_pos: mappings[event.mapping_idx].target_start,
             };
 
@@ -392,9 +427,10 @@ pub fn plane_sweep_both(
     query_mappings_to_keep: usize,
     target_mappings_to_keep: usize,
     overlap_threshold: f64,
+    scoring: ScoringFunction,
 ) -> Vec<usize> {
     // First apply query axis filtering
-    let query_kept = plane_sweep_query(mappings, query_mappings_to_keep, overlap_threshold);
+    let query_kept = plane_sweep_query(mappings, query_mappings_to_keep, overlap_threshold, scoring);
 
     // Create a filtered set for target sweep
     let mut filtered_mappings: Vec<PlaneSweepMapping> =
@@ -405,6 +441,7 @@ pub fn plane_sweep_both(
         &mut filtered_mappings,
         target_mappings_to_keep,
         overlap_threshold,
+        scoring,
     );
 
     // Map back to original indices
@@ -416,6 +453,7 @@ pub fn plane_sweep_grouped_query(
     mappings: &mut [(PlaneSweepMapping, String)], // (mapping, query_seq_name)
     mappings_to_keep: usize,
     overlap_threshold: f64,
+    scoring: ScoringFunction,
 ) -> Vec<usize> {
     use std::collections::HashMap;
 
@@ -446,7 +484,7 @@ pub fn plane_sweep_grouped_query(
 
         // Apply plane sweep to this group
         let kept_in_group =
-            plane_sweep_query(&mut group_mappings, mappings_to_keep, overlap_threshold);
+            plane_sweep_query(&mut group_mappings, mappings_to_keep, overlap_threshold, scoring);
 
         // Map back to original indices
         for &local_idx in &kept_in_group {
@@ -464,6 +502,7 @@ pub fn plane_sweep_grouped_pairs(
     mappings: &mut [(PlaneSweepMapping, String, String)], // (mapping, query_group, target_group)
     mappings_to_keep: usize,
     overlap_threshold: f64,
+    scoring: ScoringFunction,
 ) -> Vec<usize> {
     use std::collections::HashMap;
 
@@ -496,10 +535,10 @@ pub fn plane_sweep_grouped_pairs(
         // For 1:1 filtering, we need to apply constraints on BOTH axes
         let kept_in_group = if mappings_to_keep == 1 {
             // True 1:1 - keep best mapping that satisfies both query and target constraints
-            plane_sweep_both(&mut group_mappings, 1, 1, overlap_threshold)
+            plane_sweep_both(&mut group_mappings, 1, 1, overlap_threshold, scoring)
         } else {
             // Otherwise just filter on query axis
-            plane_sweep_query(&mut group_mappings, mappings_to_keep, overlap_threshold)
+            plane_sweep_query(&mut group_mappings, mappings_to_keep, overlap_threshold, scoring)
         };
 
         // Map back to original indices
@@ -517,6 +556,7 @@ pub fn plane_sweep_grouped_target(
     mappings: &mut [(PlaneSweepMapping, String)], // (mapping, target_seq_name)
     mappings_to_keep: usize,
     overlap_threshold: f64,
+    scoring: ScoringFunction,
 ) -> Vec<usize> {
     use std::collections::HashMap;
 
@@ -547,7 +587,7 @@ pub fn plane_sweep_grouped_target(
 
         // Apply plane sweep to this group
         let kept_in_group =
-            plane_sweep_target(&mut group_mappings, mappings_to_keep, overlap_threshold);
+            plane_sweep_target(&mut group_mappings, mappings_to_keep, overlap_threshold, scoring);
 
         // Map back to original indices
         for &local_idx in &kept_in_group {
@@ -566,7 +606,7 @@ mod tests {
     #[test]
     fn test_empty_input() {
         let mut mappings = vec![];
-        let kept = plane_sweep_query(&mut mappings, 1, 0.95);
+        let kept = plane_sweep_query(&mut mappings, 1, 0.95, ScoringFunction::LogLengthIdentity);
         assert_eq!(kept.len(), 0);
     }
 
@@ -581,7 +621,7 @@ mod tests {
             identity: 0.95,
             flags: 0,
         }];
-        let kept = plane_sweep_query(&mut mappings, 1, 0.95);
+        let kept = plane_sweep_query(&mut mappings, 1, 0.95, ScoringFunction::LogLengthIdentity);
         assert_eq!(kept, vec![0]);
     }
 
@@ -609,7 +649,7 @@ mod tests {
         ];
 
         // Keep best 1 per position (0 secondaries)
-        let kept = plane_sweep_query(&mut mappings, 1, 0.95);
+        let kept = plane_sweep_query(&mut mappings, 1, 0.95, ScoringFunction::LogLengthIdentity);
         assert_eq!(kept.len(), 2); // Both should be kept (non-overlapping)
     }
 
@@ -638,7 +678,7 @@ mod tests {
 
         // Keep best 1 per position - both mappings will be kept because they're
         // the best at different positions (0 at 100-149, both compete at 150-200, 1 at 201-250)
-        let kept = plane_sweep_query(&mut mappings, 1, 0.95);
+        let kept = plane_sweep_query(&mut mappings, 1, 0.95, ScoringFunction::LogLengthIdentity);
         assert_eq!(kept.len(), 2); // Both are kept as they're best at different positions
     }
 
@@ -677,7 +717,7 @@ mod tests {
         // All three mappings have identical query ranges (100-200)
         // so they all have the same score (log(100))
         // With mappings_to_keep=2, we keep exactly 2 mappings
-        let kept = plane_sweep_query(&mut mappings, 2, 0.95);
+        let kept = plane_sweep_query(&mut mappings, 2, 0.95, ScoringFunction::LogLengthIdentity);
         assert_eq!(kept.len(), 2); // Keep 2 mappings
         assert!(kept.contains(&0));
         assert!(kept.contains(&1));
@@ -720,14 +760,14 @@ mod tests {
 
         // With identical query ranges, all mappings have the same score
         // With n=1, we keep only 1 (best only)
-        let kept = plane_sweep_query(&mut mappings, 1, 1.0);
+        let kept = plane_sweep_query(&mut mappings, 1, 1.0, ScoringFunction::LogLengthIdentity);
         assert_eq!(kept.len(), 1); // Only best kept
 
         // With 2 mappings allowed - keep exactly 2
         mappings.iter_mut().for_each(|m| {
             m.flags = 0;
         });
-        let kept = plane_sweep_query(&mut mappings, 2, 1.0);
+        let kept = plane_sweep_query(&mut mappings, 2, 1.0, ScoringFunction::LogLengthIdentity);
         assert_eq!(kept.len(), 2); // Keep 2 mappings
 
         // With 2 mappings and overlap filtering
@@ -735,7 +775,7 @@ mod tests {
         mappings.iter_mut().for_each(|m| {
             m.flags = 0;
         });
-        let kept = plane_sweep_query(&mut mappings, 2, 0.5);
+        let kept = plane_sweep_query(&mut mappings, 2, 0.5, ScoringFunction::LogLengthIdentity);
         assert_eq!(kept.len(), 2); // Keep 2 mappings
     }
 
@@ -762,7 +802,7 @@ mod tests {
             },
         ];
 
-        let kept = plane_sweep_query(&mut mappings, 1, 0.95);
+        let kept = plane_sweep_query(&mut mappings, 1, 0.95, ScoringFunction::LogLengthIdentity);
         assert_eq!(kept.len(), 2); // Both at extremes
     }
 }

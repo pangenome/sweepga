@@ -9,6 +9,15 @@ use crate::mapping::ChainStatus;
 use crate::plane_sweep_exact::{plane_sweep_grouped_pairs, PlaneSweepMapping};
 use crate::sequence_index::SequenceIndex;
 
+/// Scoring function for plane sweep
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum ScoringFunction {
+    Identity,           // Identity only
+    Length,            // Length only
+    LengthIdentity,    // Length * Identity
+    LogLengthIdentity, // log(Length) * Identity (default)
+}
+
 /// Filtering mode
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum FilterMode {
@@ -44,6 +53,10 @@ pub struct FilterConfig {
     pub scaffold_max_deviation: u64, // -D/--scaffold-dist
     pub prefix_delimiter: char,
     pub skip_prefix: bool,
+
+    // Scoring and identity filtering
+    pub scoring_function: ScoringFunction,
+    pub min_identity: f64,  // Minimum block identity threshold (0.0-1.0)
 }
 
 /// Record metadata for filtering without modifying records
@@ -58,7 +71,9 @@ struct RecordMeta {
     target_start: u64,
     target_end: u64,
     block_length: u64,
-    identity: f64,
+    identity: f64,          // Block identity: matches / alignment_length
+    matches: u64,           // Number of matching bases
+    alignment_length: u64,  // Total alignment length (including gaps)
     strand: char,
     chain_id: Option<String>,
     chain_status: ChainStatus,
@@ -118,6 +133,8 @@ impl CompactRecordMeta {
             target_end: self.target_end,
             block_length: self.block_length,
             identity: self.identity,
+            matches: (self.identity * self.block_length as f64) as u64, // Estimate matches from identity
+            alignment_length: self.block_length, // Use block_length as alignment length
             strand: self.strand,
             chain_id: self.chain_id.clone(),
             chain_status: self.chain_status.clone(),
@@ -246,8 +263,12 @@ impl PafFilter {
             let matches = fields[9].parse::<u64>().unwrap_or(0);
             let block_length = fields[10].parse::<u64>().unwrap_or(1);
 
-            // Look for divergence tag from FASTGA
-            let mut identity = matches as f64 / block_length.max(1) as f64;
+            // Calculate block identity: matches / alignment_length
+            // alignment_length is the block_length (denominator in PAF format)
+            let alignment_length = block_length;
+            let mut identity = matches as f64 / alignment_length.max(1) as f64;
+
+            // Look for divergence tag from FASTGA (overrides if present)
             for field in &fields[11..] {
                 if let Some(div_str) = field.strip_prefix("dv:f:") {
                     if let Ok(div) = div_str.parse::<f64>() {
@@ -266,6 +287,8 @@ impl PafFilter {
                 target_end,
                 block_length,
                 identity,
+                matches,
+                alignment_length,
                 strand,
                 chain_id: None,
                 chain_status: ChainStatus::Unassigned,
@@ -279,10 +302,11 @@ impl PafFilter {
 
     /// Apply filtering pipeline following wfmash's algorithm
     fn apply_filters(&self, mut metadata: Vec<RecordMeta>) -> Result<HashMap<usize, RecordMeta>> {
-        // 1. Filter by minimum block length and self-mappings
+        // 1. Filter by minimum block length, self-mappings, and minimum identity
         metadata.retain(|m| {
             m.block_length >= self.config.min_block_length
                 && (self.keep_self || m.query_name != m.target_name)
+                && m.identity >= self.config.min_identity
         });
 
         // Keep all original mappings for rescue phase (before any plane sweep)
@@ -806,7 +830,7 @@ impl PafFilter {
                     query_end: meta.query_end,
                     target_start: meta.target_start,
                     target_end: meta.target_end,
-                    identity: 1.0, // Use 1.0 for now (length-based scoring)
+                    identity: meta.identity, // Use actual identity from PAF
                     flags: 0,
                 };
                 // For 1:1 filtering with prefix grouping:
@@ -827,7 +851,7 @@ impl PafFilter {
 
         // Apply plane sweep grouped by (query, target) pairs for proper genome pair filtering
         let kept_indices =
-            plane_sweep_grouped_pairs(&mut plane_sweep_mappings, query_limit, overlap_threshold);
+            plane_sweep_grouped_pairs(&mut plane_sweep_mappings, query_limit, overlap_threshold, self.config.scoring_function);
 
         // Convert back to RecordMeta
         let result: Vec<RecordMeta> = kept_indices
@@ -888,7 +912,7 @@ impl PafFilter {
                         .collect();
 
                     use crate::plane_sweep_exact::plane_sweep_both;
-                    let chr_kept = plane_sweep_both(&mut chr_mappings, 1, 1, overlap_threshold);
+                    let chr_kept = plane_sweep_both(&mut chr_mappings, 1, 1, overlap_threshold, self.config.scoring_function);
                     eprintln!("[DEBUG] After 1:1 plane sweep: {} -> {} scaffolds kept", indices.len(), chr_kept.len());
 
                     for k in chr_kept {
@@ -899,11 +923,11 @@ impl PafFilter {
             }
             FilterMode::OneToMany => {
                 let query_limit = self.config.scaffold_max_per_query.unwrap_or(1);
-                plane_sweep_grouped_pairs(&mut plane_sweep_mappings, query_limit, overlap_threshold)
+                plane_sweep_grouped_pairs(&mut plane_sweep_mappings, query_limit, overlap_threshold, self.config.scoring_function)
             }
             FilterMode::ManyToMany => {
                 let query_limit = self.config.scaffold_max_per_query.unwrap_or(usize::MAX);
-                plane_sweep_grouped_pairs(&mut plane_sweep_mappings, query_limit, overlap_threshold)
+                plane_sweep_grouped_pairs(&mut plane_sweep_mappings, query_limit, overlap_threshold, self.config.scoring_function)
             }
         };
 
@@ -961,6 +985,7 @@ impl PafFilter {
                 1, // max per query position
                 1, // max per target position
                 self.config.scaffold_overlap_threshold,
+                self.config.scoring_function,
             );
 
             // Collect the kept chains
@@ -1014,6 +1039,7 @@ impl PafFilter {
                 &mut mappings,
                 max_per_query,
                 self.config.scaffold_overlap_threshold,
+                self.config.scoring_function,
             );
 
             // Collect the kept chains

@@ -14,7 +14,7 @@ use anyhow::Result;
 use clap::Parser;
 use indicatif::{ProgressBar, ProgressStyle};
 
-use crate::paf_filter::{FilterConfig, FilterMode, PafFilter};
+use crate::paf_filter::{FilterConfig, FilterMode, PafFilter, ScoringFunction};
 
 /// Parse a number that may have metric suffix (k/K=1000, m/M=1e6, g/G=1e9)
 fn parse_metric_number(s: &str) -> Result<u64, String> {
@@ -74,8 +74,7 @@ struct Args {
     #[clap(short = 'o', long = "output")]
     output: Option<String>,
 
-    /// Alignment method to use when processing FASTA files
-    /// Future versions may support additional aligners (e.g., minimap2, wfmash)
+    /// Aligner to use for FASTA input
     #[clap(long = "aligner", default_value = "fastga", value_parser = ["fastga"])]
     aligner: String,
 
@@ -114,6 +113,15 @@ struct Args {
     /// Maximum distance from scaffold anchor (0 = no rescue, only keep scaffold members)
     #[clap(short = 'd', long = "scaffold-dist", default_value = "20k", value_parser = parse_metric_number)]
     scaffold_dist: u64,
+
+    /// Scoring function for plane sweep
+    #[clap(long = "scoring", default_value = "log-length-identity",
+           value_parser = ["identity", "length", "length-identity", "log-length-identity"])]
+    scoring: String,
+
+    /// Minimum identity threshold (0.0-1.0)
+    #[clap(short = 'y', long = "min-identity", default_value = "0.0")]
+    min_identity: f64,
 
     /// Disable all filtering
     #[clap(short = 'f', long = "no-filter")]
@@ -300,6 +308,14 @@ fn main() -> Result<()> {
     let (scaffold_filter_mode, scaffold_max_per_query, scaffold_max_per_target) =
         parse_filter_mode(&args.scaffold_filter, "scaffold");
 
+    // Parse scoring function
+    let scoring_function = match args.scoring.as_str() {
+        "identity" => ScoringFunction::Identity,
+        "length" => ScoringFunction::Length,
+        "length-identity" => ScoringFunction::LengthIdentity,
+        "log-length-identity" | _ => ScoringFunction::LogLengthIdentity,
+    };
+
     // Set up filter configuration
     let config = FilterConfig {
         chain_gap: args.scaffold_jump, // Use scaffold_jump for merging into chains
@@ -320,6 +336,8 @@ fn main() -> Result<()> {
         scaffold_max_deviation: args.scaffold_dist,
         prefix_delimiter: '#', // Default PanSN delimiter
         skip_prefix: false,    // false = GROUP BY PREFIX for 1:1 filtering within genome pairs
+        scoring_function,
+        min_identity: args.min_identity,
     };
 
     // Progress indicator

@@ -25,14 +25,14 @@ fn make_mapping(
 #[test]
 fn test_empty_input() {
     let mut mappings = vec![];
-    let kept = plane_sweep_query(&mut mappings, 1, 0.95);
+    let kept = plane_sweep_query(&mut mappings, 1, 0.95, sweepga::paf_filter::ScoringFunction::LogLengthIdentity);
     assert_eq!(kept.len(), 0, "Empty input should return empty");
 }
 
 #[test]
 fn test_single_mapping() {
     let mut mappings = vec![make_mapping(0, 100, 200, 300, 400)];
-    let kept = plane_sweep_query(&mut mappings, 1, 0.95);
+    let kept = plane_sweep_query(&mut mappings, 1, 0.95, sweepga::paf_filter::ScoringFunction::LogLengthIdentity);
     assert_eq!(kept, vec![0], "Single mapping should always be kept");
 }
 
@@ -45,7 +45,7 @@ fn test_non_overlapping_mappings() {
     ];
 
     // With n=0 (best only), both should be kept as they're best at different positions
-    let kept = plane_sweep_query(&mut mappings, 1, 0.95);
+    let kept = plane_sweep_query(&mut mappings, 1, 0.95, sweepga::paf_filter::ScoringFunction::LogLengthIdentity);
     assert_eq!(
         kept.len(),
         2,
@@ -65,7 +65,7 @@ fn test_overlapping_mappings_keep_best() {
     // With n=0 (best only), both are kept because each is best at some position
     // Mapping 0 is best at positions 100-149
     // Mapping 1 is best at positions 150-350
-    let kept = plane_sweep_query(&mut mappings, 1, 0.95);
+    let kept = plane_sweep_query(&mut mappings, 1, 0.95, sweepga::paf_filter::ScoringFunction::LogLengthIdentity);
     assert_eq!(
         kept.len(),
         2,
@@ -84,7 +84,7 @@ fn test_identical_mappings() {
 
     // With n=1 (keep exactly 1), only the best should be kept
     // When all have identical scores, we keep only 1 (respecting the n=1 limit)
-    let kept = plane_sweep_query(&mut mappings, 1, 0.95);
+    let kept = plane_sweep_query(&mut mappings, 1, 0.95, sweepga::paf_filter::ScoringFunction::LogLengthIdentity);
     assert_eq!(
         kept.len(),
         1,
@@ -93,12 +93,12 @@ fn test_identical_mappings() {
 
     // With n=2 (keep 2 total), we keep 2 mappings
     mappings.iter_mut().for_each(|m| m.flags = 0); // Reset flags
-    let kept = plane_sweep_query(&mut mappings, 2, 0.95);
+    let kept = plane_sweep_query(&mut mappings, 2, 0.95, sweepga::paf_filter::ScoringFunction::LogLengthIdentity);
     assert_eq!(kept.len(), 2, "With n=2, keep 2 mappings total");
 
     // With n=usize::MAX (all non-overlapping), all should be kept
     mappings.iter_mut().for_each(|m| m.flags = 0); // Reset flags
-    let kept = plane_sweep_query(&mut mappings, usize::MAX, 0.95);
+    let kept = plane_sweep_query(&mut mappings, usize::MAX, 0.95, sweepga::paf_filter::ScoringFunction::LogLengthIdentity);
     assert_eq!(kept.len(), 3, "All mappings kept with n=-1");
 }
 
@@ -112,13 +112,13 @@ fn test_contained_mappings() {
 
     // The larger mapping has better score (log(200) > log(30))
     // With n=1, only the larger should be kept
-    let kept = plane_sweep_query(&mut mappings, 1, 0.95);
+    let kept = plane_sweep_query(&mut mappings, 1, 0.95, sweepga::paf_filter::ScoringFunction::LogLengthIdentity);
     assert_eq!(kept.len(), 1, "Only best (larger) mapping kept");
     assert_eq!(kept[0], 0, "Larger mapping has better score");
 
     // With n=2 (keep 2 mappings), both should be kept
     mappings.iter_mut().for_each(|m| m.flags = 0);
-    let kept = plane_sweep_query(&mut mappings, 2, 0.95);
+    let kept = plane_sweep_query(&mut mappings, 2, 0.95, sweepga::paf_filter::ScoringFunction::LogLengthIdentity);
     assert_eq!(kept.len(), 2, "Both mappings kept with n=2");
 }
 
@@ -135,7 +135,7 @@ fn test_overlap_threshold() {
     // With n=2 (keep 2 total) and strict overlap threshold
     // All 4 mappings have identical query ranges and same scores
     // With n=2, we keep only 2 mappings regardless of identical scores
-    let kept = plane_sweep_query(&mut mappings, 2, 0.5);
+    let kept = plane_sweep_query(&mut mappings, 2, 0.5, sweepga::paf_filter::ScoringFunction::LogLengthIdentity);
     assert_eq!(kept.len(), 2, "With n=2, keep exactly 2 mappings");
 
     // The third and fourth mappings should be marked as overlapped
@@ -154,7 +154,7 @@ fn test_complex_overlaps() {
     ];
 
     // With n=0, each mapping might be best at some position
-    let kept = plane_sweep_query(&mut mappings, 1, 0.95);
+    let kept = plane_sweep_query(&mut mappings, 1, 0.95, sweepga::paf_filter::ScoringFunction::LogLengthIdentity);
     // All mappings are kept because each is best at its non-overlapping portion
     assert!(
         kept.len() >= 3,
@@ -171,7 +171,7 @@ fn test_target_axis_filtering() {
         make_mapping(2, 500, 600, 600, 700), // Target: 600-700 (no overlap)
     ];
 
-    let kept = plane_sweep_target(&mut mappings, 1, 0.95);
+    let kept = plane_sweep_target(&mut mappings, 1, 0.95, sweepga::paf_filter::ScoringFunction::LogLengthIdentity);
     // Mappings 0 and 1 overlap on target, both might be kept if best at different positions
     // Mapping 2 doesn't overlap, should be kept
     assert!(kept.contains(&2), "Non-overlapping mapping on target kept");
@@ -188,7 +188,7 @@ fn test_both_axes_filtering() {
     ];
 
     // Filter on both axes with n=0 (best only)
-    let kept = plane_sweep_both(&mut mappings, 1, 1, 0.95);
+    let kept = plane_sweep_both(&mut mappings, 1, 1, 0.95, sweepga::paf_filter::ScoringFunction::LogLengthIdentity);
 
     // Should keep mapping 0 (best at its position)
     // Should keep mapping 3 (no overlap)
@@ -210,15 +210,18 @@ fn test_score_calculation() {
         "Longer mapping should have better score"
     );
 
-    // Test that log scaling is applied
+    // Test that log scaling is applied (default is log(length) * identity)
     let mapping_100 = make_mapping(0, 0, 100, 0, 100); // Length 100
     let mapping_1000 = make_mapping(1, 0, 1000, 0, 1000); // Length 1000
 
     let score_100 = mapping_100.score();
     let score_1000 = mapping_1000.score();
 
-    // Linear scoring: 1000 / 100 = 10
-    assert!((score_1000 / score_100 - 10.0).abs() < 0.001, "Score uses linear length scaling");
+    // With log scaling and identity=1.0: log(1000) / log(100) ≈ 1.5
+    let expected_ratio = 1000_f64.ln() / 100_f64.ln();
+    assert!((score_1000 / score_100 - expected_ratio).abs() < 0.001,
+            "Score should use log(length) scaling, got ratio {} vs expected {}",
+            score_1000 / score_100, expected_ratio);
 }
 
 #[test]
@@ -235,18 +238,18 @@ fn test_secondary_count() {
     // All mappings have similar query range, sorted by length (score)
 
     // n=1: Keep only the best
-    let kept = plane_sweep_query(&mut mappings, 1, 1.0);
+    let kept = plane_sweep_query(&mut mappings, 1, 1.0, sweepga::paf_filter::ScoringFunction::LogLengthIdentity);
     assert_eq!(kept.len(), 1, "n=1 keeps only best");
     assert_eq!(kept[0], 0);
 
     // n=3: Keep 3 total
     mappings.iter_mut().for_each(|m| m.flags = 0);
-    let kept = plane_sweep_query(&mut mappings, 3, 1.0);
+    let kept = plane_sweep_query(&mut mappings, 3, 1.0, sweepga::paf_filter::ScoringFunction::LogLengthIdentity);
     assert_eq!(kept.len(), 3, "n=3 keeps 3 mappings total");
 
     // n=usize::MAX: Keep all
     mappings.iter_mut().for_each(|m| m.flags = 0);
-    let kept = plane_sweep_query(&mut mappings, usize::MAX, 1.0);
+    let kept = plane_sweep_query(&mut mappings, usize::MAX, 1.0, sweepga::paf_filter::ScoringFunction::LogLengthIdentity);
     assert_eq!(kept.len(), 5, "n=-1 keeps all mappings");
 }
 
@@ -260,7 +263,7 @@ fn test_strand_independence() {
     ];
 
     // Both should be considered equally
-    let kept = plane_sweep_query(&mut mappings, 1, 0.95);
+    let kept = plane_sweep_query(&mut mappings, 1, 0.95, sweepga::paf_filter::ScoringFunction::LogLengthIdentity);
     assert_eq!(kept.len(), 2, "Strand doesn't affect plane sweep");
 }
 
@@ -275,7 +278,7 @@ fn test_event_ordering() {
     ];
 
     // The zero-length mapping should get worst score
-    let kept = plane_sweep_query(&mut mappings, 1, 0.95);
+    let kept = plane_sweep_query(&mut mappings, 1, 0.95, sweepga::paf_filter::ScoringFunction::LogLengthIdentity);
     assert!(!kept.contains(&0), "Zero-length mapping should not be kept");
 }
 
@@ -298,7 +301,7 @@ fn test_real_world_scenario() {
     ];
 
     // Default behavior: n=1 (keep best at each position)
-    let kept = plane_sweep_query(&mut mappings, 1, 0.95);
+    let kept = plane_sweep_query(&mut mappings, 1, 0.95, sweepga::paf_filter::ScoringFunction::LogLengthIdentity);
 
     // Should keep the large spanning alignment (best score due to length)
     assert!(kept.contains(&8), "Large spanning alignment kept");
@@ -308,7 +311,7 @@ fn test_real_world_scenario() {
 
     // With n=2, should keep more mappings
     mappings.iter_mut().for_each(|m| m.flags = 0);
-    let kept_with_more = plane_sweep_query(&mut mappings, 2, 0.95);
+    let kept_with_more = plane_sweep_query(&mut mappings, 2, 0.95, sweepga::paf_filter::ScoringFunction::LogLengthIdentity);
     assert!(
         kept_with_more.len() > kept.len(),
         "More mappings kept with n=2"
