@@ -5,6 +5,7 @@ mod mapping;
 mod paf;
 mod paf_filter;
 mod plane_sweep;
+mod plane_sweep_core;
 mod plane_sweep_exact;
 mod sequence_index;
 mod union_find;
@@ -55,7 +56,8 @@ fn parse_metric_number(s: &str) -> Result<u64, String> {
 
 /// SweepGA - Fast genome alignment with sophisticated filtering
 ///
-/// This tool applies wfmash's filtering algorithms to PAF input from FASTGA or other aligners
+/// This tool wraps genome aligners (FastGA by default) and applies wfmash's filtering algorithms.
+/// Can also process existing PAF files from any aligner.
 #[derive(Parser, Debug)]
 #[clap(author, version, about, long_about = None)]
 struct Args {
@@ -72,6 +74,11 @@ struct Args {
     #[clap(short = 'o', long = "output")]
     output: Option<String>,
 
+    /// Alignment method to use when processing FASTA files
+    /// Future versions may support additional aligners (e.g., minimap2, wfmash)
+    #[clap(long = "aligner", default_value = "fastga", value_parser = ["fastga"])]
+    aligner: String,
+
     /// Minimum block length
     #[clap(short = 'b', long = "block-length", default_value = "0", value_parser = parse_metric_number)]
     block_length: u64,
@@ -85,15 +92,15 @@ struct Args {
     sparsify: f64,
 
     /// Mapping filter: "1:1" (best), "M:N" (top M per query, N per target; ∞/many for unbounded), "many" (no filter)
-    #[clap(short = 'n', long = "num-mappings", default_value = "1:1")]
+    #[clap(short = 'n', long = "num-mappings", default_value = "many")]
     num_mappings: String,
 
     /// Scaffold filter: "1:1" (best), "M:N" (top M per query, N per target; ∞/many for unbounded)
-    #[clap(long = "scaffold-filter", default_value = "many")]
+    #[clap(long = "scaffold-filter", default_value = "1:1")]
     scaffold_filter: String,
 
     /// Scaffold jump (gap) distance. 0 = disable scaffolding (plane sweep only), >0 = enable scaffolding
-    #[clap(short = 'j', long = "scaffold-jump", default_value = "0", value_parser = parse_metric_number)]
+    #[clap(short = 'j', long = "scaffold-jump", default_value = "10k", value_parser = parse_metric_number)]
     scaffold_jump: u64,
 
     /// Minimum scaffold length when scaffolding is enabled
@@ -105,7 +112,7 @@ struct Args {
     scaffold_overlap: f64,
 
     /// Maximum distance from scaffold anchor (0 = no rescue, only keep scaffold members)
-    #[clap(short = 'd', long = "scaffold-dist", default_value = "0", value_parser = parse_metric_number)]
+    #[clap(short = 'd', long = "scaffold-dist", default_value = "20k", value_parser = parse_metric_number)]
     scaffold_dist: u64,
 
     /// Disable all filtering
@@ -187,50 +194,57 @@ fn parse_filter_mode(mode: &str, filter_type: &str) -> (FilterMode, Option<usize
 fn main() -> Result<()> {
     let mut args = Args::parse();
 
-    // Handle FASTA input mode (FastGA alignment)
+    // Handle FASTA input mode (alignment generation)
     let _temp_paf = if !args.fasta_files.is_empty() {
-        use crate::fastga_integration::FastGAIntegration;
-        use std::path::Path;
+        match args.aligner.as_str() {
+            "fastga" => {
+                use crate::fastga_integration::FastGAIntegration;
+                use std::path::Path;
 
-        let (targets, queries) = match args.fasta_files.len() {
-            1 => {
-                // Self-alignment
-                let path = Path::new(&args.fasta_files[0]);
-                (path, path)
-            }
-            2 => {
-                // Two files: first is target, second is query
-                (Path::new(&args.fasta_files[0]), Path::new(&args.fasta_files[1]))
+                let (targets, queries) = match args.fasta_files.len() {
+                    1 => {
+                        // Self-alignment
+                        let path = Path::new(&args.fasta_files[0]);
+                        (path, path)
+                    }
+                    2 => {
+                        // Two files: first is target, second is query
+                        (Path::new(&args.fasta_files[0]), Path::new(&args.fasta_files[1]))
+                    }
+                    _ => {
+                        anyhow::bail!("Expected 1 or 2 FASTA files, got {}", args.fasta_files.len());
+                    }
+                };
+
+                if !args.quiet {
+                    if args.fasta_files.len() == 1 {
+                        eprintln!("Running {} self-alignment on {}...", args.aligner, args.fasta_files[0]);
+                    } else {
+                        eprintln!("Running {} alignment: {} -> {}...",
+                                 args.aligner, args.fasta_files[0], args.fasta_files[1]);
+                    }
+                }
+
+                // Configure FastGA with minimal parameters (just threads)
+                // FastGA will use its own defaults for identity and alignment length
+                let fastga = FastGAIntegration::new(args.threads);
+
+                // Run alignment and get temp PAF file
+                let temp_paf = fastga.align_to_temp_paf(targets, queries)?;
+
+                if !args.quiet {
+                    eprintln!("{} alignment complete. Applying filtering...", args.aligner);
+                }
+
+                // Update args to use the generated PAF file
+                args.input = Some(temp_paf.path().to_string_lossy().into_owned());
+
+                Some(temp_paf)
             }
             _ => {
-                anyhow::bail!("Expected 1 or 2 FASTA files, got {}", args.fasta_files.len());
-            }
-        };
-
-        if !args.quiet {
-            if args.fasta_files.len() == 1 {
-                eprintln!("Running FastGA self-alignment on {}...", args.fasta_files[0]);
-            } else {
-                eprintln!("Running FastGA alignment: {} -> {}...",
-                         args.fasta_files[0], args.fasta_files[1]);
+                anyhow::bail!("Unknown aligner: {}", args.aligner);
             }
         }
-
-        // Configure FastGA with minimal parameters (just threads)
-        // FastGA will use its own defaults for identity and alignment length
-        let fastga = FastGAIntegration::new(args.threads);
-
-        // Run alignment and get temp PAF file
-        let temp_paf = fastga.align_to_temp_paf(targets, queries)?;
-
-        if !args.quiet {
-            eprintln!("FastGA complete. Processing alignments from temp file: {:?}", temp_paf.path());
-        }
-
-        // Update args to use the generated PAF file
-        args.input = Some(temp_paf.path().to_string_lossy().into_owned());
-
-        Some(temp_paf)
     } else {
         None
     };

@@ -18,7 +18,7 @@ query2\t1500\t200\t1200\t+\ttarget2\t2500\t200\t1200\t1000\t1000\t60\tcg:Z:1000M
     let output_path = "/tmp/test_sweepga_output.paf";
     fs::write(temp_path, paf_content).expect("Failed to write test PAF");
 
-    // Run sweepga with plane sweep only (no scaffolding)
+    // Run sweepga with plane sweep only (no scaffolding) and 1:1 filtering
     let output = Command::new("cargo")
         .args([
             "run",
@@ -32,7 +32,9 @@ query2\t1500\t200\t1200\t+\ttarget2\t2500\t200\t1200\t1000\t1000\t60\tcg:Z:1000M
             output_path,
             "-j",
             "0",
-        ]) // -j 0 disables scaffolding, just plane sweep
+            "-n",
+            "1:1",
+        ]) // -j 0 disables scaffolding, -n 1:1 applies 1:1 plane sweep filter
         .output()
         .expect("Failed to run sweepga");
 
@@ -45,7 +47,7 @@ query2\t1500\t200\t1200\t+\ttarget2\t2500\t200\t1200\t1000\t1000\t60\tcg:Z:1000M
     let result = fs::read_to_string(output_path).expect("Failed to read output");
     let lines: Vec<&str> = result.lines().collect();
 
-    // With n=0 (default), plane sweep should keep best mappings at each position
+    // With -n 1:1, plane sweep should keep best mappings at each position
     // query1 has 3 mappings with overlapping query ranges:
     //   100-900 (800bp), 150-850 (700bp), 200-600 (400bp)
     // Only the longest (800bp) should be kept as it's best across all positions

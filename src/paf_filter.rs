@@ -641,7 +641,7 @@ impl PafFilter {
                 let j_end = sorted_indices[i + 1..]
                     .binary_search_by_key(&(search_bound + 1), |&(_rank, idx)| {
                         metadata[idx].query_start
-                    })
+                })
                     .unwrap_or_else(|pos| pos)
                     + i
                     + 1;
@@ -838,49 +838,92 @@ impl PafFilter {
         Ok(result)
     }
 
-    /// Apply scaffold plane sweep with proper prefix grouping and filtering mode
+    /// Apply scaffold plane sweep - SAME ALGORITHM as regular mappings, just different params
     fn apply_scaffold_plane_sweep(&self, chains: Vec<MergedChain>) -> Result<Vec<MergedChain>> {
-        // Group chains by prefix pairs (respecting PanSN grouping)
-        let mut prefix_groups: HashMap<(String, String), Vec<MergedChain>> = HashMap::new();
-
-        for chain in chains {
-            // For scaffold filtering, use full chromosome names, not just prefixes
-            // This ensures we keep scaffolds per chromosome pair, not per genome pair
-            let query_key = chain.query_name.clone();
-            let target_key = chain.target_name.clone();
-            prefix_groups
-                .entry((query_key, target_key))
-                .or_default()
-                .push(chain);
+        if chains.is_empty() || chains.len() <= 1 {
+            return Ok(chains);
         }
 
-        eprintln!(
-            "[SCAFFOLD_FILTER] Grouped scaffolds into {} prefix pairs",
-            prefix_groups.len()
-        );
-
-        // Apply filtering within each prefix pair IN PARALLEL
-        let filtered_groups: Vec<Vec<MergedChain>> = prefix_groups
-            .into_par_iter()
-            .map(|((_q_prefix, _t_prefix), group)| {
-                let _group_size = group.len();
-                let filtered = match self.config.scaffold_filter_mode {
-                    FilterMode::OneToOne => self.scaffold_one_to_one_filter(group),
-                    FilterMode::OneToMany => self.scaffold_one_to_many_filter(group),
-                    FilterMode::ManyToMany => Ok(group), // No filtering
+        // Convert MergedChain to PlaneSweepMapping - same as regular mappings
+        let mut plane_sweep_mappings: Vec<(PlaneSweepMapping, String, String)> = chains
+            .iter()
+            .enumerate()
+            .map(|(idx, chain)| {
+                let mapping = PlaneSweepMapping {
+                    idx,
+                    query_start: chain.query_start,
+                    query_end: chain.query_end,
+                    target_start: chain.target_start,
+                    target_end: chain.target_end,
+                    identity: chain.total_length as f64 / 1_000_000.0, // Use length as score
+                    flags: 0,
                 };
-                // Debug: [SCAFFOLD_FILTER] Processed prefix group
-                filtered.unwrap_or_else(|_| Vec::new())
+                let query_group = chain.query_name.clone();
+                let target_group = chain.target_name.clone();
+                (mapping, query_group, target_group)
             })
             .collect();
 
-        // Combine all filtered groups
-        Ok(filtered_groups.into_iter().flatten().collect())
+        eprintln!("[SCAFFOLD_FILTER] Applying plane sweep to {} scaffolds", chains.len());
+
+        // Get the scaffold filter params (vs mapping filter params)
+        let overlap_threshold = self.config.scaffold_overlap_threshold;
+
+        // Apply plane sweep - EXACT SAME FUNCTION as regular mappings
+        // For 1:1 mode, we need to enforce BOTH query and target constraints
+        let kept_indices = match self.config.scaffold_filter_mode {
+            FilterMode::OneToOne => {
+                // For 1:1, group by chromosome pairs and apply plane_sweep_both
+                let mut kept = Vec::new();
+                let mut by_chr_pair: std::collections::HashMap<(String, String), Vec<usize>> = std::collections::HashMap::new();
+
+                for (i, (_, q, t)) in plane_sweep_mappings.iter().enumerate() {
+                    by_chr_pair.entry((q.clone(), t.clone())).or_default().push(i);
+                }
+
+                for ((q_chr, t_chr), indices) in by_chr_pair {
+                    eprintln!("[DEBUG] Processing scaffold chr pair {}->{} with {} scaffolds", q_chr, t_chr, indices.len());
+                    let mut chr_mappings: Vec<_> = indices.iter()
+                        .map(|&i| plane_sweep_mappings[i].0.clone())
+                        .collect();
+
+                    use crate::plane_sweep_exact::plane_sweep_both;
+                    let chr_kept = plane_sweep_both(&mut chr_mappings, 1, 1, overlap_threshold);
+                    eprintln!("[DEBUG] After 1:1 plane sweep: {} -> {} scaffolds kept", indices.len(), chr_kept.len());
+
+                    for k in chr_kept {
+                        kept.push(indices[k]);
+                    }
+                }
+                kept
+            }
+            FilterMode::OneToMany => {
+                let query_limit = self.config.scaffold_max_per_query.unwrap_or(1);
+                plane_sweep_grouped_pairs(&mut plane_sweep_mappings, query_limit, overlap_threshold)
+            }
+            FilterMode::ManyToMany => {
+                let query_limit = self.config.scaffold_max_per_query.unwrap_or(usize::MAX);
+                plane_sweep_grouped_pairs(&mut plane_sweep_mappings, query_limit, overlap_threshold)
+            }
+        };
+
+        // Convert back to MergedChain
+        let result: Vec<MergedChain> = kept_indices
+            .iter()
+            .map(|&idx| chains[idx].clone())
+            .collect();
+
+        eprintln!("[SCAFFOLD_TRACE] After plane sweep on scaffolds: {} chains", result.len());
+
+        Ok(result)
     }
 
-    /// Apply 1:1 filtering to scaffold chains (best per query and per target)
+    /// DEPRECATED - Now using unified apply_scaffold_plane_sweep
+    #[allow(dead_code)]
     fn scaffold_one_to_one_filter(&self, chains: Vec<MergedChain>) -> Result<Vec<MergedChain>> {
-        // First, group by (query_chr, target_chr) pairs and keep best in each
+        use crate::plane_sweep_exact::{plane_sweep_both, PlaneSweepMapping};
+
+        // Group by (query_chr, target_chr) pairs
         let mut by_chr_pair: HashMap<(String, String), Vec<MergedChain>> = HashMap::new();
 
         for chain in chains {
@@ -888,96 +931,98 @@ impl PafFilter {
             by_chr_pair.entry(key).or_default().push(chain);
         }
 
-        // Keep only the best chain for each chromosome pair
-        let mut best_per_pair = Vec::new();
+        let mut filtered_chains = Vec::new();
+
+        // Apply plane sweep within each chromosome pair
         for (_pair, mut pair_chains) in by_chr_pair {
-            // Sort by total length (descending) to find the best
-            pair_chains.sort_by(|a, b| b.total_length.cmp(&a.total_length));
-            if let Some(best) = pair_chains.into_iter().next() {
-                best_per_pair.push(best);
+            if pair_chains.is_empty() {
+                continue;
+            }
+
+            // Convert chains to mappings for plane sweep
+            let mut mappings: Vec<PlaneSweepMapping> = pair_chains
+                .iter()
+                .enumerate()
+                .map(|(idx, chain)| PlaneSweepMapping {
+                    idx,
+                    query_start: chain.query_start,
+                    query_end: chain.query_end,
+                    target_start: chain.target_start,
+                    target_end: chain.target_end,
+                    identity: chain.total_length as f64 / 1_000_000.0, // Use normalized score
+                    flags: 0,
+                })
+                .collect();
+
+            // Apply plane sweep with 1:1 filtering on both query and target axes
+            // This keeps all non-overlapping scaffolds plus best overlapping ones
+            let kept_indices = plane_sweep_both(
+                &mut mappings,
+                1, // max per query position
+                1, // max per target position
+                self.config.scaffold_overlap_threshold,
+            );
+
+            // Collect the kept chains
+            for idx in kept_indices {
+                filtered_chains.push(pair_chains[idx].clone());
             }
         }
 
-        // Now apply 1:1 constraint across all chromosome pairs
-        // Sort all best chains by total length
-        best_per_pair.sort_by(|a, b| b.total_length.cmp(&a.total_length));
-
-        let mut kept_queries = HashSet::new();
-        let mut kept_targets = HashSet::new();
-        let mut result = Vec::new();
-
-        for chain in best_per_pair {
-            let query_name = chain.query_name.clone();
-            let target_name = chain.target_name.clone();
-
-            // Keep only if this is the first (best) for both query and target chromosome
-            if !kept_queries.contains(&query_name) && !kept_targets.contains(&target_name) {
-                kept_queries.insert(query_name.clone());
-                kept_targets.insert(target_name.clone());
-                result.push(chain);
-            }
-        }
-        Ok(result)
+        Ok(filtered_chains)
     }
 
-    /// Apply 1:∞ filtering to scaffold chains (best per query, multiple per target)
+    /// DEPRECATED - Now using unified apply_scaffold_plane_sweep
+    #[allow(dead_code)]
     fn scaffold_one_to_many_filter(&self, chains: Vec<MergedChain>) -> Result<Vec<MergedChain>> {
-        // Group by query
-        let mut by_query: HashMap<String, Vec<MergedChain>> = HashMap::new();
+        use crate::plane_sweep_exact::{plane_sweep_query, PlaneSweepMapping};
+
+        // Group by (query_chr, target_chr) pairs
+        let mut by_chr_pair: HashMap<(String, String), Vec<MergedChain>> = HashMap::new();
+
         for chain in chains {
-            by_query
-                .entry(chain.query_name.clone())
-                .or_default()
-                .push(chain);
+            let key = (chain.query_name.clone(), chain.target_name.clone());
+            by_chr_pair.entry(key).or_default().push(chain);
         }
 
-        let mut filtered = Vec::new();
+        let mut filtered_chains = Vec::new();
 
-        for (_query, mut query_chains) in by_query {
-            // Sort by total length (descending) to prioritize longer chains
-            query_chains.sort_by(|a, b| b.total_length.cmp(&a.total_length));
-
-            // Keep non-overlapping chains with preference for longer ones
-            let mut kept: Vec<MergedChain> = Vec::new();
-
-            for chain in query_chains {
-                let mut has_significant_overlap = false;
-
-                // Check overlap with already kept chains
-                for existing in &kept {
-                    let overlap_start = chain.query_start.max(existing.query_start);
-                    let overlap_end = chain.query_end.min(existing.query_end);
-
-                    if overlap_start < overlap_end {
-                        let overlap_len = overlap_end - overlap_start;
-                        let chain_len = chain.query_end - chain.query_start;
-                        let existing_len = existing.query_end - existing.query_start;
-
-                        let overlap_frac = overlap_len as f64 / chain_len.min(existing_len) as f64;
-
-                        if overlap_frac > self.config.scaffold_overlap_threshold {
-                            has_significant_overlap = true;
-                            break;
-                        }
-                    }
-                }
-
-                if !has_significant_overlap {
-                    kept.push(chain);
-
-                    // Apply max_per_query limit if set
-                    if let Some(max) = self.config.scaffold_max_per_query {
-                        if kept.len() >= max {
-                            break;
-                        }
-                    }
-                }
+        // Apply plane sweep within each chromosome pair
+        for (_pair, mut pair_chains) in by_chr_pair {
+            if pair_chains.is_empty() {
+                continue;
             }
 
-            filtered.extend(kept);
+            // Convert chains to mappings for plane sweep
+            let mut mappings: Vec<PlaneSweepMapping> = pair_chains
+                .iter()
+                .enumerate()
+                .map(|(idx, chain)| PlaneSweepMapping {
+                    idx,
+                    query_start: chain.query_start,
+                    query_end: chain.query_end,
+                    target_start: chain.target_start,
+                    target_end: chain.target_end,
+                    identity: chain.total_length as f64 / 1_000_000.0, // Use normalized score
+                    flags: 0,
+                })
+                .collect();
+
+            // Apply plane sweep with 1:∞ filtering (limit on query axis only)
+            let max_per_query = self.config.scaffold_max_per_query.unwrap_or(1);
+            let kept_indices = plane_sweep_query(
+                &mut mappings,
+                max_per_query,
+                self.config.scaffold_overlap_threshold,
+            );
+
+            // Collect the kept chains
+            for idx in kept_indices {
+                filtered_chains.push(pair_chains[idx].clone());
+            }
         }
 
-        Ok(filtered)
+        Ok(filtered_chains)
     }
 
     /// Keep all non-overlapping chains (for scaffold filtering with -n inf behavior)

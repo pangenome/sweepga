@@ -1,10 +1,14 @@
 # SweepGA
 
-Filters highly sensitive whole genome alignments using plane sweep algorithm and optional synteny-based scaffolding with distance-based rescue.
+Fast genome alignment with sophisticated filtering. Wraps FastGA aligner and applies wfmash's plane sweep algorithm with optional synteny-based scaffolding and distance-based rescue.
 
 ## What it does
 
-By default, SweepGA chains mappings into syntenic scaffolds and applies plane sweep filtering, then rescues nearby mappings. With `-j 0`, it performs only plane sweep filtering without scaffolding. This extracts clean synteny alignments from noisy all-vs-all mappings.
+SweepGA can either:
+1. **Align FASTA files directly** using integrated FastGA (supports .fa.gz)
+2. **Filter existing PAF alignments** from any aligner (wfmash, minimap2, etc.)
+
+By default, it chains mappings into syntenic scaffolds, applies 1:1 filtering to keep best scaffolds per chromosome pair, then rescues nearby mappings. This extracts clean syntenic alignments from noisy all-vs-all mappings.
 
 ## Installation
 
@@ -18,40 +22,56 @@ cargo install --force --path .
 
 ## Basic Usage
 
-SweepGA filters PAF alignments from tools like wfmash, FASTGA, or minimap2. Basic usage:
+### Direct alignment (FASTA input)
 
 ```bash
-# Default: scaffolding + plane sweep + rescue (with -j 10000)
+# Self-alignment
+sweepga genome.fa.gz -o output.paf
+
+# Pairwise alignment
+sweepga target.fa query.fa -o output.paf
+
+# With custom parameters
+sweepga genome.fa.gz -o output.paf -j 20k -d 50k
+```
+
+### PAF filtering (existing alignments)
+
+```bash
+# Default: scaffolding + 1:1 filter + rescue
 sweepga -i alignments.paf -o filtered.paf
 
 # Plane sweep only (no scaffolding)
 sweepga -i alignments.paf -o filtered.paf -j 0
 
 # Custom scaffold parameters
-sweepga -i alignments.paf -o filtered.paf -j 50000 -s 5000
+sweepga -i alignments.paf -o filtered.paf -j 50k -s 20k
 ```
 
 ### Complete example workflow
 
 ```bash
-# Generate all-vs-all alignments with FASTGA (use -T8 for 8 threads, -pafx for PAF with extended CIGAR)
+# Method 1: Direct alignment with integrated FastGA
+sweepga data/scerevisiae8.fa.gz -o data/scerevisiae8.filtered.paf
+# Runs FastGA alignment then applies filtering
+# Result: ~17,800 mappings from ~30K raw alignments
+
+# Method 2: Filter existing PAF
 fastga -T8 -pafx data/scerevisiae8.fa > data/scerevisiae8.raw.paf
-# Generates 50,959 raw mappings
-
-# The raw output contains all discovered mappings with CIGAR strings
-head -n1 data/scerevisiae8.raw.paf
-# SGDref#1#chrI  230218  0  2641  -  SGDref#1#chrIV  1531933  1522805  1525422  2341  2692  255  dv:f:.1135  df:i:351  cg:Z:6=1D2=1X1I6=...
-
-# Apply scaffold-based filtering (default: -j 10000, -s 10000)
 sweepga -i data/scerevisiae8.raw.paf -o data/scerevisiae8.filtered.paf
-# Reduces to 27,940 mappings: 336 scaffolds + 27,604 rescued
 
 # Check the breakdown
-grep -c "st:Z:scaffold" data/scerevisiae8.filtered.paf  # 336 scaffold anchors
-grep -c "st:Z:rescued" data/scerevisiae8.filtered.paf   # 27,604 rescued mappings
+grep -c "st:Z:scaffold" data/scerevisiae8.filtered.paf  # Scaffold anchors
+grep -c "st:Z:rescued" data/scerevisiae8.filtered.paf   # Rescued mappings
 ```
 
-The default parameters work well for most eukaryotic genomes: scaffold mass of 10kb identifies major syntenic blocks, scaffold jump of 10kb allows chaining across gene boundaries, and rescue distance of 100kb captures local rearrangements and smaller homologous features near the main alignments.
+### Default parameters
+
+- **No pre-filtering** (`-n many`): All mappings participate in scaffold building
+- **Scaffold creation** (`-j 10k`): Merge mappings within 10kb gaps
+- **Min scaffold** (`-s 10k`): Scaffolds must be ≥10kb
+- **1:1 scaffold filter** (`--scaffold-filter 1:1`): Keep best scaffold per chromosome pair
+- **Rescue distance** (`-d 20k`): Rescue mappings within 20kb of scaffolds
 
 ## Parameters
 
@@ -69,7 +89,9 @@ The default parameters work well for most eukaryotic genomes: scaffold mass of 1
 
 `-s/--scaffold-mass` sets the minimum length for a chain to be considered a scaffold anchor (default 10k). Only used when scaffolding is enabled (`-j > 0`).
 
-`-D/--scaffold-dist` sets the maximum Euclidean distance for rescue (default 100000). Mappings further than this from any scaffold anchor are discarded.
+`-d/--scaffold-dist` sets the maximum Euclidean distance for rescue (default 20k). Mappings further than this from any scaffold anchor are discarded.
+
+`--scaffold-filter` controls scaffold filtering (default "1:1"). Options: "1:1", "1" (1:many), "many" (no filter).
 
 ### Chain Annotations
 
@@ -83,16 +105,16 @@ The rescue distance dramatically affects output. Using a yeast chromosome V alig
 
 ```bash
 # Very tight - only mappings within 10kb of scaffolds
-./target/release/sweepga -D 10000 < chrV.paf > chrV.strict.paf
+sweepga -d 10k < chrV.paf > chrV.strict.paf
 # Result: 32 mappings retained
 
-# Default - biological features near main alignments
-./target/release/sweepga -D 100000 < chrV.paf > chrV.default.paf
-# Result: 71 mappings retained
+# Default (20kb) - biological features near main alignments
+sweepga < chrV.paf > chrV.default.paf
+# Result: 45 mappings retained
 
 # Permissive - may include distant paralogs
-./target/release/sweepga -D 300000 < chrV.paf > chrV.loose.paf
-# Result: 115 mappings retained
+sweepga -d 100k < chrV.paf > chrV.loose.paf
+# Result: 71 mappings retained
 ```
 
 The scaffold jump parameter has less effect when scaffolds are already well-separated, which is common in finished genomes. The rescue mechanism is strand-agnostic: a reverse strand mapping 50kb from a forward strand scaffold will be rescued if within the distance threshold.
