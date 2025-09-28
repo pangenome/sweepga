@@ -17,6 +17,7 @@ use crate::paf_filter::{FilterConfig, FilterMode, PafFilter, ScoringFunction};
 use std::collections::HashMap;
 use std::fs::File;
 use std::io::{BufRead, BufReader};
+use std::time::Instant;
 
 /// Parse a number that may have metric suffix (k/K=1000, m/M=1e6, g/G=1e9)
 fn parse_metric_number(s: &str) -> Result<u64, String> {
@@ -348,6 +349,7 @@ fn calculate_ani_stats(input_path: &str) -> Result<f64> {
 }
 
 fn main() -> Result<()> {
+    let start_time = Instant::now();
     let mut args = Args::parse();
 
     // Handle FASTA input mode (alignment generation)
@@ -570,7 +572,20 @@ fn main() -> Result<()> {
     }
 
     if !args.quiet {
-        eprintln!("[sweepga] Filtering complete");
+        let elapsed = start_time.elapsed().as_secs_f64();
+        let hours = (elapsed / 3600.0).floor() as u64;
+        let minutes = ((elapsed % 3600.0) / 60.0).floor() as u64;
+        let seconds = elapsed % 60.0;
+
+        if hours > 0 {
+            eprintln!("[sweepga] Filtering complete. Elapsed: {:.1}s ({:02}h:{:02}m:{:05.2}s)",
+                       elapsed, hours, minutes, seconds);
+        } else if minutes > 0 {
+            eprintln!("[sweepga] Filtering complete. Elapsed: {:.1}s ({:02}m:{:05.2}s)",
+                       elapsed, minutes, seconds);
+        } else {
+            eprintln!("[sweepga] Filtering complete. Elapsed: {:.1}s", elapsed);
+        }
     }
 
     Ok(())
