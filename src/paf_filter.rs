@@ -427,7 +427,7 @@ impl PafFilter {
                  filtered_chains.len(),
                  filtered_out);
         if self.config.min_scaffold_length > 0 || self.config.min_scaffold_identity > 0.0 {
-            eprintln!("[sweepga]     Min length: {}, min identity: {:.1}%",
+            eprintln!("[sweepga]   Min length: {}, min identity: {:.1}%",
                      self.config.min_scaffold_length,
                      self.config.min_scaffold_identity * 100.0);
         }
