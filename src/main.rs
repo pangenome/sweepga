@@ -15,6 +15,9 @@ use clap::Parser;
 use indicatif::{ProgressBar, ProgressStyle};
 
 use crate::paf_filter::{FilterConfig, FilterMode, PafFilter, ScoringFunction};
+use std::collections::HashMap;
+use std::fs::File;
+use std::io::{BufRead, BufReader};
 
 /// Parse a number that may have metric suffix (k/K=1000, m/M=1e6, g/G=1e9)
 fn parse_metric_number(s: &str) -> Result<u64, String> {
@@ -116,12 +119,16 @@ struct Args {
 
     /// Scoring function for plane sweep
     #[clap(long = "scoring", default_value = "log-length-identity",
-           value_parser = ["identity", "length", "length-identity", "log-length-identity"])]
+           value_parser = ["identity", "length", "length-identity", "log-length-identity", "matches"])]
     scoring: String,
 
-    /// Minimum identity threshold (0.0-1.0)
-    #[clap(short = 'y', long = "min-identity", default_value = "0.0")]
-    min_identity: f64,
+    /// Minimum identity threshold (0-1 fraction, 1-100%, or "aniN" for Nth percentile)
+    #[clap(short = 'y', long = "min-identity", default_value = "ani50")]
+    min_identity: String,
+
+    /// Minimum scaffold identity threshold (0-1 fraction or 1-100%, defaults to -y)
+    #[clap(short = 'Y', long = "min-scaffold-identity")]
+    min_scaffold_identity: Option<f64>,
 
     /// Disable all filtering
     #[clap(short = 'f', long = "no-filter")]
@@ -199,6 +206,148 @@ fn parse_filter_mode(mode: &str, filter_type: &str) -> (FilterMode, Option<usize
     }
 }
 
+/// Parse identity value from string (fraction, percentage, or aniN)
+fn parse_identity_value(value: &str, ani_percentile: Option<f64>) -> Result<f64> {
+    let lower = value.to_lowercase();
+
+    if lower.starts_with("ani") {
+        // Parse aniN, aniN+X, or aniN-X
+        if let Some(ani_value) = ani_percentile {
+            let remainder = &lower[3..];
+            if remainder.is_empty() {
+                // Default "ani" means ani50
+                return Ok(ani_value);
+            }
+
+            // Parse percentile number and optional offset
+            // Find offset position if exists
+            let (percentile_str, offset_part) = if let Some(plus_pos) = remainder.find('+') {
+                (&remainder[..plus_pos], Some(('+', &remainder[plus_pos+1..])))
+            } else if let Some(minus_pos) = remainder.find('-') {
+                (&remainder[..minus_pos], Some(('-', &remainder[minus_pos+1..])))
+            } else {
+                (remainder, None)
+            };
+
+            // For now we only support ani50 (median), ignore the percentile number
+            // Could extend to support ani25, ani75, etc. in future
+            if !percentile_str.is_empty() && percentile_str != "50" {
+                eprintln!("[sweepga] WARNING: Only ani50 (median) currently supported, using median");
+            }
+
+            // Apply offset if provided
+            if let Some((sign, offset_str)) = offset_part {
+                let offset: f64 = offset_str.parse()
+                    .map_err(|_| anyhow::anyhow!("Invalid ANI offset: {}", offset_str))?;
+                match sign {
+                    '+' => Ok((ani_value + offset / 100.0).min(1.0)),
+                    '-' => Ok((ani_value - offset / 100.0).max(0.0)),
+                    _ => Ok(ani_value),
+                }
+            } else {
+                Ok(ani_value)
+            }
+        } else {
+            anyhow::bail!("Cannot use ANI-based threshold without input alignments");
+        }
+    } else if let Ok(val) = value.parse::<f64>() {
+        // Numeric value
+        if val > 1.0 {
+            Ok(val / 100.0)  // Percentage to fraction
+        } else {
+            Ok(val)  // Already fraction
+        }
+    } else {
+        anyhow::bail!("Invalid identity value: {}", value);
+    }
+}
+
+/// Calculate ANI statistics between genome pairs
+fn calculate_ani_stats(input_path: &str) -> Result<f64> {
+    let file = File::open(input_path)?;
+    let reader = BufReader::new(file);
+
+    // Group alignments by genome pair (using PanSN prefixes)
+    let mut genome_pairs: HashMap<(String, String), Vec<f64>> = HashMap::new();
+
+    for line in reader.lines() {
+        let line = line?;
+        if line.starts_with('#') || line.is_empty() {
+            continue;
+        }
+
+        let fields: Vec<&str> = line.split('\t').collect();
+        if fields.len() < 11 {
+            continue;
+        }
+
+        // Extract genome prefixes (before first #)
+        let query_genome = fields[0].split('#').next().unwrap_or(fields[0]).to_string();
+        let target_genome = fields[5].split('#').next().unwrap_or(fields[5]).to_string();
+
+        // Skip self-comparisons
+        if query_genome == target_genome {
+            continue;
+        }
+
+        // Parse matches and block length
+        let matches = fields[9].parse::<f64>().unwrap_or(0.0);
+        let block_len = fields[10].parse::<f64>().unwrap_or(1.0);
+        let identity = matches / block_len.max(1.0);
+
+        // Check for divergence tag
+        let mut final_identity = identity;
+        for field in &fields[11..] {
+            if let Some(div_str) = field.strip_prefix("dv:f:") {
+                if let Ok(div) = div_str.parse::<f64>() {
+                    final_identity = 1.0 - div;
+                    break;
+                }
+            }
+        }
+
+        let key = if query_genome < target_genome {
+            (query_genome, target_genome)
+        } else {
+            (target_genome, query_genome)
+        };
+
+        genome_pairs.entry(key).or_default().push(final_identity);
+    }
+
+    if genome_pairs.is_empty() {
+        eprintln!("[sweepga] WARNING: No inter-genome alignments found for ANI calculation");
+        return Ok(0.0);  // Default to no filtering
+    }
+
+    // Calculate weighted average ANI for each genome pair
+    let mut ani_values: Vec<f64> = genome_pairs.iter().map(|((_q, _t), identities)| {
+        if identities.is_empty() {
+            0.0
+        } else {
+            identities.iter().sum::<f64>() / identities.len() as f64
+        }
+    }).collect();
+
+    ani_values.sort_by(|a, b| a.partial_cmp(b).unwrap());
+
+    // Get 50th percentile (median)
+    let median_idx = ani_values.len() / 2;
+    let ani50 = if ani_values.len() % 2 == 0 && ani_values.len() > 1 {
+        (ani_values[median_idx - 1] + ani_values[median_idx]) / 2.0
+    } else {
+        ani_values[median_idx]
+    };
+
+    eprintln!("[sweepga] ANI statistics from {} genome pairs:", genome_pairs.len());
+    eprintln!("[sweepga]   Min: {:.1}%, Median: {:.1}%, Max: {:.1}%",
+             ani_values.first().unwrap_or(&0.0) * 100.0,
+             ani50 * 100.0,
+             ani_values.last().unwrap_or(&0.0) * 100.0);
+
+    Ok(ani50)
+}
+
 fn main() -> Result<()> {
     let mut args = Args::parse();
 
@@ -226,9 +375,9 @@ fn main() -> Result<()> {
 
                 if !args.quiet {
                     if args.fasta_files.len() == 1 {
-                        eprintln!("Running {} self-alignment on {}...", args.aligner, args.fasta_files[0]);
+                        eprintln!("[sweepga] Running {} self-alignment on {}...", args.aligner, args.fasta_files[0]);
                     } else {
-                        eprintln!("Running {} alignment: {} -> {}...",
+                        eprintln!("[sweepga] Running {} alignment: {} -> {}...",
                                  args.aligner, args.fasta_files[0], args.fasta_files[1]);
                     }
                 }
@@ -241,7 +390,7 @@ fn main() -> Result<()> {
                 let temp_paf = fastga.align_to_temp_paf(targets, queries)?;
 
                 if !args.quiet {
-                    eprintln!("{} alignment complete. Applying filtering...", args.aligner);
+                    eprintln!("[sweepga] {} alignment complete. Applying filtering...", args.aligner);
                 }
 
                 // Update args to use the generated PAF file
@@ -313,31 +462,34 @@ fn main() -> Result<()> {
         "identity" => ScoringFunction::Identity,
         "length" => ScoringFunction::Length,
         "length-identity" => ScoringFunction::LengthIdentity,
+        "matches" => ScoringFunction::Matches,
         "log-length-identity" | _ => ScoringFunction::LogLengthIdentity,
     };
 
-    // Set up filter configuration
-    let config = FilterConfig {
-        chain_gap: args.scaffold_jump, // Use scaffold_jump for merging into chains
+
+    // Placeholder for identity values - will be calculated after we have input path
+    let temp_config = FilterConfig {
+        chain_gap: args.scaffold_jump,
         min_block_length: args.block_length,
         mapping_filter_mode: plane_sweep_mode,
         mapping_max_per_query: plane_sweep_query_limit,
         mapping_max_per_target: plane_sweep_target_limit,
-        plane_sweep_secondaries: 0, // Not used with new format
+        plane_sweep_secondaries: 0,
         scaffold_filter_mode,
         scaffold_max_per_query,
         scaffold_max_per_target,
         overlap_threshold: args.overlap,
         sparsity: args.sparsify,
-        no_merge: true, // Never merge primary mappings (CIGAR strings become invalid)
+        no_merge: true,
         scaffold_gap: args.scaffold_jump,
         min_scaffold_length: args.scaffold_mass,
         scaffold_overlap_threshold: args.scaffold_overlap,
         scaffold_max_deviation: args.scaffold_dist,
-        prefix_delimiter: '#', // Default PanSN delimiter
-        skip_prefix: false,    // false = GROUP BY PREFIX for 1:1 filtering within genome pairs
+        prefix_delimiter: '#',
+        skip_prefix: false,
         scoring_function,
-        min_identity: args.min_identity,
+        min_identity: 0.0,  // Will be set later
+        min_scaffold_identity: 0.0,  // Will be set later
     };
 
     // Progress indicator
@@ -348,7 +500,7 @@ fn main() -> Result<()> {
                 .template("{spinner:.green} {msg}")
                 .unwrap(),
         );
-        pb.set_message("Filtering PAF records...");
+        pb.set_message("[sweepga] Filtering PAF records...");
         Some(pb)
     } else {
         None
@@ -375,6 +527,34 @@ fn main() -> Result<()> {
 
         (Some(temp), temp_path)
     };
+
+    // Now calculate ANI if needed for identity thresholds
+    let ani_percentile = if args.min_identity.to_lowercase().contains("ani") {
+        Some(calculate_ani_stats(&input_path)?)
+    } else {
+        None
+    };
+
+    // Parse identity thresholds
+    let min_identity = parse_identity_value(&args.min_identity, ani_percentile)?;
+    if !args.quiet {
+        eprintln!("[sweepga] Using minimum identity threshold: {:.1}%", min_identity * 100.0);
+    }
+
+    let min_scaffold_identity = if let Some(scaffold_val) = args.min_scaffold_identity {
+        if scaffold_val > 1.0 {
+            scaffold_val / 100.0
+        } else {
+            scaffold_val
+        }
+    } else {
+        min_identity
+    };
+
+    // Create final config with calculated identity values
+    let mut config = temp_config;
+    config.min_identity = min_identity;
+    config.min_scaffold_identity = min_scaffold_identity;
 
     let (_output_temp, output_path) = if let Some(ref path) = args.output {
         (None, path.clone())
@@ -405,7 +585,7 @@ fn main() -> Result<()> {
     }
 
     if let Some(pb) = progress {
-        pb.finish_with_message("Filtering complete");
+        pb.finish_with_message("[sweepga] Filtering complete");
     }
 
     Ok(())

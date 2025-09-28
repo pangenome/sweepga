@@ -3,6 +3,41 @@ use anyhow::{bail, Result};
 use std::collections::HashMap;
 use std::io::{BufRead, BufReader, Read};
 
+/// Parse CIGAR string to count exact matches (= operations)
+/// Returns (matches, mismatches, insertions, deletions)
+pub fn parse_cigar_counts(cigar: &str) -> Result<(u64, u64, u64, u64)> {
+    let mut matches = 0u64;
+    let mut mismatches = 0u64;
+    let mut insertions = 0u64;
+    let mut deletions = 0u64;
+
+    let mut num_str = String::new();
+    for ch in cigar.chars() {
+        if ch.is_ascii_digit() {
+            num_str.push(ch);
+        } else {
+            let count: u64 = num_str.parse()
+                .map_err(|_| anyhow::anyhow!("Invalid number in CIGAR: {}", num_str))?;
+            num_str.clear();
+
+            match ch {
+                '=' => matches += count,      // Exact match
+                'X' => mismatches += count,   // Mismatch
+                'I' => insertions += count,   // Insertion to reference
+                'D' => deletions += count,    // Deletion from reference
+                'M' => {
+                    // M means match or mismatch, we can't distinguish
+                    // In this case, use the provided matches field from PAF
+                    // This is handled elsewhere
+                }
+                _ => {} // Ignore other operations like S, H, N, P
+            }
+        }
+    }
+
+    Ok((matches, mismatches, insertions, deletions))
+}
+
 #[allow(dead_code)]
 pub struct PafReader<R: Read> {
     reader: BufReader<R>,

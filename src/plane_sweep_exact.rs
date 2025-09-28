@@ -32,6 +32,7 @@ impl PlaneSweepMapping {
             ScoringFunction::Length => self.score_length(),
             ScoringFunction::LengthIdentity => self.score_length_identity(),
             ScoringFunction::LogLengthIdentity => self.score_log_length_identity(),
+            ScoringFunction::Matches => self.score_matches(),
         }
     }
 
@@ -71,6 +72,16 @@ impl PlaneSweepMapping {
             f64::NEG_INFINITY
         } else {
             self.identity * length.ln()
+        }
+    }
+
+    pub fn score_matches(&self) -> f64 {
+        // Total matches (approximated as length * identity)
+        let length = (self.query_end - self.query_start) as f64;
+        if length <= 0.0 || self.identity <= 0.0 {
+            f64::NEG_INFINITY
+        } else {
+            length * self.identity
         }
     }
 

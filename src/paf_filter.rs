@@ -16,6 +16,7 @@ pub enum ScoringFunction {
     Length,            // Length only
     LengthIdentity,    // Length * Identity
     LogLengthIdentity, // log(Length) * Identity (default)
+    Matches,           // Total matches only (gap-neutral)
 }
 
 /// Filtering mode
@@ -57,6 +58,7 @@ pub struct FilterConfig {
     // Scoring and identity filtering
     pub scoring_function: ScoringFunction,
     pub min_identity: f64,  // Minimum block identity threshold (0.0-1.0)
+    pub min_scaffold_identity: f64,  // Minimum scaffold identity threshold (0.0-1.0)
 }
 
 /// Record metadata for filtering without modifying records
@@ -156,7 +158,7 @@ struct MergedChain {
     target_end: u64,
     strand: char,
     total_length: u64,
-    weighted_identity: f64,      // Identity over entire chain span (matches/span)
+    weighted_identity: f64,      // Average identity of mapped regions (matches/mapped_length)
     sum_matches: u64,            // Sum of matches from all mappings
     sum_block_lengths: u64,      // Sum of actual mapped lengths
     member_indices: Vec<usize>, // Indices of original mappings in this chain
@@ -167,24 +169,28 @@ impl MergedChain {
     fn score(&self, scoring: ScoringFunction) -> f64 {
         match scoring {
             ScoringFunction::Identity => {
-                // Use weighted identity over entire span
+                // Use average identity of mapped regions
                 self.weighted_identity
             }
             ScoringFunction::Length => {
-                // Use total span length
-                self.total_length as f64
+                // Use sum of mapped lengths (not span, to be gap-neutral)
+                self.sum_block_lengths as f64
             }
             ScoringFunction::LengthIdentity => {
-                // Length * weighted identity
-                self.total_length as f64 * self.weighted_identity
+                // Mapped length * weighted identity
+                self.sum_block_lengths as f64 * self.weighted_identity
             }
             ScoringFunction::LogLengthIdentity => {
-                // log(length) * weighted identity
-                if self.total_length > 0 {
-                    (self.total_length as f64).ln() * self.weighted_identity
+                // log(mapped length) * weighted identity
+                if self.sum_block_lengths > 0 {
+                    (self.sum_block_lengths as f64).ln() * self.weighted_identity
                 } else {
                     0.0
                 }
+            }
+            ScoringFunction::Matches => {
+                // Total matches only - more matches = better
+                self.sum_matches as f64
             }
         }
     }
@@ -272,6 +278,8 @@ impl PafFilter {
         let file = File::open(path)?;
         let reader = BufReader::new(file);
         let mut metadata = Vec::new();
+        let mut has_cigar = false;
+        let mut checked_cigar = false;
 
         for (rank, line) in reader.lines().enumerate() {
             let line = line?;
@@ -298,13 +306,34 @@ impl PafFilter {
             // alignment_length is the block_length (denominator in PAF format)
             let alignment_length = block_length;
             let mut identity = matches as f64 / alignment_length.max(1) as f64;
+            let mut exact_matches = matches; // Default to PAF matches field
 
-            // Look for divergence tag from FASTGA (overrides if present)
+            // Look for tags: divergence (dv:f:) and CIGAR (cg:Z:)
             for field in &fields[11..] {
                 if let Some(div_str) = field.strip_prefix("dv:f:") {
                     if let Ok(div) = div_str.parse::<f64>() {
                         identity = 1.0 - div;
                     }
+                } else if let Some(cigar_str) = field.strip_prefix("cg:Z:") {
+                    // Parse CIGAR to get exact match count
+                    if let Ok((cigar_matches, _, _, _)) = crate::paf::parse_cigar_counts(cigar_str) {
+                        if cigar_matches > 0 {
+                            exact_matches = cigar_matches;
+                            // Also update identity based on CIGAR matches
+                            identity = cigar_matches as f64 / alignment_length.max(1) as f64;
+                            has_cigar = true;
+                        }
+                    }
+                }
+            }
+
+            // Check CIGAR availability on first record when using matches scoring
+            if !checked_cigar && self.config.scoring_function == ScoringFunction::Matches {
+                checked_cigar = true;
+                if !has_cigar {
+                    eprintln!("[sweepga] WARNING: Using 'matches' scoring but input lacks CIGAR strings (cg:Z: tags).");
+                    eprintln!("[sweepga] WARNING: Match counts will be estimated from PAF matches field (column 10).");
+                    eprintln!("[sweepga] WARNING: For exact match counts, use aligners that output extended CIGAR (e.g., wfmash).");
                 }
             }
 
@@ -318,7 +347,7 @@ impl PafFilter {
                 target_end,
                 block_length,
                 identity,
-                matches,
+                matches: exact_matches,  // Use exact matches from CIGAR if available
                 alignment_length,
                 strand,
                 chain_id: None,
@@ -364,94 +393,52 @@ impl PafFilter {
         // According to CLAUDE.md: create scaffolds from the PLANE-SWEPT mappings,
         // then rescue from ALL ORIGINAL mappings
 
-        // Step 1: Create scaffolds from the plane-swept mappings
-        eprintln!(
-            "[SCAFFOLD_TRACE] Creating scaffolds from {} plane-swept mappings",
-            metadata.len()
-        );
+        // Calculate input statistics
+        let total_mapped_bases: u64 = metadata.iter().map(|m| m.block_length).sum();
+        let avg_identity = if !metadata.is_empty() {
+            metadata.iter().map(|m| m.identity).sum::<f64>() / metadata.len() as f64
+        } else {
+            0.0
+        };
 
-        // Debug: check coverage of metadata
-        let mut chr1_mappings = 0;
-        let mut max_chr1_pos = 0;
-        for m in &metadata {
-            if m.query_name.contains("Chr1") && m.target_name.contains("Chr1") {
-                chr1_mappings += 1;
-                max_chr1_pos = max_chr1_pos.max(m.query_end);
-            }
-        }
-        eprintln!(
-            "[DEBUG] Chr1->Chr1 mappings in metadata: {chr1_mappings}, max position: {max_chr1_pos}"
-        );
+        eprintln!("[sweepga] Stage 1: Scaffold creation");
+        eprintln!("[sweepga]   Input: {} mappings, {:.1} Mb total, {:.1}% avg identity",
+                 metadata.len(),
+                 total_mapped_bases as f64 / 1_000_000.0,
+                 avg_identity * 100.0);
 
-        // Use scaffold_gap for merging into scaffolds (per CLAUDE.md)
+        // Use scaffold_gap for merging into scaffolds
         let merged_chains = self.merge_mappings_into_chains(&metadata, self.config.scaffold_gap)?;
-        eprintln!(
-            "[SCAFFOLD_TRACE] After merging with gap={}: {} chains",
-            self.config.scaffold_gap,
-            merged_chains.len()
-        );
+        eprintln!("[sweepga]   Merged into {} chains (gap ≤ {})",
+                 merged_chains.len(),
+                 self.config.scaffold_gap);
 
-        // Debug: check Chr1->Chr1 chains
-        let mut chr1_chains = 0;
-        let mut max_chain_end = 0;
-        for chain in &merged_chains {
-            if chain.query_name.contains("Chr1") && chain.target_name.contains("Chr1") {
-                chr1_chains += 1;
-                max_chain_end = max_chain_end.max(chain.query_end);
-            }
-        }
-        eprintln!(
-            "[DEBUG] Chr1->Chr1 chains: {chr1_chains}, max end position: {max_chain_end}"
-        );
-
-        // Step 2: Filter chains by minimum scaffold length
+        // Step 2: Filter chains by minimum scaffold length and identity
+        let before_filter = merged_chains.len();
         let mut filtered_chains: Vec<MergedChain> = merged_chains
             .into_iter()
-            .filter(|chain| chain.total_length >= self.config.min_scaffold_length)
+            .filter(|chain| {
+                chain.total_length >= self.config.min_scaffold_length
+                    && chain.weighted_identity >= self.config.min_scaffold_identity
+            })
             .collect();
-        eprintln!(
-            "[SCAFFOLD_TRACE] After length filter (min={}): {} chains",
-            self.config.min_scaffold_length,
-            filtered_chains.len()
-        );
-
-        // Debug: check Chr1->Chr1 chains after length filter
-        let mut chr1_scaffolds = 0;
-        let mut max_scaffold_end = 0;
-        for chain in &filtered_chains {
-            if chain.query_name.contains("Chr1") && chain.target_name.contains("Chr1") {
-                chr1_scaffolds += 1;
-                max_scaffold_end = max_scaffold_end.max(chain.query_end);
-            }
+        let filtered_out = before_filter - filtered_chains.len();
+        eprintln!("[sweepga]   Length/identity filter: {} chains kept, {} removed",
+                 filtered_chains.len(),
+                 filtered_out);
+        if self.config.min_scaffold_length > 0 || self.config.min_scaffold_identity > 0.0 {
+            eprintln!("[sweepga]     Min length: {}, min identity: {:.1}%",
+                     self.config.min_scaffold_length,
+                     self.config.min_scaffold_identity * 100.0);
         }
-        eprintln!(
-            "[DEBUG] Chr1->Chr1 scaffolds after length filter: {chr1_scaffolds}, max end: {max_scaffold_end}"
-        );
 
-        // Step 3: Apply plane sweep to scaffolds based on scaffold_filter_mode
-        // Default: 1:N filtering (best scaffold per query-target pair)
+        // Step 3: Apply plane sweep to scaffolds
+        eprintln!("[sweepga] Stage 2: Scaffold filtering");
+        let before_sweep = filtered_chains.len();
         filtered_chains = self.apply_scaffold_plane_sweep(filtered_chains)?;
-        eprintln!(
-            "[SCAFFOLD_TRACE] After plane sweep on scaffolds: {} chains",
-            filtered_chains.len()
-        );
-
-        // Debug: check Chr1->Chr1 chains after plane sweep
-        let mut chr1_final = 0;
-        let mut max_final_end = 0;
-        for chain in &filtered_chains {
-            if chain.query_name.contains("Chr1") && chain.target_name.contains("Chr1") {
-                chr1_final += 1;
-                max_final_end = max_final_end.max(chain.query_end);
-                eprintln!(
-                    "[DEBUG] Chr1->Chr1 scaffold: {} - {}",
-                    chain.query_start, chain.query_end
-                );
-            }
-        }
-        eprintln!(
-            "[DEBUG] Chr1->Chr1 scaffolds after plane sweep: {chr1_final}, max end: {max_final_end}"
-        );
+        eprintln!("[sweepga]   Plane sweep: {} → {} scaffolds",
+                 before_sweep,
+                 filtered_chains.len());
 
         // If scaffolds_only mode, return the actual mappings that form scaffolds
         if self.scaffolds_only {
@@ -497,11 +484,11 @@ impl PafFilter {
                 rank_to_chain_id.insert(member_rank, chain_id.clone());
             }
         }
-        eprintln!(
-            "[SCAFFOLD_TRACE] Anchors identified: {} mappings (members of {} scaffold chains)",
-            anchor_ranks.len(),
-            filtered_chains.len()
-        );
+
+        eprintln!("[sweepga] Stage 3: Rescue phase");
+        eprintln!("[sweepga]   Anchors: {} mappings in {} scaffolds",
+                 anchor_ranks.len(),
+                 filtered_chains.len());
 
         // Map ranks to indices in all_original_mappings
         let mut rank_to_idx = HashMap::new();
@@ -627,13 +614,23 @@ impl PafFilter {
         // Count anchors vs rescued
         let anchor_count = anchor_ranks.len();
         let rescued_count = kept_mappings.len() - anchor_count;
-        eprintln!(
-            "[SCAFFOLD_TRACE] Final: {} original -> {} kept (anchors={}, rescued={})",
-            all_original_mappings.len(),
-            kept_mappings.len(),
-            anchor_count,
-            rescued_count
-        );
+        let total_kept_bases: u64 = kept_mappings.iter().map(|m| m.block_length).sum();
+        let avg_kept_identity = if !kept_mappings.is_empty() {
+            kept_mappings.iter().map(|m| m.identity).sum::<f64>() / kept_mappings.len() as f64
+        } else {
+            0.0
+        };
+
+        eprintln!("[sweepga]   Rescued: {} mappings within {}bp of anchors",
+                 rescued_count,
+                 self.config.scaffold_max_deviation);
+        eprintln!("[sweepga] Summary: {} → {} mappings ({:.1}% kept)",
+                 all_original_mappings.len(),
+                 kept_mappings.len(),
+                 (kept_mappings.len() as f64 / all_original_mappings.len().max(1) as f64) * 100.0);
+        eprintln!("[sweepga]   Output: {:.1} Mb total, {:.1}% avg identity",
+                 total_kept_bases as f64 / 1_000_000.0,
+                 avg_kept_identity * 100.0);
 
         // Build result map directly from kept mappings
         let mut passing = HashMap::new();
@@ -797,10 +794,10 @@ impl PafFilter {
 
                 let total_length = q_max - q_min;
 
-                // Calculate weighted identity over the entire chain span
-                // This accounts for gaps as mismatches
-                let weighted_identity = if total_length > 0 {
-                    sum_matches as f64 / total_length as f64
+                // Calculate weighted identity over mapped regions only
+                // Gaps are neutral - neither help nor hurt the score
+                let weighted_identity = if sum_block_lengths > 0 {
+                    sum_matches as f64 / sum_block_lengths as f64
                 } else {
                     0.0
                 };
@@ -936,7 +933,6 @@ impl PafFilter {
             })
             .collect();
 
-        eprintln!("[SCAFFOLD_FILTER] Applying plane sweep to {} scaffolds", chains.len());
 
         // Get the scaffold filter params (vs mapping filter params)
         let overlap_threshold = self.config.scaffold_overlap_threshold;
@@ -954,14 +950,12 @@ impl PafFilter {
                 }
 
                 for ((q_chr, t_chr), indices) in by_chr_pair {
-                    eprintln!("[DEBUG] Processing scaffold chr pair {}->{} with {} scaffolds", q_chr, t_chr, indices.len());
                     let mut chr_mappings: Vec<_> = indices.iter()
                         .map(|&i| plane_sweep_mappings[i].0.clone())
                         .collect();
 
                     use crate::plane_sweep_exact::plane_sweep_both;
                     let chr_kept = plane_sweep_both(&mut chr_mappings, 1, 1, overlap_threshold, self.config.scoring_function);
-                    eprintln!("[DEBUG] After 1:1 plane sweep: {} -> {} scaffolds kept", indices.len(), chr_kept.len());
 
                     for k in chr_kept {
                         kept.push(indices[k]);
@@ -985,7 +979,6 @@ impl PafFilter {
             .map(|&idx| chains[idx].clone())
             .collect();
 
-        eprintln!("[SCAFFOLD_TRACE] After plane sweep on scaffolds: {} chains", result.len());
 
         Ok(result)
     }
