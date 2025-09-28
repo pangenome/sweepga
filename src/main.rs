@@ -559,8 +559,9 @@ fn main() -> Result<()> {
     };
 
     // Apply filtering
+    // Note: -f (no_filter) implies --self (keep self-mappings)
     let filter = PafFilter::new(config)
-        .with_keep_self(args.keep_self)
+        .with_keep_self(args.keep_self || args.no_filter)
         .with_scaffolds_only(args.scaffolds_only);
     filter.filter_paf(&input_path, &output_path)?;
 
