@@ -352,8 +352,12 @@ fn main() -> Result<()> {
     let start_time = Instant::now();
     let mut args = Args::parse();
 
+    // Track alignment time separately
+    let mut alignment_time: Option<f64> = None;
+
     // Handle FASTA input mode (alignment generation)
     let _temp_paf = if !args.fasta_files.is_empty() {
+        let alignment_start = Instant::now();
         match args.aligner.as_str() {
             "fastga" => {
                 use crate::fastga_integration::FastGAIntegration;
@@ -390,8 +394,10 @@ fn main() -> Result<()> {
                 // Run alignment and get temp PAF file
                 let temp_paf = fastga.align_to_temp_paf(targets, queries)?;
 
+                alignment_time = Some(alignment_start.elapsed().as_secs_f64());
                 if !args.quiet {
-                    eprintln!("[sweepga] {} alignment complete. Applying filtering...", args.aligner);
+                    eprintln!("[sweepga] {} alignment complete ({:.1}s). Applying filtering...",
+                             args.aligner, alignment_time.unwrap());
                 }
 
                 // Update args to use the generated PAF file
@@ -572,19 +578,19 @@ fn main() -> Result<()> {
     }
 
     if !args.quiet {
-        let elapsed = start_time.elapsed().as_secs_f64();
-        let hours = (elapsed / 3600.0).floor() as u64;
-        let minutes = ((elapsed % 3600.0) / 60.0).floor() as u64;
-        let seconds = elapsed % 60.0;
-
-        if hours > 0 {
-            eprintln!("[sweepga] Filtering complete. Elapsed: {:.1}s ({:02}h:{:02}m:{:05.2}s)",
-                       elapsed, hours, minutes, seconds);
-        } else if minutes > 0 {
-            eprintln!("[sweepga] Filtering complete. Elapsed: {:.1}s ({:02}m:{:05.2}s)",
-                       elapsed, minutes, seconds);
+        let total_elapsed = start_time.elapsed().as_secs_f64();
+        let filtering_time = if let Some(align_time) = alignment_time {
+            total_elapsed - align_time
         } else {
-            eprintln!("[sweepga] Filtering complete. Elapsed: {:.1}s", elapsed);
+            total_elapsed
+        };
+
+        // Format the complete message
+        if let Some(align_time) = alignment_time {
+            eprintln!("[sweepga] Complete. Alignment: {:.1}s, Filtering: {:.1}s, Total: {:.1}s",
+                       align_time, filtering_time, total_elapsed);
+        } else {
+            eprintln!("[sweepga] Filtering complete. Total: {:.1}s", total_elapsed);
         }
     }
 
