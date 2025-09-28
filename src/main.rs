@@ -497,10 +497,10 @@ fn main() -> Result<()> {
         let pb = ProgressBar::new_spinner();
         pb.set_style(
             ProgressStyle::default_spinner()
-                .template("{spinner:.green}{msg}")
+                .template("{spinner:.green} {msg}")
                 .unwrap(),
         );
-        pb.set_message(" [sweepga] Filtering PAF records...");
+        pb.set_message("[sweepga] Filtering PAF records...");
         Some(pb)
     } else {
         None
@@ -585,7 +585,10 @@ fn main() -> Result<()> {
     }
 
     if let Some(pb) = progress {
-        pb.finish_with_message(" [sweepga] Filtering complete");
+        pb.finish_and_clear();
+        if !args.quiet {
+            eprintln!("[sweepga] Filtering complete");
+        }
     }
 
     Ok(())
