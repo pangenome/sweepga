@@ -9,7 +9,6 @@ anyhow = "1.0"
 nom = "7.1"
 rayon = "1.10"
 byteorder = "1.5"
-indicatif = "0.17"
 tempfile = "3.8"
 ordered-float = "4.0"
 fastga-rs = { git = "https://github.com/pangenome/fastga-rs.git", rev = "3ff6ec1" }

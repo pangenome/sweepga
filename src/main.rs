@@ -12,7 +12,6 @@ mod union_find;
 
 use anyhow::Result;
 use clap::Parser;
-use indicatif::{ProgressBar, ProgressStyle};
 
 use crate::paf_filter::{FilterConfig, FilterMode, PafFilter, ScoringFunction};
 use std::collections::HashMap;
@@ -492,20 +491,6 @@ fn main() -> Result<()> {
         min_scaffold_identity: 0.0,  // Will be set later
     };
 
-    // Progress indicator
-    let progress = if !args.quiet {
-        let pb = ProgressBar::new_spinner();
-        pb.set_style(
-            ProgressStyle::default_spinner()
-                .template("{spinner:.green} {msg}")
-                .unwrap(),
-        );
-        pb.set_message("[sweepga] Filtering PAF records...");
-        Some(pb)
-    } else {
-        None
-    };
-
     // Handle input: if stdin, save to temp file for two-pass processing
     let (_input_temp, input_path) = if let Some(ref path) = args.input {
         (None, path.clone())
@@ -584,11 +569,8 @@ fn main() -> Result<()> {
         }
     }
 
-    if let Some(pb) = progress {
-        pb.finish_and_clear();
-        if !args.quiet {
-            eprintln!("[sweepga] Filtering complete");
-        }
+    if !args.quiet {
+        eprintln!("[sweepga] Filtering complete");
     }
 
     Ok(())
