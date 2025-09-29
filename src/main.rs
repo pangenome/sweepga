@@ -22,9 +22,11 @@ use std::time::Instant;
 /// Method for calculating ANI from alignments
 #[derive(Debug, Clone, Copy, PartialEq)]
 enum AniMethod {
-    All,        // Use all alignments (default)
-    Orthogonal, // Use best 1:1 mappings only
-    N50,        // Use longest alignments up to N50
+    All,           // Use all alignments
+    Orthogonal,    // Use best 1:1 mappings only
+    N50,           // Use longest alignments up to N50
+    N50Identity,   // Use highest identity alignments up to N50
+    N50Score,      // Use best scoring (identity * log(length)) alignments up to N50
 }
 
 /// Parse a number that may have metric suffix (k/K=1000, m/M=1e6, g/G=1e9)
@@ -134,8 +136,8 @@ struct Args {
     #[clap(short = 'y', long = "min-identity", default_value = "ani50")]
     min_identity: String,
 
-    /// Method for calculating ANI: all, orthogonal (1:1 mappings), or n50
-    #[clap(long = "ani-method", default_value = "n50")]
+    /// Method for calculating ANI: all, orthogonal, n50, n50-identity, n50-score
+    #[clap(long = "ani-method", default_value = "n50-identity")]
     ani_method: String,
 
     /// Minimum scaffold identity threshold (0-1 fraction or 1-100%, defaults to -y)
@@ -324,15 +326,15 @@ fn calculate_ani_stats(input_path: &str, method: AniMethod, quiet: bool) -> Resu
             Box::leak(Box::new(temp_filtered));
             filtered_path
         }
-        AniMethod::N50 => {
-            // N50 is handled differently - we'll process all alignments but only use longest ones
+        AniMethod::N50 | AniMethod::N50Identity | AniMethod::N50Score => {
+            // N50 methods are handled differently - we'll process all alignments but only use best ones
             input_path.to_string()
         }
     };
 
-    // For N50 method, we need to collect all alignments first
-    if method == AniMethod::N50 {
-        return calculate_ani_n50(input_path, quiet);
+    // For N50 methods, we need to collect all alignments first
+    if matches!(method, AniMethod::N50 | AniMethod::N50Identity | AniMethod::N50Score) {
+        return calculate_ani_n50(input_path, method, quiet);
     }
 
     // For All and Orthogonal methods, calculate directly
@@ -434,21 +436,28 @@ fn calculate_ani_stats(input_path: &str, method: AniMethod, quiet: bool) -> Resu
     Ok(ani50)
 }
 
-/// Calculate ANI using N50 method - use longest alignments covering 50% of total alignment length
-fn calculate_ani_n50(input_path: &str, quiet: bool) -> Result<f64> {
+/// Calculate ANI using N50 method - use best alignments covering 50% of total alignment length
+fn calculate_ani_n50(input_path: &str, method: AniMethod, quiet: bool) -> Result<f64> {
     if !quiet {
-        eprintln!("[sweepga] Calculating ANI from longest alignments (N50 method)");
+        let method_name = match method {
+            AniMethod::N50 => "longest alignments (N50 by length)",
+            AniMethod::N50Identity => "highest identity alignments (N50 by identity)",
+            AniMethod::N50Score => "best scoring alignments (N50 by identity × log(length))",
+            _ => unreachable!(),
+        };
+        eprintln!("[sweepga] Calculating ANI from {}", method_name);
     }
 
     let file = File::open(input_path)?;
     let reader = BufReader::new(file);
 
-    // Collect all alignments with their lengths
+    // Collect all alignments with their lengths and identity
     struct Alignment {
         query_genome: String,
         target_genome: String,
         matches: f64,
         block_length: f64,
+        identity: f64,
     }
 
     let mut alignments = Vec::new();
@@ -495,11 +504,14 @@ fn calculate_ani_n50(input_path: &str, quiet: bool) -> Result<f64> {
             }
         }
 
+        let identity = final_matches / block_len.max(1.0);
+
         alignments.push(Alignment {
             query_genome,
             target_genome,
             matches: final_matches,
             block_length: block_len,
+            identity,
         });
     }
 
@@ -508,8 +520,26 @@ fn calculate_ani_n50(input_path: &str, quiet: bool) -> Result<f64> {
         return Ok(0.0);
     }
 
-    // Sort by block length (descending)
-    alignments.sort_by(|a, b| b.block_length.partial_cmp(&a.block_length).unwrap());
+    // Sort based on method
+    match method {
+        AniMethod::N50 => {
+            // Sort by block length (descending)
+            alignments.sort_by(|a, b| b.block_length.partial_cmp(&a.block_length).unwrap());
+        }
+        AniMethod::N50Identity => {
+            // Sort by identity (descending)
+            alignments.sort_by(|a, b| b.identity.partial_cmp(&a.identity).unwrap());
+        }
+        AniMethod::N50Score => {
+            // Sort by identity * log(length) score (descending)
+            alignments.sort_by(|a, b| {
+                let score_a = a.identity * a.block_length.ln().max(1.0);
+                let score_b = b.identity * b.block_length.ln().max(1.0);
+                score_b.partial_cmp(&score_a).unwrap()
+            });
+        }
+        _ => unreachable!(),
+    }
 
     // Calculate total length
     let total_length: f64 = alignments.iter().map(|a| a.block_length).sum();
@@ -556,7 +586,13 @@ fn calculate_ani_n50(input_path: &str, quiet: bool) -> Result<f64> {
         ani_values[median_idx]
     };
 
-    eprintln!("[sweepga] ANI statistics from {} genome pairs (N50 method):", genome_pairs.len());
+    let method_str = match method {
+        AniMethod::N50 => "N50 by length",
+        AniMethod::N50Identity => "N50 by identity",
+        AniMethod::N50Score => "N50 by score",
+        _ => "N50",
+    };
+    eprintln!("[sweepga] ANI statistics from {} genome pairs ({}):", genome_pairs.len(), method_str);
     eprintln!("[sweepga]   Min: {:.1}%, Median: {:.1}%, Max: {:.1}%",
              ani_values.first().unwrap_or(&0.0) * 100.0,
              ani50 * 100.0,
@@ -742,10 +778,12 @@ fn main() -> Result<()> {
     let ani_method = match args.ani_method.to_lowercase().as_str() {
         "all" => AniMethod::All,
         "orthogonal" | "1:1" => AniMethod::Orthogonal,
-        "n50" => AniMethod::N50,
+        "n50" | "n50-length" => AniMethod::N50,
+        "n50-identity" => AniMethod::N50Identity,
+        "n50-score" => AniMethod::N50Score,
         _ => {
-            eprintln!("[sweepga] WARNING: Unknown ANI method '{}', using 'n50'", args.ani_method);
-            AniMethod::N50
+            eprintln!("[sweepga] WARNING: Unknown ANI method '{}', using 'n50-identity'", args.ani_method);
+            AniMethod::N50Identity
         }
     };
 
