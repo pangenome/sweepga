@@ -73,7 +73,7 @@ fn parse_metric_number(s: &str) -> Result<u64, String> {
     Ok(result as u64)
 }
 
-/// SweepGA - Fast genome alignment with sophisticated filtering
+/// SweepGA - Fast genome alignment with plane sweep filtering
 ///
 /// This tool wraps genome aligners (FastGA by default) and applies wfmash's filtering algorithms.
 /// Can also process existing PAF files from any aligner.
@@ -138,17 +138,17 @@ struct Args {
            value_parser = ["identity", "length", "length-identity", "log-length-identity", "matches"])]
     scoring: String,
 
-    /// Minimum identity threshold (0-1 fraction, 1-100%, or "aniN" for Nth percentile)
-    #[clap(short = 'y', long = "min-identity", default_value = "ani50")]
-    min_identity: String,
-
     /// Method for calculating ANI: all, orthogonal, nX[-sort] (e.g. n50, n90-identity, n100-score)
     #[clap(long = "ani-method", default_value = "n50")]
     ani_method: String,
 
-    /// Minimum scaffold identity threshold (0-1 fraction or 1-100%, defaults to -y)
-    #[clap(short = 'Y', long = "min-scaffold-identity")]
-    min_scaffold_identity: Option<f64>,
+    /// Minimum identity threshold (0-1 fraction, 1-100%, or "aniN" for Nth percentile)
+    #[clap(short = 'y', long = "min-identity", default_value = "0")]
+    min_identity: String,
+
+    /// Minimum scaffold identity threshold (0-1 fraction, 1-100%, "aniN", or defaults to -y)
+    #[clap(short = 'Y', long = "min-scaffold-identity", default_value = "ani50")]
+    min_scaffold_identity: String,
 
     /// Disable all filtering
     #[clap(short = 'f', long = "no-filter")]
@@ -851,7 +851,8 @@ fn main() -> Result<()> {
     let ani_method = ani_method.unwrap_or(AniMethod::NPercentile(50.0, NSort::Identity));
 
     // Now calculate ANI if needed for identity thresholds
-    let ani_percentile = if args.min_identity.to_lowercase().contains("ani") {
+    let ani_percentile = if args.min_identity.to_lowercase().contains("ani") ||
+                            args.min_scaffold_identity.to_lowercase().contains("ani") {
         Some(calculate_ani_stats(&input_path, ani_method, args.quiet)?)
     } else {
         None
@@ -863,14 +864,10 @@ fn main() -> Result<()> {
         eprintln!("[sweepga] Using minimum identity threshold: {:.1}%", min_identity * 100.0);
     }
 
-    let min_scaffold_identity = if let Some(scaffold_val) = args.min_scaffold_identity {
-        if scaffold_val > 1.0 {
-            scaffold_val / 100.0
-        } else {
-            scaffold_val
-        }
+    let min_scaffold_identity = if args.min_scaffold_identity.is_empty() {
+        min_identity  // If empty string, use min_identity
     } else {
-        min_identity
+        parse_identity_value(&args.min_scaffold_identity, ani_percentile)?
     };
 
     // Create final config with calculated identity values
