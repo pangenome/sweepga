@@ -501,9 +501,12 @@ fn calculate_ani_n_percentile(input_path: &str, percentile: f64, sort_method: NS
         matches: f64,
         block_length: f64,
         identity: f64,
+        query_length: u64,
+        target_length: u64,
     }
 
     let mut alignments = Vec::new();
+    let mut genome_sizes: HashMap<String, u64> = HashMap::new();
 
     for line in reader.lines() {
         let line = line?;
@@ -533,6 +536,16 @@ fn calculate_ani_n_percentile(input_path: &str, percentile: f64, sort_method: NS
             continue;
         }
 
+        // Parse query and target lengths
+        let query_length = fields[1].parse::<u64>().unwrap_or(0);
+        let target_length = fields[6].parse::<u64>().unwrap_or(0);
+
+        // Track genome+chromosome sizes to avoid double counting
+        let query_key = format!("{}{}", query_genome, fields[0].rsplit('#').next().unwrap_or(""));
+        let target_key = format!("{}{}", target_genome, fields[5].rsplit('#').next().unwrap_or(""));
+        genome_sizes.entry(query_key).or_insert(query_length);
+        genome_sizes.entry(target_key).or_insert(target_length);
+
         let matches = fields[9].parse::<f64>().unwrap_or(0.0);
         let block_len = fields[10].parse::<f64>().unwrap_or(1.0);
 
@@ -555,6 +568,8 @@ fn calculate_ani_n_percentile(input_path: &str, percentile: f64, sort_method: NS
             matches: final_matches,
             block_length: block_len,
             identity,
+            query_length,
+            target_length,
         });
     }
 
@@ -583,9 +598,17 @@ fn calculate_ani_n_percentile(input_path: &str, percentile: f64, sort_method: NS
         }
     }
 
-    // Calculate total length and threshold for N-percentile
-    let total_length: f64 = alignments.iter().map(|a| a.block_length).sum();
-    let n_threshold = total_length * (percentile / 100.0);
+    // Calculate total genome sizes (sum of all unique genome+chromosome lengths)
+    let total_genome_size: f64 = genome_sizes.values().map(|&v| v as f64).sum();
+
+    // Use genome size as denominator for N-percentile, not alignment length
+    // This gives us true genome coverage percentage
+    let n_threshold = total_genome_size * (percentile / 100.0);
+
+    if !quiet {
+        eprintln!("[sweepga] Total genome size: {:.1} Mb, N{} threshold: {:.1} Mb",
+                 total_genome_size / 1_000_000.0, percentile as i32, n_threshold / 1_000_000.0);
+    }
 
     // Take alignments until we reach N-percentile threshold
     let mut cumulative_length = 0.0;
@@ -628,12 +651,18 @@ fn calculate_ani_n_percentile(input_path: &str, percentile: f64, sort_method: NS
         ani_values[median_idx]
     };
 
+    // Calculate total alignment length included
+    let total_included: f64 = genome_pairs.values().map(|(_, len)| len).sum();
+    let coverage_pct = (total_included / total_genome_size) * 100.0;
+
     let method_str = match sort_method {
         NSort::Length => format!("N{} by length", percentile as i32),
         NSort::Identity => format!("N{} by identity", percentile as i32),
         NSort::Score => format!("N{} by score", percentile as i32),
     };
     eprintln!("[sweepga] ANI statistics from {} genome pairs ({}):", genome_pairs.len(), method_str);
+    eprintln!("[sweepga]   Coverage: {:.1}% of genome ({:.1} / {:.1} Mb)",
+             coverage_pct, total_included / 1_000_000.0, total_genome_size / 1_000_000.0);
     eprintln!("[sweepga]   Min: {:.1}%, Median: {:.1}%, Max: {:.1}%",
              ani_values.first().unwrap_or(&0.0) * 100.0,
              ani50 * 100.0,
