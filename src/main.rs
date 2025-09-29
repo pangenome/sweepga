@@ -268,7 +268,8 @@ fn calculate_ani_stats(input_path: &str) -> Result<f64> {
     let reader = BufReader::new(file);
 
     // Group alignments by genome pair (using PanSN prefixes)
-    let mut genome_pairs: HashMap<(String, String), Vec<f64>> = HashMap::new();
+    // Store (total_matches, total_block_length) for proper weighted calculation
+    let mut genome_pairs: HashMap<(String, String), (f64, f64)> = HashMap::new();
 
     for line in reader.lines() {
         let line = line?;
@@ -281,9 +282,18 @@ fn calculate_ani_stats(input_path: &str) -> Result<f64> {
             continue;
         }
 
-        // Extract genome prefixes (before first #)
-        let query_genome = fields[0].split('#').next().unwrap_or(fields[0]).to_string();
-        let target_genome = fields[5].split('#').next().unwrap_or(fields[5]).to_string();
+        // Extract genome prefixes (up to and including last #)
+        // This handles haplotypes correctly: HG002#1#chr1 -> HG002#1#
+        let query_genome = if let Some(pos) = fields[0].rfind('#') {
+            fields[0][..=pos].to_string()
+        } else {
+            fields[0].to_string()
+        };
+        let target_genome = if let Some(pos) = fields[5].rfind('#') {
+            fields[5][..=pos].to_string()
+        } else {
+            fields[5].to_string()
+        };
 
         // Skip self-comparisons
         if query_genome == target_genome {
@@ -293,14 +303,14 @@ fn calculate_ani_stats(input_path: &str) -> Result<f64> {
         // Parse matches and block length
         let matches = fields[9].parse::<f64>().unwrap_or(0.0);
         let block_len = fields[10].parse::<f64>().unwrap_or(1.0);
-        let identity = matches / block_len.max(1.0);
 
-        // Check for divergence tag
-        let mut final_identity = identity;
+        // Check for divergence tag (overrides matches-based identity)
+        let mut final_matches = matches;
         for field in &fields[11..] {
             if let Some(div_str) = field.strip_prefix("dv:f:") {
                 if let Ok(div) = div_str.parse::<f64>() {
-                    final_identity = 1.0 - div;
+                    // Convert divergence back to equivalent matches
+                    final_matches = (1.0 - div) * block_len;
                     break;
                 }
             }
@@ -312,7 +322,10 @@ fn calculate_ani_stats(input_path: &str) -> Result<f64> {
             (target_genome, query_genome)
         };
 
-        genome_pairs.entry(key).or_default().push(final_identity);
+        // Accumulate total matches and total block length for weighted calculation
+        let entry = genome_pairs.entry(key).or_insert((0.0, 0.0));
+        entry.0 += final_matches;
+        entry.1 += block_len;
     }
 
     if genome_pairs.is_empty() {
@@ -321,11 +334,12 @@ fn calculate_ani_stats(input_path: &str) -> Result<f64> {
     }
 
     // Calculate weighted average ANI for each genome pair
-    let mut ani_values: Vec<f64> = genome_pairs.iter().map(|((_q, _t), identities)| {
-        if identities.is_empty() {
-            0.0
+    // ANI = total_matches / total_block_length
+    let mut ani_values: Vec<f64> = genome_pairs.iter().map(|((_q, _t), (total_matches, total_length))| {
+        if *total_length > 0.0 {
+            total_matches / total_length
         } else {
-            identities.iter().sum::<f64>() / identities.len() as f64
+            0.0
         }
     }).collect();
 
