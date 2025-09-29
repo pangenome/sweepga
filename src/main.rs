@@ -22,11 +22,17 @@ use std::time::Instant;
 /// Method for calculating ANI from alignments
 #[derive(Debug, Clone, Copy, PartialEq)]
 enum AniMethod {
-    All,           // Use all alignments
-    Orthogonal,    // Use best 1:1 mappings only
-    N50,           // Use longest alignments up to N50
-    N50Identity,   // Use highest identity alignments up to N50
-    N50Score,      // Use best scoring (identity * log(length)) alignments up to N50
+    All,                     // Use all alignments
+    Orthogonal,              // Use best 1:1 mappings only
+    NPercentile(f64, NSort), // Use alignments up to N-percentile (e.g., 50 for N50, 90 for N90)
+}
+
+/// Sorting method for N-percentile calculation
+#[derive(Debug, Clone, Copy, PartialEq)]
+enum NSort {
+    Length,   // Sort by alignment length
+    Identity, // Sort by identity
+    Score,    // Sort by identity * log(length)
 }
 
 /// Parse a number that may have metric suffix (k/K=1000, m/M=1e6, g/G=1e9)
@@ -136,8 +142,8 @@ struct Args {
     #[clap(short = 'y', long = "min-identity", default_value = "ani50")]
     min_identity: String,
 
-    /// Method for calculating ANI: all, orthogonal, n50, n50-identity, n50-score
-    #[clap(long = "ani-method", default_value = "n50-identity")]
+    /// Method for calculating ANI: all, orthogonal, nX[-sort] (e.g. n50, n90-identity, n100-score)
+    #[clap(long = "ani-method", default_value = "n50")]
     ani_method: String,
 
     /// Minimum scaffold identity threshold (0-1 fraction or 1-100%, defaults to -y)
@@ -216,6 +222,44 @@ fn parse_filter_mode(mode: &str, filter_type: &str) -> (FilterMode, Option<usize
                 "Warning: Invalid {filter_type} filter '{mode}', using default 1:1"
             );
             (FilterMode::OneToOne, Some(1), Some(1))
+        }
+    }
+}
+
+/// Parse ANI calculation method from string
+fn parse_ani_method(method_str: &str) -> Option<AniMethod> {
+    let lower = method_str.to_lowercase();
+
+    match lower.as_str() {
+        "all" => Some(AniMethod::All),
+        "orthogonal" | "1:1" => Some(AniMethod::Orthogonal),
+        _ => {
+            // Try to parse N-percentile methods (e.g., n50, n90-identity, n100-score)
+            if let Some(rest) = lower.strip_prefix('n') {
+                // Split on hyphen to get percentile and optional sort method
+                let parts: Vec<&str> = rest.split('-').collect();
+
+                // Parse the percentile number
+                if let Ok(percentile) = parts[0].parse::<f64>() {
+                    if percentile > 0.0 && percentile <= 100.0 {
+                        // Determine sort method
+                        let sort_method = if parts.len() > 1 {
+                            match parts[1] {
+                                "length" => NSort::Length,
+                                "identity" => NSort::Identity,
+                                "score" => NSort::Score,
+                                _ => return None,
+                            }
+                        } else {
+                            // Default to identity for backwards compatibility
+                            NSort::Identity
+                        };
+
+                        return Some(AniMethod::NPercentile(percentile, sort_method));
+                    }
+                }
+            }
+            None
         }
     }
 }
@@ -326,15 +370,15 @@ fn calculate_ani_stats(input_path: &str, method: AniMethod, quiet: bool) -> Resu
             Box::leak(Box::new(temp_filtered));
             filtered_path
         }
-        AniMethod::N50 | AniMethod::N50Identity | AniMethod::N50Score => {
-            // N50 methods are handled differently - we'll process all alignments but only use best ones
+        AniMethod::NPercentile(_, _) => {
+            // N-percentile methods are handled differently - we'll process all alignments but only use best ones
             input_path.to_string()
         }
     };
 
-    // For N50 methods, we need to collect all alignments first
-    if matches!(method, AniMethod::N50 | AniMethod::N50Identity | AniMethod::N50Score) {
-        return calculate_ani_n50(input_path, method, quiet);
+    // For N-percentile methods, we need to collect all alignments first
+    if let AniMethod::NPercentile(percentile, sort_method) = method {
+        return calculate_ani_n_percentile(input_path, percentile, sort_method, quiet);
     }
 
     // For All and Orthogonal methods, calculate directly
@@ -436,14 +480,13 @@ fn calculate_ani_stats(input_path: &str, method: AniMethod, quiet: bool) -> Resu
     Ok(ani50)
 }
 
-/// Calculate ANI using N50 method - use best alignments covering 50% of total alignment length
-fn calculate_ani_n50(input_path: &str, method: AniMethod, quiet: bool) -> Result<f64> {
+/// Calculate ANI using N-percentile method - use best alignments covering N% of genome pairs
+fn calculate_ani_n_percentile(input_path: &str, percentile: f64, sort_method: NSort, quiet: bool) -> Result<f64> {
     if !quiet {
-        let method_name = match method {
-            AniMethod::N50 => "longest alignments (N50 by length)",
-            AniMethod::N50Identity => "highest identity alignments (N50 by identity)",
-            AniMethod::N50Score => "best scoring alignments (N50 by identity × log(length))",
-            _ => unreachable!(),
+        let method_name = match sort_method {
+            NSort::Length => format!("longest alignments (N{} by length)", percentile as i32),
+            NSort::Identity => format!("highest identity alignments (N{} by identity)", percentile as i32),
+            NSort::Score => format!("best scoring alignments (N{} by identity × log(length))", percentile as i32),
         };
         eprintln!("[sweepga] Calculating ANI from {}", method_name);
     }
@@ -521,16 +564,16 @@ fn calculate_ani_n50(input_path: &str, method: AniMethod, quiet: bool) -> Result
     }
 
     // Sort based on method
-    match method {
-        AniMethod::N50 => {
+    match sort_method {
+        NSort::Length => {
             // Sort by block length (descending)
             alignments.sort_by(|a, b| b.block_length.partial_cmp(&a.block_length).unwrap());
         }
-        AniMethod::N50Identity => {
+        NSort::Identity => {
             // Sort by identity (descending)
             alignments.sort_by(|a, b| b.identity.partial_cmp(&a.identity).unwrap());
         }
-        AniMethod::N50Score => {
+        NSort::Score => {
             // Sort by identity * log(length) score (descending)
             alignments.sort_by(|a, b| {
                 let score_a = a.identity * a.block_length.ln().max(1.0);
@@ -538,14 +581,13 @@ fn calculate_ani_n50(input_path: &str, method: AniMethod, quiet: bool) -> Result
                 score_b.partial_cmp(&score_a).unwrap()
             });
         }
-        _ => unreachable!(),
     }
 
-    // Calculate total length
+    // Calculate total length and threshold for N-percentile
     let total_length: f64 = alignments.iter().map(|a| a.block_length).sum();
-    let n50_threshold = total_length / 2.0;
+    let n_threshold = total_length * (percentile / 100.0);
 
-    // Take alignments until we reach N50
+    // Take alignments until we reach N-percentile threshold
     let mut cumulative_length = 0.0;
     let mut genome_pairs: HashMap<(String, String), (f64, f64)> = HashMap::new();
 
@@ -562,7 +604,7 @@ fn calculate_ani_n50(input_path: &str, method: AniMethod, quiet: bool) -> Result
         entry.0 += alignment.matches;
         entry.1 += alignment.block_length;
 
-        if cumulative_length >= n50_threshold {
+        if cumulative_length >= n_threshold {
             break;
         }
     }
@@ -586,11 +628,10 @@ fn calculate_ani_n50(input_path: &str, method: AniMethod, quiet: bool) -> Result
         ani_values[median_idx]
     };
 
-    let method_str = match method {
-        AniMethod::N50 => "N50 by length",
-        AniMethod::N50Identity => "N50 by identity",
-        AniMethod::N50Score => "N50 by score",
-        _ => "N50",
+    let method_str = match sort_method {
+        NSort::Length => format!("N{} by length", percentile as i32),
+        NSort::Identity => format!("N{} by identity", percentile as i32),
+        NSort::Score => format!("N{} by score", percentile as i32),
     };
     eprintln!("[sweepga] ANI statistics from {} genome pairs ({}):", genome_pairs.len(), method_str);
     eprintln!("[sweepga]   Min: {:.1}%, Median: {:.1}%, Max: {:.1}%",
@@ -775,17 +816,11 @@ fn main() -> Result<()> {
     };
 
     // Parse ANI calculation method
-    let ani_method = match args.ani_method.to_lowercase().as_str() {
-        "all" => AniMethod::All,
-        "orthogonal" | "1:1" => AniMethod::Orthogonal,
-        "n50" | "n50-length" => AniMethod::N50,
-        "n50-identity" => AniMethod::N50Identity,
-        "n50-score" => AniMethod::N50Score,
-        _ => {
-            eprintln!("[sweepga] WARNING: Unknown ANI method '{}', using 'n50-identity'", args.ani_method);
-            AniMethod::N50Identity
-        }
-    };
+    let ani_method = parse_ani_method(&args.ani_method);
+    if ani_method.is_none() {
+        eprintln!("[sweepga] WARNING: Unknown ANI method '{}', using 'n50-identity'", args.ani_method);
+    }
+    let ani_method = ani_method.unwrap_or(AniMethod::NPercentile(50.0, NSort::Identity));
 
     // Now calculate ANI if needed for identity thresholds
     let ani_percentile = if args.min_identity.to_lowercase().contains("ani") {
