@@ -1,6 +1,5 @@
 /// Compact mapping structures using sequence IDs instead of strings
 use crate::mapping::ChainStatus;
-use crate::sequence_index::SequenceIndex;
 
 /// Compact record metadata using sequence IDs instead of strings
 #[derive(Debug, Clone)]

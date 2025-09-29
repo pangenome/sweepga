@@ -574,7 +574,7 @@ impl PafFilter {
                         // Early exit if anchor is too far in query space
                         let q_diff =
                             (mapping_q_center as i64 - anchor_q_center as i64).unsigned_abs();
-                        if q_diff > max_deviation as u64 {
+                        if q_diff > max_deviation {
                             continue; // Too far in query dimension alone
                         }
 
@@ -951,7 +951,7 @@ impl PafFilter {
 
                 for ((q_chr, t_chr), indices) in by_chr_pair {
                     let mut chr_mappings: Vec<_> = indices.iter()
-                        .map(|&i| plane_sweep_mappings[i].0.clone())
+                        .map(|&i| plane_sweep_mappings[i].0)
                         .collect();
 
                     use crate::plane_sweep_exact::plane_sweep_both;
@@ -999,7 +999,7 @@ impl PafFilter {
         let mut filtered_chains = Vec::new();
 
         // Apply plane sweep within each chromosome pair
-        for (_pair, mut pair_chains) in by_chr_pair {
+        for (_pair, pair_chains) in by_chr_pair {
             if pair_chains.is_empty() {
                 continue;
             }
@@ -1054,7 +1054,7 @@ impl PafFilter {
         let mut filtered_chains = Vec::new();
 
         // Apply plane sweep within each chromosome pair
-        for (_pair, mut pair_chains) in by_chr_pair {
+        for (_pair, pair_chains) in by_chr_pair {
             if pair_chains.is_empty() {
                 continue;
             }

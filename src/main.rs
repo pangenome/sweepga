@@ -268,10 +268,9 @@ fn parse_ani_method(method_str: &str) -> Option<AniMethod> {
 fn parse_identity_value(value: &str, ani_percentile: Option<f64>) -> Result<f64> {
     let lower = value.to_lowercase();
 
-    if lower.starts_with("ani") {
+    if let Some(remainder) = lower.strip_prefix("ani") {
         // Parse aniN, aniN+X, or aniN-X
         if let Some(ani_value) = ani_percentile {
-            let remainder = &lower[3..];
             if remainder.is_empty() {
                 // Default "ani" means ani50
                 return Ok(ani_value);
@@ -335,7 +334,7 @@ fn calculate_ani_stats(input_path: &str, method: AniMethod, quiet: bool) -> Resu
             if !quiet {
                 eprintln!("[sweepga] Calculating ANI from best 1:1 mappings (min length: 1kb)");
             }
-            let mut temp_filtered = NamedTempFile::new()?;
+            let temp_filtered = NamedTempFile::new()?;
             let filtered_path = temp_filtered.path().to_str().unwrap().to_string();
 
             // Create config for 1:1 filtering (no scaffolding, just best mappings)
@@ -465,7 +464,7 @@ fn calculate_ani_stats(input_path: &str, method: AniMethod, quiet: bool) -> Resu
 
     // Get 50th percentile (median)
     let median_idx = ani_values.len() / 2;
-    let ani50 = if ani_values.len() % 2 == 0 && ani_values.len() > 1 {
+    let ani50 = if ani_values.len().is_multiple_of(2) && ani_values.len() > 1 {
         (ani_values[median_idx - 1] + ani_values[median_idx]) / 2.0
     } else {
         ani_values[median_idx]
@@ -488,7 +487,7 @@ fn calculate_ani_n_percentile(input_path: &str, percentile: f64, sort_method: NS
             NSort::Identity => format!("highest identity alignments (N{} by identity)", percentile as i32),
             NSort::Score => format!("best scoring alignments (N{} by identity × log(length))", percentile as i32),
         };
-        eprintln!("[sweepga] Calculating ANI from {}", method_name);
+        eprintln!("[sweepga] Calculating ANI from {method_name}");
     }
 
     let file = File::open(input_path)?;
@@ -645,7 +644,7 @@ fn calculate_ani_n_percentile(input_path: &str, percentile: f64, sort_method: NS
 
     // Get median
     let median_idx = ani_values.len() / 2;
-    let ani50 = if ani_values.len() % 2 == 0 && ani_values.len() > 1 {
+    let ani50 = if ani_values.len().is_multiple_of(2) && ani_values.len() > 1 {
         (ani_values[median_idx - 1] + ani_values[median_idx]) / 2.0
     } else {
         ani_values[median_idx]
@@ -918,10 +917,9 @@ fn main() -> Result<()> {
 
         // Format the complete message
         if let Some(align_time) = alignment_time {
-            eprintln!("[sweepga] Complete. Alignment: {:.1}s, Filtering: {:.1}s, Total: {:.1}s",
-                       align_time, filtering_time, total_elapsed);
+            eprintln!("[sweepga] Complete. Alignment: {align_time:.1}s, Filtering: {filtering_time:.1}s, Total: {total_elapsed:.1}s");
         } else {
-            eprintln!("[sweepga] Filtering complete. Total: {:.1}s", total_elapsed);
+            eprintln!("[sweepga] Filtering complete. Total: {total_elapsed:.1}s");
         }
     }
 
