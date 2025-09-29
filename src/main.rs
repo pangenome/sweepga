@@ -19,6 +19,14 @@ use std::fs::File;
 use std::io::{BufRead, BufReader};
 use std::time::Instant;
 
+/// Method for calculating ANI from alignments
+#[derive(Debug, Clone, Copy, PartialEq)]
+enum AniMethod {
+    All,        // Use all alignments (default)
+    Orthogonal, // Use best 1:1 mappings only
+    N50,        // Use longest alignments up to N50
+}
+
 /// Parse a number that may have metric suffix (k/K=1000, m/M=1e6, g/G=1e9)
 fn parse_metric_number(s: &str) -> Result<u64, String> {
     if s.is_empty() {
@@ -125,6 +133,10 @@ struct Args {
     /// Minimum identity threshold (0-1 fraction, 1-100%, or "aniN" for Nth percentile)
     #[clap(short = 'y', long = "min-identity", default_value = "ani50")]
     min_identity: String,
+
+    /// Method for calculating ANI: all, orthogonal (1:1 mappings), or n50
+    #[clap(long = "ani-method", default_value = "n50")]
+    ani_method: String,
 
     /// Minimum scaffold identity threshold (0-1 fraction or 1-100%, defaults to -y)
     #[clap(short = 'Y', long = "min-scaffold-identity")]
@@ -262,9 +274,69 @@ fn parse_identity_value(value: &str, ani_percentile: Option<f64>) -> Result<f64>
     }
 }
 
-/// Calculate ANI statistics between genome pairs
-fn calculate_ani_stats(input_path: &str) -> Result<f64> {
-    let file = File::open(input_path)?;
+/// Calculate ANI statistics between genome pairs using specified method
+fn calculate_ani_stats(input_path: &str, method: AniMethod, quiet: bool) -> Result<f64> {
+    use crate::paf_filter::{PafFilter, FilterConfig, FilterMode, ScoringFunction};
+    use tempfile::NamedTempFile;
+
+    let final_input_path = match method {
+        AniMethod::All => {
+            // Use all alignments as-is
+            input_path.to_string()
+        }
+        AniMethod::Orthogonal => {
+            // First pass: Filter to get best 1:1 mappings only
+            if !quiet {
+                eprintln!("[sweepga] Calculating ANI from best 1:1 mappings (min length: 1kb)");
+            }
+            let mut temp_filtered = NamedTempFile::new()?;
+            let filtered_path = temp_filtered.path().to_str().unwrap().to_string();
+
+            // Create config for 1:1 filtering (no scaffolding, just best mappings)
+            let filter_config = FilterConfig {
+                chain_gap: 2000,
+                min_block_length: 1000, // Ignore very short alignments for ANI
+                mapping_filter_mode: FilterMode::OneToOne,
+                mapping_max_per_query: Some(1),
+                mapping_max_per_target: Some(1),
+                plane_sweep_secondaries: 0,
+                scaffold_filter_mode: FilterMode::OneToOne,
+                scaffold_max_per_query: Some(1),
+                scaffold_max_per_target: Some(1),
+                overlap_threshold: 0.95,
+                sparsity: 1.0,
+                no_merge: false,
+                scaffold_gap: 10000,
+                min_scaffold_length: 0, // No scaffolding for ANI calculation
+                scaffold_overlap_threshold: 0.95,
+                scaffold_max_deviation: 0,
+                prefix_delimiter: '#',
+                skip_prefix: false,
+                scoring_function: ScoringFunction::Matches,
+                min_identity: 0.0,
+                min_scaffold_identity: 0.0,
+            };
+
+            let filter = PafFilter::new(filter_config);
+            filter.filter_paf(input_path, &filtered_path)?;
+
+            // Keep temp file alive until we're done
+            Box::leak(Box::new(temp_filtered));
+            filtered_path
+        }
+        AniMethod::N50 => {
+            // N50 is handled differently - we'll process all alignments but only use longest ones
+            input_path.to_string()
+        }
+    };
+
+    // For N50 method, we need to collect all alignments first
+    if method == AniMethod::N50 {
+        return calculate_ani_n50(input_path, quiet);
+    }
+
+    // For All and Orthogonal methods, calculate directly
+    let file = File::open(&final_input_path)?;
     let reader = BufReader::new(file);
 
     // Group alignments by genome pair (using PanSN prefixes)
@@ -354,6 +426,137 @@ fn calculate_ani_stats(input_path: &str) -> Result<f64> {
     };
 
     eprintln!("[sweepga] ANI statistics from {} genome pairs:", genome_pairs.len());
+    eprintln!("[sweepga]   Min: {:.1}%, Median: {:.1}%, Max: {:.1}%",
+             ani_values.first().unwrap_or(&0.0) * 100.0,
+             ani50 * 100.0,
+             ani_values.last().unwrap_or(&0.0) * 100.0);
+
+    Ok(ani50)
+}
+
+/// Calculate ANI using N50 method - use longest alignments covering 50% of total alignment length
+fn calculate_ani_n50(input_path: &str, quiet: bool) -> Result<f64> {
+    if !quiet {
+        eprintln!("[sweepga] Calculating ANI from longest alignments (N50 method)");
+    }
+
+    let file = File::open(input_path)?;
+    let reader = BufReader::new(file);
+
+    // Collect all alignments with their lengths
+    struct Alignment {
+        query_genome: String,
+        target_genome: String,
+        matches: f64,
+        block_length: f64,
+    }
+
+    let mut alignments = Vec::new();
+
+    for line in reader.lines() {
+        let line = line?;
+        if line.starts_with('#') || line.is_empty() {
+            continue;
+        }
+
+        let fields: Vec<&str> = line.split('\t').collect();
+        if fields.len() < 11 {
+            continue;
+        }
+
+        // Extract genome prefixes
+        let query_genome = if let Some(pos) = fields[0].rfind('#') {
+            fields[0][..=pos].to_string()
+        } else {
+            fields[0].to_string()
+        };
+        let target_genome = if let Some(pos) = fields[5].rfind('#') {
+            fields[5][..=pos].to_string()
+        } else {
+            fields[5].to_string()
+        };
+
+        // Skip self-comparisons
+        if query_genome == target_genome {
+            continue;
+        }
+
+        let matches = fields[9].parse::<f64>().unwrap_or(0.0);
+        let block_len = fields[10].parse::<f64>().unwrap_or(1.0);
+
+        // Check for divergence tag
+        let mut final_matches = matches;
+        for field in &fields[11..] {
+            if let Some(div_str) = field.strip_prefix("dv:f:") {
+                if let Ok(div) = div_str.parse::<f64>() {
+                    final_matches = (1.0 - div) * block_len;
+                    break;
+                }
+            }
+        }
+
+        alignments.push(Alignment {
+            query_genome,
+            target_genome,
+            matches: final_matches,
+            block_length: block_len,
+        });
+    }
+
+    if alignments.is_empty() {
+        eprintln!("[sweepga] WARNING: No inter-genome alignments found for ANI calculation");
+        return Ok(0.0);
+    }
+
+    // Sort by block length (descending)
+    alignments.sort_by(|a, b| b.block_length.partial_cmp(&a.block_length).unwrap());
+
+    // Calculate total length
+    let total_length: f64 = alignments.iter().map(|a| a.block_length).sum();
+    let n50_threshold = total_length / 2.0;
+
+    // Take alignments until we reach N50
+    let mut cumulative_length = 0.0;
+    let mut genome_pairs: HashMap<(String, String), (f64, f64)> = HashMap::new();
+
+    for alignment in alignments {
+        cumulative_length += alignment.block_length;
+
+        let key = if alignment.query_genome < alignment.target_genome {
+            (alignment.query_genome, alignment.target_genome)
+        } else {
+            (alignment.target_genome, alignment.query_genome)
+        };
+
+        let entry = genome_pairs.entry(key).or_insert((0.0, 0.0));
+        entry.0 += alignment.matches;
+        entry.1 += alignment.block_length;
+
+        if cumulative_length >= n50_threshold {
+            break;
+        }
+    }
+
+    // Calculate weighted ANI for each genome pair
+    let mut ani_values: Vec<f64> = genome_pairs.iter().map(|((_q, _t), (total_matches, total_length))| {
+        if *total_length > 0.0 {
+            total_matches / total_length
+        } else {
+            0.0
+        }
+    }).collect();
+
+    ani_values.sort_by(|a, b| a.partial_cmp(b).unwrap());
+
+    // Get median
+    let median_idx = ani_values.len() / 2;
+    let ani50 = if ani_values.len() % 2 == 0 && ani_values.len() > 1 {
+        (ani_values[median_idx - 1] + ani_values[median_idx]) / 2.0
+    } else {
+        ani_values[median_idx]
+    };
+
+    eprintln!("[sweepga] ANI statistics from {} genome pairs (N50 method):", genome_pairs.len());
     eprintln!("[sweepga]   Min: {:.1}%, Median: {:.1}%, Max: {:.1}%",
              ani_values.first().unwrap_or(&0.0) * 100.0,
              ani50 * 100.0,
@@ -535,9 +738,20 @@ fn main() -> Result<()> {
         (Some(temp), temp_path)
     };
 
+    // Parse ANI calculation method
+    let ani_method = match args.ani_method.to_lowercase().as_str() {
+        "all" => AniMethod::All,
+        "orthogonal" | "1:1" => AniMethod::Orthogonal,
+        "n50" => AniMethod::N50,
+        _ => {
+            eprintln!("[sweepga] WARNING: Unknown ANI method '{}', using 'n50'", args.ani_method);
+            AniMethod::N50
+        }
+    };
+
     // Now calculate ANI if needed for identity thresholds
     let ani_percentile = if args.min_identity.to_lowercase().contains("ani") {
-        Some(calculate_ani_stats(&input_path)?)
+        Some(calculate_ani_stats(&input_path, ani_method, args.quiet)?)
     } else {
         None
     };
