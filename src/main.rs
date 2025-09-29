@@ -139,7 +139,7 @@ struct Args {
     scoring: String,
 
     /// Method for calculating ANI: all, orthogonal, nX[-sort] (e.g. n50, n90-identity, n100-score)
-    #[clap(long = "ani-method", default_value = "n50")]
+    #[clap(long = "ani-method", default_value = "n100")]
     ani_method: String,
 
     /// Minimum identity threshold (0-1 fraction, 1-100%, or "aniN" for Nth percentile)
