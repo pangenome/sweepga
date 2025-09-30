@@ -696,90 +696,87 @@ impl PafFilter {
             let mut sorted_indices = indices.clone();
             sorted_indices.sort_by_key(|&(_rank, idx)| metadata[idx].query_start);
 
-            // Use union-find for transitive chaining (like wfmash)
-            let mut uf = UnionFind::new(sorted_indices.len());
+            // Best-buddy chaining: track best predecessor for each mapping
+            let mut best_pred_score: Vec<u64> = vec![u64::MAX; sorted_indices.len()];
+            let mut best_pred_idx: Vec<Option<usize>> = vec![None; sorted_indices.len()];
 
-            // Check pairs for potential chaining using binary search optimization
+            // Phase 1: Find all best-buddy relationships
             for i in 0..sorted_indices.len() {
                 let (_rank_i, idx_i) = sorted_indices[i];
-
-                // Binary search to find the range of mappings within max_gap
-                // We want all mappings j where: metadata[idx_j].query_start <= metadata[idx_i].query_end + max_gap
                 let search_bound = metadata[idx_i].query_end + max_gap;
 
-                // Find the first mapping that starts after our search bound
-                let j_end = sorted_indices[i + 1..]
-                    .binary_search_by_key(&(search_bound + 1), |&(_rank, idx)| {
-                        metadata[idx].query_start
-                })
-                    .unwrap_or_else(|pos| pos)
-                    + i
-                    + 1;
+                let mut best_j = None;
+                let mut best_score = u64::MAX;
 
-                // Check all mappings that could chain (including overlapping ones)
-                // Since we allow overlaps up to max_gap/5, we need to look at all mappings
-                // from i+1 onwards until we exceed the search bound
-                #[allow(clippy::needless_range_loop)]
                 for j in (i + 1)..sorted_indices.len() {
                     let (_rank_j, idx_j) = sorted_indices[j];
 
-                    // Early exit if we've gone too far past the search bound
-                    // (no more potential chains)
                     if metadata[idx_j].query_start > search_bound {
                         break;
                     }
 
-                    // Calculate distances (similar to wfmash's q_dist and r_dist)
-                    // Note: wfmash allows small overlaps (up to windowLength/5)
+                    // Calculate query distance/overlap (using actual overlap as distance, not 0)
                     let q_gap = if metadata[idx_j].query_start >= metadata[idx_i].query_end {
+                        // Normal gap
                         metadata[idx_j].query_start - metadata[idx_i].query_end
-                    } else if metadata[idx_i].query_end > metadata[idx_j].query_start {
-                        // Small overlap allowed
-                        let overlap = metadata[idx_i].query_end - metadata[idx_j].query_start;
-                        // Allow overlaps up to max_gap/5 (like wfmash's windowLength/5)
-                        if overlap <= max_gap / 5 {
-                            0 // Treat small overlap as valid
-                        } else {
-                            max_gap + 1 // Too much overlap, don't chain
-                        }
                     } else {
-                        0
+                        // Overlap: use overlap amount as distance, penalize if too large
+                        let overlap = metadata[idx_i].query_end - metadata[idx_j].query_start;
+                        if overlap <= max_gap / 5 {
+                            overlap  // Small overlap: use actual overlap distance
+                        } else {
+                            max_gap + 1  // Large overlap: reject
+                        }
                     };
 
+                    // Calculate target distance/overlap
                     let r_gap = if strand == '+' {
                         if metadata[idx_j].target_start >= metadata[idx_i].target_end {
                             metadata[idx_j].target_start - metadata[idx_i].target_end
-                        } else if metadata[idx_i].target_end > metadata[idx_j].target_start {
-                            // Small overlap allowed
+                        } else {
                             let overlap = metadata[idx_i].target_end - metadata[idx_j].target_start;
                             if overlap <= max_gap / 5 {
-                                0
+                                overlap
                             } else {
                                 max_gap + 1
                             }
-                        } else {
-                            0
                         }
                     } else {
-                        // Reverse strand
                         if metadata[idx_i].target_start >= metadata[idx_j].target_end {
                             metadata[idx_i].target_start - metadata[idx_j].target_end
-                        } else if metadata[idx_j].target_end > metadata[idx_i].target_start {
+                        } else {
                             let overlap = metadata[idx_j].target_end - metadata[idx_i].target_start;
                             if overlap <= max_gap / 5 {
-                                0
+                                overlap
                             } else {
                                 max_gap + 1
                             }
-                        } else {
-                            0
                         }
                     };
 
-                    // Chain if both gaps are within threshold (allowing transitive connections)
                     if q_gap <= max_gap && r_gap <= max_gap {
-                        uf.union(i, j);
+                        let dist_sq = q_gap * q_gap + r_gap * r_gap;
+
+                        // Best-buddy: only link if i is the best predecessor for j
+                        if dist_sq < best_score && dist_sq < best_pred_score[j] {
+                            best_score = dist_sq;
+                            best_j = Some(j);
+                        }
                     }
+                }
+
+                // Record best-buddy relationship for j
+                if let Some(j) = best_j {
+                    best_pred_score[j] = best_score;
+                    best_pred_idx[j] = Some(i);
+                }
+            }
+
+            // Phase 2: Create chains using union-find on best-buddy pairs only
+            let mut uf = UnionFind::new(sorted_indices.len());
+            for j in 0..sorted_indices.len() {
+                if let Some(i) = best_pred_idx[j] {
+                    uf.union(i, j);
                 }
             }
 
