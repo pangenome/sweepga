@@ -147,7 +147,7 @@ struct Args {
     min_identity: String,
 
     /// Minimum scaffold identity threshold (0-1 fraction, 1-100%, "aniN", or defaults to -y)
-    #[clap(short = 'Y', long = "min-scaffold-identity", default_value = "ani50")]
+    #[clap(short = 'Y', long = "min-scaffold-identity", default_value = "0")]
     min_scaffold_identity: String,
 
     /// Disable all filtering

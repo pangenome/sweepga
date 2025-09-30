@@ -463,6 +463,15 @@ impl PafFilter {
         // Step 3: Apply plane sweep to scaffolds
         eprintln!("[sweepga] Scaffold filtering");
         let before_sweep = filtered_chains.len();
+
+        // Track which mappings are in scaffolds BEFORE plane sweep
+        let mut pre_sweep_scaffold_members: HashSet<usize> = HashSet::new();
+        for chain in &filtered_chains {
+            for &member_rank in &chain.member_indices {
+                pre_sweep_scaffold_members.insert(member_rank);
+            }
+        }
+
         filtered_chains = self.apply_scaffold_plane_sweep(filtered_chains)?;
         eprintln!("[sweepga]   Plane sweep: {} → {} scaffolds",
                  before_sweep,
@@ -512,6 +521,13 @@ impl PafFilter {
                 rank_to_chain_id.insert(member_rank, chain_id.clone());
             }
         }
+
+        // Identify mappings that were in filtered-out scaffolds
+        // These should NOT be rescued even if they're near surviving anchors
+        let filtered_scaffold_members: HashSet<usize> = pre_sweep_scaffold_members
+            .difference(&anchor_ranks)
+            .copied()
+            .collect();
 
         eprintln!("[sweepga] Rescue phase");
         eprintln!("[sweepga]   Anchors: {} mappings in {} scaffolds",
@@ -584,6 +600,10 @@ impl PafFilter {
                     kept_mappings.push(anchor_mapping);
                     // All anchors are scaffold members by definition
                     kept_status.insert(mapping.rank, ChainStatus::Scaffold);
+                } else if filtered_scaffold_members.contains(&mapping.rank) {
+                    // This mapping was part of a plane-sweep-filtered scaffold
+                    // Do NOT rescue it, even if it's near an anchor
+                    continue;
                 } else if max_deviation > 0 {
                     // Only attempt rescue if max_deviation > 0
                     // Check if within deviation distance of any anchor
@@ -981,29 +1001,61 @@ impl PafFilter {
         // For 1:1 mode, we need to enforce BOTH query and target constraints
         let kept_indices = match self.config.scaffold_filter_mode {
             FilterMode::OneToOne => {
-                // For 1:1, group by query chromosome and filter across all targets
-                // This ensures scaffolds to different targets compete for the same query region
-                let mut kept = Vec::new();
-                let mut by_query: std::collections::HashMap<String, Vec<usize>> = std::collections::HashMap::new();
+                // True 1:1: Apply plane sweep independently on query and target axes
+                // 1. Sweep across each query chromosome (scaffolds to different targets compete)
+                // 2. Sweep across each target chromosome (scaffolds from different queries compete)
+                // 3. Keep only scaffolds that pass BOTH sweeps
+                use crate::plane_sweep_exact::{plane_sweep_query, plane_sweep_target};
+
+                // Query axis sweep: group by query chr
+                let mut query_kept_set = HashSet::new();
+                let mut by_query: std::collections::HashMap<String, Vec<usize>> =
+                    std::collections::HashMap::new();
 
                 for (i, (_, q, _t)) in plane_sweep_mappings.iter().enumerate() {
                     by_query.entry(q.clone()).or_default().push(i);
                 }
 
                 for (_q_chr, indices) in by_query {
-                    let mut query_mappings: Vec<_> = indices.iter()
+                    let mut query_mappings: Vec<_> = indices
+                        .iter()
                         .map(|&i| plane_sweep_mappings[i].0)
                         .collect();
 
-                    use crate::plane_sweep_exact::plane_sweep_query;
-                    // Keep best non-overlapping scaffolds per query (filters across all targets)
-                    let query_kept = plane_sweep_query(&mut query_mappings, 1, overlap_threshold, self.config.scoring_function);
-
-                    for k in query_kept {
-                        kept.push(indices[k]);
+                    let kept =
+                        plane_sweep_query(&mut query_mappings, 1, overlap_threshold, self.config.scoring_function);
+                    for k in kept {
+                        query_kept_set.insert(indices[k]);
                     }
                 }
-                kept
+
+                // Target axis sweep: group by target chr
+                let mut target_kept_set = HashSet::new();
+                let mut by_target: std::collections::HashMap<String, Vec<usize>> =
+                    std::collections::HashMap::new();
+
+                for (i, (_, _q, t)) in plane_sweep_mappings.iter().enumerate() {
+                    by_target.entry(t.clone()).or_default().push(i);
+                }
+
+                for (_t_chr, indices) in by_target {
+                    let mut target_mappings: Vec<_> = indices
+                        .iter()
+                        .map(|&i| plane_sweep_mappings[i].0)
+                        .collect();
+
+                    let kept =
+                        plane_sweep_target(&mut target_mappings, 1, overlap_threshold, self.config.scoring_function);
+                    for k in kept {
+                        target_kept_set.insert(indices[k]);
+                    }
+                }
+
+                // Intersection: keep only indices that passed both sweeps
+                query_kept_set
+                    .intersection(&target_kept_set)
+                    .copied()
+                    .collect()
             }
             FilterMode::OneToMany => {
                 let query_limit = self.config.scaffold_max_per_query.unwrap_or(1);
