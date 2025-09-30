@@ -825,10 +825,19 @@ impl PafFilter {
 
                 let total_length = q_max - q_min;
 
-                // Calculate weighted identity over mapped regions only
-                // Gaps are neutral - neither help nor hurt the score
-                let weighted_identity = if sum_block_lengths > 0 {
-                    sum_matches as f64 / sum_block_lengths as f64
+                // Calculate identity with log-compressed gaps
+                // Gaps between alignments are penalized logarithmically
+                // This gives a middle ground: gaps hurt but not linearly
+                let gap_length = total_length.saturating_sub(sum_block_lengths);
+                let log_compressed_gap = if gap_length > 0 {
+                    (gap_length as f64).ln().max(0.0)
+                } else {
+                    0.0
+                };
+                let effective_length = sum_block_lengths as f64 + log_compressed_gap;
+
+                let weighted_identity = if effective_length > 0.0 {
+                    sum_matches as f64 / effective_length
                 } else {
                     0.0
                 };
