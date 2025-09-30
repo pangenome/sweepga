@@ -660,7 +660,7 @@ fn calculate_ani_n_percentile(input_path: &str, percentile: f64, sort_method: NS
         NSort::Score => format!("N{} by score", percentile as i32),
     };
     eprintln!("[sweepga] ANI statistics from {} genome pairs ({}):", genome_pairs.len(), method_str);
-    eprintln!("[sweepga]   Coverage: {:.1}% of genome ({:.1} Mb aligned / {:.1} Mb genome size)",
+    eprintln!("[sweepga]   Coverage: {:.1}% of genomes ({:.1} Mb aligned / {:.1} Mb sum of genome sizes)",
              coverage_pct, total_included / 1_000_000.0, total_genome_size / 1_000_000.0);
     eprintln!("[sweepga]   Min: {:.1}%, Median: {:.1}%, Max: {:.1}%",
              ani_values.first().unwrap_or(&0.0) * 100.0,
