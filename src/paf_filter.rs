@@ -774,9 +774,9 @@ impl PafFilter {
 
             // Phase 2: Create chains using union-find on best-buddy pairs only
             let mut uf = UnionFind::new(sorted_indices.len());
-            for j in 0..sorted_indices.len() {
-                if let Some(i) = best_pred_idx[j] {
-                    uf.union(i, j);
+            for (j, pred) in best_pred_idx.iter().enumerate() {
+                if let Some(i) = pred {
+                    uf.union(*i, j);
                 }
             }
 
