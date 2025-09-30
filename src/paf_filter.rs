@@ -716,7 +716,8 @@ impl PafFilter {
                     + i
                     + 1;
 
-                // Now check all mappings from i+1 to j_end-1
+                // Check forward mappings within query gap distance
+                // But also need to check backward for mappings that might be close in target space
                 #[allow(clippy::needless_range_loop)]
                 for j in (i + 1)..j_end {
                     let (_rank_j, idx_j) = sorted_indices[j];
@@ -771,6 +772,72 @@ impl PafFilter {
                     // Chain if both gaps are within threshold (allowing transitive connections)
                     if q_gap <= max_gap && r_gap <= max_gap {
                         uf.union(i, j);
+                    }
+                }
+            }
+
+            // SECOND PASS: Also sort by target coordinates to find chains that are close in target space
+            // This is crucial for large gaps where mappings might be far in query but close in target
+            let mut target_sorted = sorted_indices.clone();
+            if strand == '+' {
+                target_sorted.sort_by_key(|&(_rank, idx)| metadata[idx].target_start);
+            } else {
+                // For reverse strand, sort by target_end in reverse
+                target_sorted.sort_by_key(|&(_rank, idx)| std::cmp::Reverse(metadata[idx].target_end));
+            }
+
+            // Check for chaining based on target proximity
+            for i in 0..target_sorted.len() {
+                let (_rank_i, idx_i) = target_sorted[i];
+                let i_pos = sorted_indices.iter().position(|&(_, idx)| idx == idx_i).unwrap();
+
+                // Find mappings within target gap distance
+                for j in (i + 1)..target_sorted.len() {
+                    let (_rank_j, idx_j) = target_sorted[j];
+                    let j_pos = sorted_indices.iter().position(|&(_, idx)| idx == idx_j).unwrap();
+
+                    // Calculate target gap
+                    let t_gap = if strand == '+' {
+                        if metadata[idx_j].target_start >= metadata[idx_i].target_end {
+                            metadata[idx_j].target_start - metadata[idx_i].target_end
+                        } else {
+                            continue; // Overlapping in wrong order
+                        }
+                    } else {
+                        if metadata[idx_i].target_start >= metadata[idx_j].target_end {
+                            metadata[idx_i].target_start - metadata[idx_j].target_end
+                        } else {
+                            continue; // Overlapping in wrong order
+                        }
+                    };
+
+                    // Early exit if target gap too large
+                    if t_gap > max_gap {
+                        break;
+                    }
+
+                    // Now check query gap
+                    let q_gap = if metadata[idx_j].query_start >= metadata[idx_i].query_end {
+                        metadata[idx_j].query_start - metadata[idx_i].query_end
+                    } else if metadata[idx_i].query_start >= metadata[idx_j].query_end {
+                        metadata[idx_i].query_start - metadata[idx_j].query_end
+                    } else {
+                        // Check for acceptable overlap
+                        let overlap = if metadata[idx_j].query_start < metadata[idx_i].query_end {
+                            metadata[idx_i].query_end - metadata[idx_j].query_start
+                        } else {
+                            metadata[idx_j].query_end - metadata[idx_i].query_start
+                        };
+                        if overlap <= max_gap / 5 {
+                            0
+                        } else {
+                            max_gap + 1
+                        }
+                    };
+
+                    // Chain if both gaps are within threshold
+                    if q_gap <= max_gap && t_gap <= max_gap {
+                        uf.union(i_pos, j_pos);
                     }
                 }
             }
