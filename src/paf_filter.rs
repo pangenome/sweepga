@@ -981,23 +981,25 @@ impl PafFilter {
         // For 1:1 mode, we need to enforce BOTH query and target constraints
         let kept_indices = match self.config.scaffold_filter_mode {
             FilterMode::OneToOne => {
-                // For 1:1, group by chromosome pairs and apply plane_sweep_both
+                // For 1:1, group by query chromosome and filter across all targets
+                // This ensures scaffolds to different targets compete for the same query region
                 let mut kept = Vec::new();
-                let mut by_chr_pair: std::collections::HashMap<(String, String), Vec<usize>> = std::collections::HashMap::new();
+                let mut by_query: std::collections::HashMap<String, Vec<usize>> = std::collections::HashMap::new();
 
-                for (i, (_, q, t)) in plane_sweep_mappings.iter().enumerate() {
-                    by_chr_pair.entry((q.clone(), t.clone())).or_default().push(i);
+                for (i, (_, q, _t)) in plane_sweep_mappings.iter().enumerate() {
+                    by_query.entry(q.clone()).or_default().push(i);
                 }
 
-                for ((q_chr, t_chr), indices) in by_chr_pair {
-                    let mut chr_mappings: Vec<_> = indices.iter()
+                for (_q_chr, indices) in by_query {
+                    let mut query_mappings: Vec<_> = indices.iter()
                         .map(|&i| plane_sweep_mappings[i].0)
                         .collect();
 
-                    use crate::plane_sweep_exact::plane_sweep_both;
-                    let chr_kept = plane_sweep_both(&mut chr_mappings, 1, 1, overlap_threshold, self.config.scoring_function);
+                    use crate::plane_sweep_exact::plane_sweep_query;
+                    // Keep best non-overlapping scaffolds per query (filters across all targets)
+                    let query_kept = plane_sweep_query(&mut query_mappings, 1, overlap_threshold, self.config.scoring_function);
 
-                    for k in chr_kept {
+                    for k in query_kept {
                         kept.push(indices[k]);
                     }
                 }
