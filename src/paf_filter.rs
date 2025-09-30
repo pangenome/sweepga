@@ -1,5 +1,4 @@
 use anyhow::Result;
-use rayon::prelude::*;
 use std::collections::{HashMap, HashSet};
 use std::fs::File;
 use std::io::{BufRead, BufReader, BufWriter, Write};
@@ -85,6 +84,7 @@ struct RecordMeta {
 
 /// Compact record metadata using sequence IDs instead of strings
 #[derive(Debug, Clone)]
+#[allow(dead_code)]
 struct CompactRecordMeta {
     rank: usize, // 0-based index in original file
     query_id: u32,
@@ -104,6 +104,7 @@ struct CompactRecordMeta {
 
 impl CompactRecordMeta {
     /// Convert from regular RecordMeta using a sequence index
+    #[allow(dead_code)]
     fn from_record_meta(meta: &RecordMeta, seq_index: &mut SequenceIndex) -> Self {
         Self {
             rank: meta.rank,
@@ -124,6 +125,7 @@ impl CompactRecordMeta {
     }
 
     /// Convert back to RecordMeta for output
+    #[allow(dead_code)]
     fn to_record_meta(&self, seq_index: &SequenceIndex) -> RecordMeta {
         RecordMeta {
             rank: self.rank,
@@ -198,6 +200,7 @@ impl MergedChain {
 
 /// Compact merged chain using sequence IDs
 #[derive(Debug, Clone)]
+#[allow(dead_code)]
 struct CompactMergedChain {
     query_id: u32,
     target_id: u32,
@@ -384,8 +387,7 @@ impl PafFilter {
 
         // Report pre-scaffold plane sweep if it filtered anything
         if before_plane_sweep != after_plane_sweep {
-            eprintln!("[sweepga] Pre-scaffold plane sweep: {} → {} mappings",
-                     before_plane_sweep, after_plane_sweep);
+            eprintln!("[sweepga] Pre-scaffold plane sweep: {before_plane_sweep} → {after_plane_sweep} mappings");
         }
 
         // If no scaffolding (scaffold_gap == 0), we're done - return the plane-swept mappings
@@ -749,16 +751,14 @@ impl PafFilter {
                                 max_gap + 1
                             }
                         }
+                    } else if metadata[idx_i].target_start >= metadata[idx_j].target_end {
+                        metadata[idx_i].target_start - metadata[idx_j].target_end
                     } else {
-                        if metadata[idx_i].target_start >= metadata[idx_j].target_end {
-                            metadata[idx_i].target_start - metadata[idx_j].target_end
+                        let overlap = metadata[idx_j].target_end - metadata[idx_i].target_start;
+                        if overlap <= max_gap / 5 {
+                            overlap
                         } else {
-                            let overlap = metadata[idx_j].target_end - metadata[idx_i].target_start;
-                            if overlap <= max_gap / 5 {
-                                overlap
-                            } else {
-                                max_gap + 1
-                            }
+                            max_gap + 1
                         }
                     };
 

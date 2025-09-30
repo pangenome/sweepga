@@ -1,7 +1,6 @@
 /// Tests for scaffold mapping functionality
 /// Scaffolding prevents transposon-like scattered alignments
 /// while preserving large syntenic blocks
-
 use std::fs;
 use std::io::Write;
 use tempfile::NamedTempFile;

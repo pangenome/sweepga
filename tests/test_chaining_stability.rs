@@ -2,7 +2,6 @@
 ///
 /// Key property: When gap threshold increases, chains should only grow or stay the same,
 /// never shrink. If two mappings are 50kb apart, they should chain with both -j 100k and -j 1m.
-
 use std::collections::HashMap;
 
 /// Parse chain membership from PAF output

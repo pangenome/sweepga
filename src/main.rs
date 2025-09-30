@@ -792,7 +792,8 @@ fn main() -> Result<()> {
         "length" => ScoringFunction::Length,
         "length-identity" => ScoringFunction::LengthIdentity,
         "matches" => ScoringFunction::Matches,
-        "log-length-identity" | _ => ScoringFunction::LogLengthIdentity,
+        "log-length-identity" => ScoringFunction::LogLengthIdentity,
+        _ => ScoringFunction::LogLengthIdentity,
     };
 
 

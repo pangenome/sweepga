@@ -3,7 +3,6 @@
 ///
 /// This reproduces a bug where an 8Mb reverse-strand centromere inversion
 /// was being filtered out in favor of smaller forward-strand alignments
-
 use std::io::Write;
 use tempfile::NamedTempFile;
 

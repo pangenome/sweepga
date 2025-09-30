@@ -2,7 +2,6 @@
 ///
 /// Create synthetic alignments with various gap patterns to try to reproduce
 /// the coverage dropout observed with large -j values
-
 use std::io::Write;
 use tempfile::NamedTempFile;
 
@@ -216,7 +215,6 @@ fn test_fragmented_chaining_coverage() {
 /// Test that low-identity chains (like centromeric inversions) are correctly filtered
 #[test]
 fn test_centromere_inversion_filtering() {
-    use std::fs;
     use std::io::Write;
     use tempfile::NamedTempFile;
 
