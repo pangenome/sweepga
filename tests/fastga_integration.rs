@@ -102,6 +102,7 @@ fn test_fastga_pairwise_alignment() {
         fasta1.to_str().unwrap(),
         fasta2.to_str().unwrap(),
         "-t", "1",
+        "-Y", "0",  // Disable identity threshold to avoid filtering test alignment
         "-o", output.to_str().unwrap(),
     ]);
 
