@@ -860,15 +860,21 @@ fn main() -> Result<()> {
 
     // Parse identity thresholds
     let min_identity = parse_identity_value(&args.min_identity, ani_percentile)?;
-    if !args.quiet {
-        eprintln!("[sweepga] Using minimum identity threshold: {:.1}%", min_identity * 100.0);
-    }
-
     let min_scaffold_identity = if args.min_scaffold_identity.is_empty() {
         min_identity  // If empty string, use min_identity
     } else {
         parse_identity_value(&args.min_scaffold_identity, ani_percentile)?
     };
+
+    // Only report thresholds if they're non-zero
+    if !args.quiet && (min_identity > 0.0 || min_scaffold_identity > 0.0) {
+        if min_identity > 0.0 {
+            eprintln!("[sweepga] Mapping identity threshold: {:.1}%", min_identity * 100.0);
+        }
+        if min_scaffold_identity > 0.0 && min_scaffold_identity != min_identity {
+            eprintln!("[sweepga] Scaffold identity threshold: {:.1}%", min_scaffold_identity * 100.0);
+        }
+    }
 
     // Create final config with calculated identity values
     let mut config = temp_config;

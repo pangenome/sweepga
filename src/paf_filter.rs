@@ -378,7 +378,15 @@ impl PafFilter {
 
         // The plane sweep is already correctly implemented in apply_plane_sweep_to_mappings
         // which groups by query sequence internally. We just need to pass ALL mappings to it.
+        let before_plane_sweep = metadata.len();
         metadata = self.apply_plane_sweep_to_mappings(&metadata)?;
+        let after_plane_sweep = metadata.len();
+
+        // Report pre-scaffold plane sweep if it filtered anything
+        if before_plane_sweep != after_plane_sweep {
+            eprintln!("[sweepga] Pre-scaffold plane sweep: {} → {} mappings",
+                     before_plane_sweep, after_plane_sweep);
+        }
 
         // If no scaffolding (scaffold_gap == 0), we're done - return the plane-swept mappings
         if self.config.scaffold_gap == 0 {
@@ -419,7 +427,7 @@ impl PafFilter {
             0.0
         };
 
-        eprintln!("[sweepga] Stage 1: Scaffold creation");
+        eprintln!("[sweepga] Scaffold creation");
         eprintln!("[sweepga]   Input: {} mappings, {:.1} Mb total, {:.1}% avg identity",
                  metadata.len(),
                  total_mapped_bases as f64 / 1_000_000.0,
@@ -451,7 +459,7 @@ impl PafFilter {
         }
 
         // Step 3: Apply plane sweep to scaffolds
-        eprintln!("[sweepga] Stage 2: Scaffold filtering");
+        eprintln!("[sweepga] Scaffold filtering");
         let before_sweep = filtered_chains.len();
         filtered_chains = self.apply_scaffold_plane_sweep(filtered_chains)?;
         eprintln!("[sweepga]   Plane sweep: {} → {} scaffolds",
@@ -503,7 +511,7 @@ impl PafFilter {
             }
         }
 
-        eprintln!("[sweepga] Stage 3: Rescue phase");
+        eprintln!("[sweepga] Rescue phase");
         eprintln!("[sweepga]   Anchors: {} mappings in {} scaffolds",
                  anchor_ranks.len(),
                  filtered_chains.len());
