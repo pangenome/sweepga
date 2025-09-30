@@ -716,10 +716,18 @@ impl PafFilter {
                     + i
                     + 1;
 
-                // Now check all mappings from i+1 to j_end-1
+                // Check all mappings that could chain (including overlapping ones)
+                // Since we allow overlaps up to max_gap/5, we need to look at all mappings
+                // from i+1 onwards until we exceed the search bound
                 #[allow(clippy::needless_range_loop)]
-                for j in (i + 1)..j_end {
+                for j in (i + 1)..sorted_indices.len() {
                     let (_rank_j, idx_j) = sorted_indices[j];
+
+                    // Early exit if we've gone too far past the search bound
+                    // (no more potential chains)
+                    if metadata[idx_j].query_start > search_bound {
+                        break;
+                    }
 
                     // Calculate distances (similar to wfmash's q_dist and r_dist)
                     // Note: wfmash allows small overlaps (up to windowLength/5)
