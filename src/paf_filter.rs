@@ -949,8 +949,6 @@ impl PafFilter {
 
         let overlap_threshold = self.config.overlap_threshold;
 
-        // Apply plane sweep: ALWAYS do independent query and target sweeps
-        // Never use grouped_pairs - we want to compare across all targets for each query
         use crate::plane_sweep_exact::{plane_sweep_query, plane_sweep_target};
 
         let query_limit = match self.config.mapping_filter_mode {
@@ -965,55 +963,94 @@ impl PafFilter {
             FilterMode::ManyToMany => self.config.mapping_max_per_target.unwrap_or(usize::MAX),
         };
 
-        // Query axis sweep: group by query chr
-        let mut query_kept_set = HashSet::new();
-        let mut by_query: std::collections::HashMap<String, Vec<usize>> =
-            std::collections::HashMap::new();
+        // Helper function to extract genome prefix from sequence name
+        // For "SGDref#1#chrI", returns "SGDref#1#"
+        let extract_genome_prefix = |seq_name: &str| -> String {
+            if let Some(last_pos) = seq_name.rfind('#') {
+                seq_name[..=last_pos].to_string()
+            } else {
+                seq_name.to_string()
+            }
+        };
 
-        for (i, (_, q, _t)) in plane_sweep_mappings.iter().enumerate() {
-            by_query.entry(q.clone()).or_default().push(i);
+        // CRITICAL: Group by (query_genome_prefix, target_genome_prefix) pairs FIRST
+        // This ensures plane sweep runs independently for each genome pair
+        let mut genome_pair_groups: HashMap<(String, String), Vec<usize>> = HashMap::new();
+
+        for (i, (_, q, t)) in plane_sweep_mappings.iter().enumerate() {
+            let query_genome = extract_genome_prefix(q);
+            let target_genome = extract_genome_prefix(t);
+            genome_pair_groups
+                .entry((query_genome, target_genome))
+                .or_default()
+                .push(i);
         }
 
-        for (_q_chr, indices) in by_query {
-            let mut query_mappings: Vec<_> = indices
-                .iter()
-                .map(|&i| plane_sweep_mappings[i].0)
-                .collect();
+        // Process each genome pair independently
+        let mut all_kept_indices = Vec::new();
 
-            let kept =
-                plane_sweep_query(&mut query_mappings, query_limit, overlap_threshold, self.config.scoring_function);
-            for k in kept {
-                query_kept_set.insert(indices[k]);
+        for (_genome_pair, genome_pair_indices) in genome_pair_groups {
+            // Within this genome pair, apply query and target sweeps with intersection
+
+            // Query axis sweep: group by query chr within this genome pair
+            let mut query_kept_set = HashSet::new();
+            let mut by_query: HashMap<String, Vec<usize>> = HashMap::new();
+
+            for &idx in &genome_pair_indices {
+                let (_, q, _t) = &plane_sweep_mappings[idx];
+                by_query.entry(q.clone()).or_default().push(idx);
+            }
+
+            for (_q_chr, indices) in by_query {
+                let mut query_mappings: Vec<_> = indices
+                    .iter()
+                    .map(|&i| plane_sweep_mappings[i].0)
+                    .collect();
+
+                let kept = plane_sweep_query(
+                    &mut query_mappings,
+                    query_limit,
+                    overlap_threshold,
+                    self.config.scoring_function,
+                );
+                for k in kept {
+                    query_kept_set.insert(indices[k]);
+                }
+            }
+
+            // Target axis sweep: group by target chr within this genome pair
+            let mut target_kept_set = HashSet::new();
+            let mut by_target: HashMap<String, Vec<usize>> = HashMap::new();
+
+            for &idx in &genome_pair_indices {
+                let (_, _q, t) = &plane_sweep_mappings[idx];
+                by_target.entry(t.clone()).or_default().push(idx);
+            }
+
+            for (_t_chr, indices) in by_target {
+                let mut target_mappings: Vec<_> = indices
+                    .iter()
+                    .map(|&i| plane_sweep_mappings[i].0)
+                    .collect();
+
+                let kept = plane_sweep_target(
+                    &mut target_mappings,
+                    target_limit,
+                    overlap_threshold,
+                    self.config.scoring_function,
+                );
+                for k in kept {
+                    target_kept_set.insert(indices[k]);
+                }
+            }
+
+            // Intersection: keep only indices that passed both sweeps within this genome pair
+            for idx in query_kept_set.intersection(&target_kept_set) {
+                all_kept_indices.push(*idx);
             }
         }
 
-        // Target axis sweep: group by target chr
-        let mut target_kept_set = HashSet::new();
-        let mut by_target: std::collections::HashMap<String, Vec<usize>> =
-            std::collections::HashMap::new();
-
-        for (i, (_, _q, t)) in plane_sweep_mappings.iter().enumerate() {
-            by_target.entry(t.clone()).or_default().push(i);
-        }
-
-        for (_t_chr, indices) in by_target {
-            let mut target_mappings: Vec<_> = indices
-                .iter()
-                .map(|&i| plane_sweep_mappings[i].0)
-                .collect();
-
-            let kept =
-                plane_sweep_target(&mut target_mappings, target_limit, overlap_threshold, self.config.scoring_function);
-            for k in kept {
-                target_kept_set.insert(indices[k]);
-            }
-        }
-
-        // Intersection: keep only indices that passed both sweeps
-        let kept_indices: Vec<usize> = query_kept_set
-            .intersection(&target_kept_set)
-            .copied()
-            .collect();
+        let kept_indices = all_kept_indices;
 
         // Convert back to RecordMeta
         let result: Vec<RecordMeta> = kept_indices
