@@ -586,6 +586,7 @@ dependencies = [
  "clap",
  "fastga-rs",
  "flate2",
+ "libc",
  "nom",
  "num_cpus",
  "ordered-float",

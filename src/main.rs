@@ -20,6 +20,46 @@ use std::io::{BufRead, BufReader};
 use std::path::Path;
 use std::time::Instant;
 
+/// Timing context for minimap2-style logging
+struct TimingContext {
+    start_time: Instant,
+    start_cpu: f64,
+}
+
+impl TimingContext {
+    fn new() -> Self {
+        Self {
+            start_time: Instant::now(),
+            start_cpu: Self::cpu_time(),
+        }
+    }
+
+    /// Get current CPU time (user + system) in seconds
+    fn cpu_time() -> f64 {
+        unsafe {
+            let mut usage: libc::rusage = std::mem::zeroed();
+            libc::getrusage(libc::RUSAGE_SELF, &mut usage);
+            let user = usage.ru_utime.tv_sec as f64 + usage.ru_utime.tv_usec as f64 / 1_000_000.0;
+            let system = usage.ru_stime.tv_sec as f64 + usage.ru_stime.tv_usec as f64 / 1_000_000.0;
+            user + system
+        }
+    }
+
+    /// Calculate elapsed wall time and CPU ratio
+    fn stats(&self) -> (f64, f64) {
+        let elapsed = self.start_time.elapsed().as_secs_f64();
+        let cpu_used = Self::cpu_time() - self.start_cpu;
+        let cpu_ratio = if elapsed > 0.0 { cpu_used / elapsed } else { 0.0 };
+        (elapsed, cpu_ratio)
+    }
+
+    /// Log message with timing in minimap2 format
+    fn log(&self, phase: &str, message: &str) {
+        let (elapsed, cpu_ratio) = self.stats();
+        eprintln!("[sweepga::{}::{:.3}*{:.2}] {}", phase, elapsed, cpu_ratio, message);
+    }
+}
+
 /// File type detected from content
 #[derive(Debug, Clone, Copy, PartialEq)]
 enum FileType {
@@ -724,18 +764,15 @@ fn calculate_ani_n_percentile(input_path: &str, percentile: f64, sort_method: NS
 }
 
 fn main() -> Result<()> {
-    let start_time = Instant::now();
     let mut args = Args::parse();
+    let timing = TimingContext::new();
 
-    // Print startup banner with timestamp and command line
+    // Print startup banner
     if !args.quiet {
         use chrono::Local;
         let timestamp = Local::now().format("%Y-%m-%d %H:%M:%S");
-        eprintln!("[sweepga] Started at {}", timestamp);
-
-        // Reconstruct command line
         let cmd_line: Vec<String> = std::env::args().collect();
-        eprintln!("[sweepga] Command: {}", cmd_line.join(" "));
+        timing.log("start", &format!("{} | {}", timestamp, cmd_line.join(" ")));
     }
 
     // Track alignment time separately
@@ -751,7 +788,7 @@ fn main() -> Result<()> {
 
         if !args.quiet {
             for (i, (file, ftype)) in args.files.iter().zip(file_types.iter()).enumerate() {
-                eprintln!("[sweepga] Input {}: {} ({:?})", i + 1, file, ftype);
+                timing.log("detect", &format!("Input {}: {} ({:?})", i + 1, file, ftype));
             }
         }
 
@@ -761,7 +798,7 @@ fn main() -> Result<()> {
                 let alignment_start = Instant::now();
 
                 if !args.quiet {
-                    eprintln!("[sweepga] Running {} self-alignment on {}...", args.aligner, args.files[0]);
+                    timing.log("align", &format!("Running {} self-alignment on {}", args.aligner, args.files[0]));
                 }
 
                 use crate::fastga_integration::FastGAIntegration;
@@ -771,8 +808,7 @@ fn main() -> Result<()> {
 
                 alignment_time = Some(alignment_start.elapsed().as_secs_f64());
                 if !args.quiet {
-                    eprintln!("[sweepga] {} alignment complete ({:.1}s). Applying filtering...",
-                             args.aligner, alignment_time.unwrap());
+                    timing.log("align", &format!("{} alignment complete ({:.1}s)", args.aligner, alignment_time.unwrap()));
                 }
 
                 let paf_path = temp_paf.path().to_string_lossy().into_owned();
@@ -783,8 +819,8 @@ fn main() -> Result<()> {
                 let alignment_start = Instant::now();
 
                 if !args.quiet {
-                    eprintln!("[sweepga] Running {} alignment: {} -> {}...",
-                             args.aligner, args.files[0], args.files[1]);
+                    timing.log("align", &format!("Running {} alignment: {} -> {}",
+                             args.aligner, args.files[0], args.files[1]));
                 }
 
                 use crate::fastga_integration::FastGAIntegration;
@@ -795,8 +831,7 @@ fn main() -> Result<()> {
 
                 alignment_time = Some(alignment_start.elapsed().as_secs_f64());
                 if !args.quiet {
-                    eprintln!("[sweepga] {} alignment complete ({:.1}s). Applying filtering...",
-                             args.aligner, alignment_time.unwrap());
+                    timing.log("align", &format!("{} alignment complete ({:.1}s)", args.aligner, alignment_time.unwrap()));
                 }
 
                 let paf_path = temp_paf.path().to_string_lossy().into_owned();
@@ -838,7 +873,7 @@ fn main() -> Result<()> {
         // Detect stdin type
         let file_type = detect_file_type(&temp_path)?;
         if !args.quiet {
-            eprintln!("[sweepga] stdin: {:?}", file_type);
+            timing.log("detect", &format!("stdin: {:?}", file_type));
         }
 
         match file_type {
@@ -847,7 +882,7 @@ fn main() -> Result<()> {
                 let alignment_start = Instant::now();
 
                 if !args.quiet {
-                    eprintln!("[sweepga] Running {} self-alignment on stdin...", args.aligner);
+                    timing.log("align", &format!("Running {} self-alignment on stdin", args.aligner));
                 }
 
                 use crate::fastga_integration::FastGAIntegration;
@@ -857,8 +892,7 @@ fn main() -> Result<()> {
 
                 alignment_time = Some(alignment_start.elapsed().as_secs_f64());
                 if !args.quiet {
-                    eprintln!("[sweepga] {} alignment complete ({:.1}s). Applying filtering...",
-                             args.aligner, alignment_time.unwrap());
+                    timing.log("align", &format!("{} alignment complete ({:.1}s)", args.aligner, alignment_time.unwrap()));
                 }
 
                 let paf_path = temp_paf.path().to_string_lossy().into_owned();
@@ -963,10 +997,10 @@ fn main() -> Result<()> {
     // Only report thresholds if they're non-zero
     if !args.quiet && (min_identity > 0.0 || min_scaffold_identity > 0.0) {
         if min_identity > 0.0 {
-            eprintln!("[sweepga] Mapping identity threshold: {:.1}%", min_identity * 100.0);
+            timing.log("config", &format!("Mapping identity threshold: {:.1}%", min_identity * 100.0));
         }
         if min_scaffold_identity > 0.0 && min_scaffold_identity != min_identity {
-            eprintln!("[sweepga] Scaffold identity threshold: {:.1}%", min_scaffold_identity * 100.0);
+            timing.log("config", &format!("Scaffold identity threshold: {:.1}%", min_scaffold_identity * 100.0));
         }
     }
 
@@ -977,7 +1011,7 @@ fn main() -> Result<()> {
 
     // Apply filtering - always to temp file, then copy to stdout
     if !args.quiet {
-        eprintln!("[sweepga] Parsing input PAF: {}", input_path);
+        timing.log("parse", &format!("Parsing input PAF: {}", input_path));
     }
 
     let output_temp = tempfile::NamedTempFile::new()?;
@@ -1001,7 +1035,7 @@ fn main() -> Result<()> {
     }
 
     if !args.quiet {
-        let total_elapsed = start_time.elapsed().as_secs_f64();
+        let (total_elapsed, _) = timing.stats();
         let filtering_time = if let Some(align_time) = alignment_time {
             total_elapsed - align_time
         } else {
@@ -1010,9 +1044,9 @@ fn main() -> Result<()> {
 
         // Format the complete message
         if let Some(align_time) = alignment_time {
-            eprintln!("[sweepga] Complete. Alignment: {align_time:.1}s, Filtering: {filtering_time:.1}s, Total: {total_elapsed:.1}s");
+            timing.log("done", &format!("Alignment: {align_time:.1}s, Filtering: {filtering_time:.1}s, Total: {total_elapsed:.1}s"));
         } else {
-            eprintln!("[sweepga] Filtering complete. Total: {total_elapsed:.1}s");
+            timing.log("done", &format!("Total: {total_elapsed:.1}s"));
         }
     }
 
