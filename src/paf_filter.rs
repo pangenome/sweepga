@@ -947,16 +947,73 @@ impl PafFilter {
             })
             .collect();
 
-        // Use the mapping limits from config
-        // For query axis: if limit is Some(n), keep n mappings per query position
-        // For None (many/infinity), keep all non-overlapping (usize::MAX)
-        let query_limit = self.config.mapping_max_per_query.unwrap_or(usize::MAX);
-
         let overlap_threshold = self.config.overlap_threshold;
 
-        // Apply plane sweep grouped by (query, target) pairs for proper genome pair filtering
-        let kept_indices =
-            plane_sweep_grouped_pairs(&mut plane_sweep_mappings, query_limit, overlap_threshold, self.config.scoring_function);
+        // Apply plane sweep: ALWAYS do independent query and target sweeps
+        // Never use grouped_pairs - we want to compare across all targets for each query
+        use crate::plane_sweep_exact::{plane_sweep_query, plane_sweep_target};
+
+        let query_limit = match self.config.mapping_filter_mode {
+            FilterMode::OneToOne => 1,
+            FilterMode::OneToMany => self.config.mapping_max_per_query.unwrap_or(1),
+            FilterMode::ManyToMany => self.config.mapping_max_per_query.unwrap_or(usize::MAX),
+        };
+
+        let target_limit = match self.config.mapping_filter_mode {
+            FilterMode::OneToOne => 1,
+            FilterMode::OneToMany => self.config.mapping_max_per_target.unwrap_or(usize::MAX),
+            FilterMode::ManyToMany => self.config.mapping_max_per_target.unwrap_or(usize::MAX),
+        };
+
+        // Query axis sweep: group by query chr
+        let mut query_kept_set = HashSet::new();
+        let mut by_query: std::collections::HashMap<String, Vec<usize>> =
+            std::collections::HashMap::new();
+
+        for (i, (_, q, _t)) in plane_sweep_mappings.iter().enumerate() {
+            by_query.entry(q.clone()).or_default().push(i);
+        }
+
+        for (_q_chr, indices) in by_query {
+            let mut query_mappings: Vec<_> = indices
+                .iter()
+                .map(|&i| plane_sweep_mappings[i].0)
+                .collect();
+
+            let kept =
+                plane_sweep_query(&mut query_mappings, query_limit, overlap_threshold, self.config.scoring_function);
+            for k in kept {
+                query_kept_set.insert(indices[k]);
+            }
+        }
+
+        // Target axis sweep: group by target chr
+        let mut target_kept_set = HashSet::new();
+        let mut by_target: std::collections::HashMap<String, Vec<usize>> =
+            std::collections::HashMap::new();
+
+        for (i, (_, _q, t)) in plane_sweep_mappings.iter().enumerate() {
+            by_target.entry(t.clone()).or_default().push(i);
+        }
+
+        for (_t_chr, indices) in by_target {
+            let mut target_mappings: Vec<_> = indices
+                .iter()
+                .map(|&i| plane_sweep_mappings[i].0)
+                .collect();
+
+            let kept =
+                plane_sweep_target(&mut target_mappings, target_limit, overlap_threshold, self.config.scoring_function);
+            for k in kept {
+                target_kept_set.insert(indices[k]);
+            }
+        }
+
+        // Intersection: keep only indices that passed both sweeps
+        let kept_indices: Vec<usize> = query_kept_set
+            .intersection(&target_kept_set)
+            .copied()
+            .collect();
 
         // Convert back to RecordMeta
         let result: Vec<RecordMeta> = kept_indices
@@ -998,14 +1055,15 @@ impl PafFilter {
         let overlap_threshold = self.config.scaffold_overlap_threshold;
 
         // Apply plane sweep - EXACT SAME FUNCTION as regular mappings
-        // For 1:1 mode, we need to enforce BOTH query and target constraints
-        let kept_indices = match self.config.scaffold_filter_mode {
+        // Always use independent query and target sweeps
+        use crate::plane_sweep_exact::{plane_sweep_query, plane_sweep_target};
+
+        let kept_indices: Vec<usize> = match self.config.scaffold_filter_mode {
             FilterMode::OneToOne => {
                 // True 1:1: Apply plane sweep independently on query and target axes
                 // 1. Sweep across each query chromosome (scaffolds to different targets compete)
                 // 2. Sweep across each target chromosome (scaffolds from different queries compete)
                 // 3. Keep only scaffolds that pass BOTH sweeps
-                use crate::plane_sweep_exact::{plane_sweep_query, plane_sweep_target};
 
                 // Query axis sweep: group by query chr
                 let mut query_kept_set = HashSet::new();
@@ -1057,13 +1115,69 @@ impl PafFilter {
                     .copied()
                     .collect()
             }
-            FilterMode::OneToMany => {
-                let query_limit = self.config.scaffold_max_per_query.unwrap_or(1);
-                plane_sweep_grouped_pairs(&mut plane_sweep_mappings, query_limit, overlap_threshold, self.config.scoring_function)
-            }
-            FilterMode::ManyToMany => {
-                let query_limit = self.config.scaffold_max_per_query.unwrap_or(usize::MAX);
-                plane_sweep_grouped_pairs(&mut plane_sweep_mappings, query_limit, overlap_threshold, self.config.scoring_function)
+            FilterMode::OneToMany | FilterMode::ManyToMany => {
+                // Same independent sweep pattern as 1:1, just different limits
+                let query_limit = match self.config.scaffold_filter_mode {
+                    FilterMode::OneToMany => self.config.scaffold_max_per_query.unwrap_or(1),
+                    FilterMode::ManyToMany => self.config.scaffold_max_per_query.unwrap_or(usize::MAX),
+                    _ => unreachable!(),
+                };
+
+                let target_limit = match self.config.scaffold_filter_mode {
+                    FilterMode::OneToMany => self.config.scaffold_max_per_target.unwrap_or(usize::MAX),
+                    FilterMode::ManyToMany => self.config.scaffold_max_per_target.unwrap_or(usize::MAX),
+                    _ => unreachable!(),
+                };
+
+                // Query axis sweep: group by query chr
+                let mut query_kept_set = HashSet::new();
+                let mut by_query: std::collections::HashMap<String, Vec<usize>> =
+                    std::collections::HashMap::new();
+
+                for (i, (_, q, _t)) in plane_sweep_mappings.iter().enumerate() {
+                    by_query.entry(q.clone()).or_default().push(i);
+                }
+
+                for (_q_chr, indices) in by_query {
+                    let mut query_mappings: Vec<_> = indices
+                        .iter()
+                        .map(|&i| plane_sweep_mappings[i].0)
+                        .collect();
+
+                    let kept =
+                        plane_sweep_query(&mut query_mappings, query_limit, overlap_threshold, self.config.scoring_function);
+                    for k in kept {
+                        query_kept_set.insert(indices[k]);
+                    }
+                }
+
+                // Target axis sweep: group by target chr
+                let mut target_kept_set = HashSet::new();
+                let mut by_target: std::collections::HashMap<String, Vec<usize>> =
+                    std::collections::HashMap::new();
+
+                for (i, (_, _q, t)) in plane_sweep_mappings.iter().enumerate() {
+                    by_target.entry(t.clone()).or_default().push(i);
+                }
+
+                for (_t_chr, indices) in by_target {
+                    let mut target_mappings: Vec<_> = indices
+                        .iter()
+                        .map(|&i| plane_sweep_mappings[i].0)
+                        .collect();
+
+                    let kept =
+                        plane_sweep_target(&mut target_mappings, target_limit, overlap_threshold, self.config.scoring_function);
+                    for k in kept {
+                        target_kept_set.insert(indices[k]);
+                    }
+                }
+
+                // Intersection: keep only indices that passed both sweeps
+                query_kept_set
+                    .intersection(&target_kept_set)
+                    .copied()
+                    .collect()
             }
         };
 
