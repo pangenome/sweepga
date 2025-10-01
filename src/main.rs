@@ -118,7 +118,7 @@ struct Args {
     scaffold_filter: String,
 
     /// Scaffold jump (gap) distance. 0 = disable scaffolding (plane sweep only), >0 = enable scaffolding
-    #[clap(short = 'j', long = "scaffold-jump", default_value = "10k", value_parser = parse_metric_number)]
+    #[clap(short = 'j', long = "scaffold-jump", default_value = "0", value_parser = parse_metric_number)]
     scaffold_jump: u64,
 
     /// Minimum scaffold length when scaffolding is enabled

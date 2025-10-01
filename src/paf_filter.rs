@@ -385,9 +385,9 @@ impl PafFilter {
         metadata = self.apply_plane_sweep_to_mappings(&metadata)?;
         let after_plane_sweep = metadata.len();
 
-        // Report pre-scaffold plane sweep if it filtered anything
+        // Report plane sweep if it filtered anything
         if before_plane_sweep != after_plane_sweep {
-            eprintln!("[sweepga] Pre-scaffold plane sweep: {before_plane_sweep} → {after_plane_sweep} mappings");
+            eprintln!("[sweepga] Plane sweep: {before_plane_sweep} → {after_plane_sweep} mappings");
         }
 
         // If no scaffolding (scaffold_gap == 0), we're done - return the plane-swept mappings
@@ -461,7 +461,7 @@ impl PafFilter {
         }
 
         // Step 3: Apply plane sweep to scaffolds
-        eprintln!("[sweepga] Scaffold filtering");
+        eprintln!("[sweepga] Scaffold sweep");
         let before_sweep = filtered_chains.len();
 
         // Track which mappings are in scaffolds BEFORE plane sweep
@@ -473,7 +473,7 @@ impl PafFilter {
         }
 
         filtered_chains = self.apply_scaffold_plane_sweep(filtered_chains)?;
-        eprintln!("[sweepga]   Plane sweep: {} → {} scaffolds",
+        eprintln!("[sweepga]   Scaffold sweep: {} → {} scaffolds",
                  before_sweep,
                  filtered_chains.len());
 
