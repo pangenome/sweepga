@@ -110,11 +110,11 @@ struct Args {
     sparsify: f64,
 
     /// Mapping filter: "1:1" (best), "M:N" (top M per query, N per target; ∞/many for unbounded)
-    #[clap(short = 'n', long = "num-mappings", default_value = "many:many")]
+    #[clap(short = 'n', long = "num-mappings", default_value = "1:1")]
     num_mappings: String,
 
     /// Scaffold filter: "1:1" (best), "M:N" (top M per query, N per target; ∞/many for unbounded)
-    #[clap(short = 'm', long = "scaffold-filter", default_value = "1:1")]
+    #[clap(short = 'm', long = "scaffold-filter", default_value = "many:many")]
     scaffold_filter: String,
 
     /// Scaffold jump (gap) distance. 0 = disable scaffolding (plane sweep only), >0 = enable scaffolding
