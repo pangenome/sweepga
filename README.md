@@ -1,6 +1,6 @@
 # SweepGA
 
-Fast genome alignment with sophisticated filtering. Wraps FastGA aligner and applies wfmash's plane sweep algorithm with optional synteny-based scaffolding and distance-based rescue.
+Fast genome alignment with sophisticated filtering. Wraps FastGA aligner and applies plane sweep filtering to keep the best non-overlapping alignments.
 
 ## What it does
 
@@ -8,7 +8,7 @@ SweepGA can either:
 1. **Align FASTA files directly** using integrated FastGA (supports .fa.gz)
 2. **Filter existing PAF alignments** from any aligner (wfmash, minimap2, etc.)
 
-By default, it chains mappings into syntenic scaffolds, applies 1:1 filtering to keep best scaffolds per chromosome pair, then rescues nearby mappings. This extracts clean syntenic alignments from noisy all-vs-all mappings.
+By default, it applies 1:1 plane sweep filtering to keep the single best mapping per query-target chromosome pair. Optionally, you can enable scaffolding (`-j > 0`) to chain nearby mappings and rescue distant features.
 
 ## Installation
 
@@ -25,109 +25,139 @@ cargo install --force --path .
 ### Direct alignment (FASTA input)
 
 ```bash
-# Self-alignment
-sweepga genome.fa.gz -o output.paf
+# Self-alignment with 1:1 filtering
+sweepga genome.fa.gz > output.paf
 
-# Pairwise alignment
-sweepga target.fa query.fa -o output.paf
+# Pairwise alignment (target, query order)
+sweepga target.fa query.fa > output.paf
 
-# With custom parameters
-sweepga genome.fa.gz -o output.paf -j 20k -d 50k
+# With 2 threads
+sweepga genome.fa.gz -t 2 > output.paf
 ```
 
-### PAF filtering (existing alignments)
+### PAF filtering (pipe from stdin)
 
 ```bash
-# Default: scaffolding + 1:1 filter + rescue
-sweepga -i alignments.paf -o filtered.paf
+# Default: 1:1 plane sweep filtering
+cat alignments.paf | sweepga > filtered.paf
 
-# Plane sweep only (no scaffolding)
-sweepga -i alignments.paf -o filtered.paf -j 0
+# Keep best mapping per query only (1:∞)
+cat alignments.paf | sweepga -n 1 > filtered.paf
 
-# Custom scaffold parameters
-sweepga -i alignments.paf -o filtered.paf -j 50k -s 20k
+# No filtering, just pass through
+cat alignments.paf | sweepga -n many > output.paf
 ```
 
-### Complete example workflow
+### Reading PAF files directly
 
 ```bash
-# Method 1: Direct alignment with integrated FastGA
-sweepga data/scerevisiae8.fa.gz -o data/scerevisiae8.filtered.paf
-# Runs FastGA alignment then applies filtering
-# Result: ~17,800 mappings from ~30K raw alignments
-
-# Method 2: Filter existing PAF
-fastga -T8 -pafx data/scerevisiae8.fa > data/scerevisiae8.raw.paf
-sweepga -i data/scerevisiae8.raw.paf -o data/scerevisiae8.filtered.paf
-
-# Check the breakdown
-grep -c "st:Z:scaffold" data/scerevisiae8.filtered.paf  # Scaffold anchors
-grep -c "st:Z:rescued" data/scerevisiae8.filtered.paf   # Rescued mappings
+# Read from file instead of stdin
+sweepga alignments.paf > filtered.paf
 ```
 
-### Default parameters
+### Example: 8 yeast genomes
 
-- **No pre-filtering** (`-n many`): All mappings participate in scaffold building
-- **Scaffold creation** (`-j 10k`): Merge mappings within 10kb gaps
-- **Min scaffold** (`-s 10k`): Scaffolds must be ≥10kb
-- **1:1 scaffold filter** (`-m 1:1`): Keep best scaffold per chromosome pair
-- **Rescue distance** (`-d 20k`): Rescue mappings within 20kb of scaffolds
+```bash
+# Direct alignment and filtering in one step
+sweepga data/scerevisiae8.fa.gz > scerevisiae8.paf
+
+# Result: ~26K mappings (1:1 filtered)
+# - Each genome pair gets best alignment per chromosome pair
+# - Self-mappings excluded by default (use --self to include)
+```
 
 ## Parameters
 
-### Plane Sweep Filtering (default behavior)
+### Core Filtering Parameters
 
-`-n/--num-mappings` controls how many mappings to keep per query position (default "1:1"):
-- `"1:1"` - Keep best mapping on both query and target axes
-- `"1"` or `"1:∞"` - Keep best on query axis only
-- `"many:many"` or `"∞:∞"` - Keep all non-overlapping mappings
+**`-n/--num-mappings`** - Plane sweep filtering (default: `1:1`)
+- `"1:1"` - Keep best mapping on both query and target axes (default)
+- `"1"` - Keep best mapping per query position only
+- `"many"` - No filtering, keep all mappings
 - `"M:N"` - Keep top M per query, top N per target
 
-### Scaffolding Parameters
+**`-o/--overlap`** - Maximum overlap ratio (default: 0.95)
+- Mappings with >95% overlap with a better-scoring mapping are removed
 
-`-j/--scaffold-jump` sets the maximum gap for merging mappings into scaffold chains (default 10k). Set to 0 to disable scaffolding and use plane sweep only.
+**`-t/--threads`** - Number of threads (default: 8)
 
-`-s/--scaffold-mass` sets the minimum length for a chain to be considered a scaffold anchor (default 10k). Only used when scaffolding is enabled (`-j > 0`).
+**`--self`** - Include self-mappings (excluded by default)
 
-`-d/--scaffold-dist` sets the maximum Euclidean distance for rescue (default 20k). Mappings further than this from any scaffold anchor are discarded.
+### Optional: Scaffolding Mode
 
-`-m/--scaffold-filter` controls scaffold filtering (default "1:1"). Options: "1:1", "1" (1:many), "many" (no filter).
+Scaffolding is **disabled by default** (`-j 0`). When enabled, it chains nearby mappings and rescues distant features.
 
-### Chain Annotations
+**`-j/--scaffold-jump`** - Enable scaffolding by setting gap distance (default: 0 = disabled)
+- Example: `-j 10k` merges mappings within 10kb gaps into chains
 
-When scaffolding is enabled, mappings are annotated with:
+**`-s/--scaffold-mass`** - Minimum scaffold length (default: 10k)
+- Only chains ≥ this length become scaffold anchors
+
+**`-d/--scaffold-dist`** - Maximum rescue distance (default: 20k)
+- Mappings within this distance of scaffolds are rescued
+
+**`-m/--scaffold-filter`** - Scaffold chain filtering (default: `many`)
+- `"1:1"` - Keep best scaffold per chromosome pair
+- `"many"` - Keep all scaffolds (default)
+
+When scaffolding is enabled, output includes:
 - `ch:Z:chain_N` - Chain ID for grouped mappings
-- `st:Z:{scaffold|rescued|unassigned}` - Status of each mapping
+- `st:Z:scaffold` - Member of a scaffold chain
+- `st:Z:rescued` - Rescued due to proximity to scaffold
 
-## Example: varying rescue distance
+## Example: Scaffolding Mode
 
-The rescue distance dramatically affects output. Using a yeast chromosome V alignment:
+Scaffolding groups nearby mappings into chains and rescues distant features:
 
 ```bash
-# Very tight - only mappings within 10kb of scaffolds
-sweepga -d 10k < chrV.paf > chrV.strict.paf
-# Result: 32 mappings retained
+# Enable scaffolding with 10kb gap merging
+cat alignments.paf | sweepga -j 10k > scaffolded.paf
 
-# Default (20kb) - biological features near main alignments
-sweepga < chrV.paf > chrV.default.paf
-# Result: 45 mappings retained
+# Tighter scaffolding with 1:1 filtering
+cat alignments.paf | sweepga -j 10k -m 1:1 > strict.paf
 
-# Permissive - may include distant paralogs
-sweepga -d 100k < chrV.paf > chrV.loose.paf
-# Result: 71 mappings retained
+# Adjust rescue distance
+cat alignments.paf | sweepga -j 10k -d 50k > permissive.paf
 ```
 
-The scaffold jump parameter has less effect when scaffolds are already well-separated, which is common in finished genomes. The rescue mechanism is strand-agnostic: a reverse strand mapping 50kb from a forward strand scaffold will be rescued if within the distance threshold.
+Scaffolding is useful for:
+- Grouping fragmented alignments from draft assemblies
+- Rescuing small features near main syntenic blocks
+- Creating cleaner visualizations by chaining related mappings
 
-## Algorithm details
+The rescue mechanism is strand-agnostic: reverse-strand mappings can be rescued by forward-strand scaffolds if within the distance threshold.
 
-The implementation follows wfmash's filterByScaffolds approach. Mappings are first grouped by query-target pair and sorted by query position. Union-find merges mappings where both query and target gaps are below the threshold, allowing small overlaps up to gap/5. The resulting chains are filtered by length to identify scaffolds.
+## How It Works
 
-Plane sweep operates independently per query sequence, sweeping across the query axis and keeping the best scoring mappings at each position. The scoring function matches wfmash: identity × log(block_length). For the default "1" mode, this keeps all non-overlapping mappings at each query position; for "1:1" it keeps only the single best mapping per query-target pair. The overlap threshold parameter (default 0.95) filters mappings that are mostly contained within better scoring ones.
+### Plane Sweep Filtering (Default)
 
-The rescue phase calculates Euclidean distance from each non-scaffold mapping to scaffold anchors on the same chromosome pair. Mappings are grouped by (query_chromosome, target_chromosome) and sorted by query position for efficient processing. The distance uses mapping center points in 2D space where axes are query and target positions. Any mapping within the distance threshold of at least one anchor is rescued, regardless of strand orientation.
+The plane sweep algorithm operates per query-target chromosome pair:
 
-Output preserves the original PAF records with an added tag indicating filter status: st:Z:scaffold for scaffold anchors, st:Z:rescued for rescued mappings. This allows downstream tools to distinguish high-confidence syntenic anchors from nearby features.
+1. **Sort** mappings by query position
+2. **Score** each mapping: `identity × log(block_length)` (matches wfmash)
+3. **Sweep** left-to-right, keeping best mappings based on `-n` setting:
+   - `1:1`: Keep single best mapping per position on both query and target
+   - `1`: Keep best mapping per query position (multiple targets allowed)
+   - `many`: Keep all non-overlapping mappings
+4. **Filter** mappings with >95% overlap (configurable with `-o`)
+
+### Optional: Scaffolding Mode (`-j > 0`)
+
+When scaffolding is enabled:
+
+1. **Chain** nearby mappings using union-find:
+   - Merge if gap < `-j` on both query and target
+   - Allow small overlaps (up to gap/5)
+2. **Filter** chains by minimum length (`-s`)
+3. **Apply** scaffold filtering (`-m`) to chains
+4. **Rescue** mappings within distance (`-d`) of scaffold anchors
+   - Distance = Euclidean distance between mapping centers
+   - Checked per chromosome pair only
+
+Output includes PAF tags:
+- `ch:Z:chain_N` - Chain identifier (when scaffolding enabled)
+- `st:Z:scaffold` - Member of scaffold chain
+- `st:Z:rescued` - Rescued by proximity to scaffold
 
 ## Citation
 
