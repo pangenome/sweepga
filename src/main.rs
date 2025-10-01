@@ -674,6 +674,17 @@ fn main() -> Result<()> {
     let start_time = Instant::now();
     let mut args = Args::parse();
 
+    // Print startup banner with timestamp and command line
+    if !args.quiet {
+        use chrono::Local;
+        let timestamp = Local::now().format("%Y-%m-%d %H:%M:%S");
+        eprintln!("[sweepga] Started at {}", timestamp);
+
+        // Reconstruct command line
+        let cmd_line: Vec<String> = std::env::args().collect();
+        eprintln!("[sweepga] Command: {}", cmd_line.join(" "));
+    }
+
     // Track alignment time separately
     let mut alignment_time: Option<f64> = None;
 
@@ -892,6 +903,10 @@ fn main() -> Result<()> {
     };
 
     // Apply filtering
+    if !args.quiet {
+        eprintln!("[sweepga] Parsing input PAF: {}", input_path);
+    }
+
     // Note: -f (no_filter) implies --self (keep self-mappings)
     let filter = PafFilter::new(config)
         .with_keep_self(args.keep_self || args.no_filter)

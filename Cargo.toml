@@ -12,6 +12,7 @@ byteorder = "1.5"
 tempfile = "3.8"
 ordered-float = "4.0"
 fastga-rs = { git = "https://github.com/pangenome/fastga-rs.git", rev = "3ff6ec1" }
+chrono = "0.4"
 
 [[bin]]
 name = "sweepga"
