@@ -17,7 +17,64 @@ use crate::paf_filter::{FilterConfig, FilterMode, PafFilter, ScoringFunction};
 use std::collections::HashMap;
 use std::fs::File;
 use std::io::{BufRead, BufReader};
+use std::path::Path;
 use std::time::Instant;
+
+/// File type detected from content
+#[derive(Debug, Clone, Copy, PartialEq)]
+enum FileType {
+    Fasta,
+    Paf,
+}
+
+/// Detect file type by reading first non-empty line
+/// Handles .gz files automatically
+fn detect_file_type(path: &str) -> Result<FileType> {
+    use std::io::Read;
+
+    let file = File::open(path)?;
+    let mut reader: Box<dyn BufRead> = if path.ends_with(".gz") {
+        Box::new(BufReader::new(flate2::read::GzDecoder::new(file)))
+    } else {
+        Box::new(BufReader::new(file))
+    };
+
+    // Read first non-empty line
+    let mut line = String::new();
+    loop {
+        line.clear();
+        if reader.read_line(&mut line)? == 0 {
+            anyhow::bail!("Empty file: {}", path);
+        }
+        let trimmed = line.trim();
+        if !trimmed.is_empty() && !trimmed.starts_with('#') {
+            break;
+        }
+    }
+
+    let trimmed = line.trim();
+
+    // FASTA starts with >
+    if trimmed.starts_with('>') {
+        return Ok(FileType::Fasta);
+    }
+
+    // PAF is tab-delimited with 12+ fields
+    let fields: Vec<&str> = trimmed.split('\t').collect();
+    if fields.len() >= 12 {
+        // Check that numeric fields parse correctly (columns 1, 2, 3, 6, 7, 8, 9, 10, 11)
+        if fields[1].parse::<u64>().is_ok() &&
+           fields[2].parse::<u64>().is_ok() &&
+           fields[3].parse::<u64>().is_ok() &&
+           fields[6].parse::<u64>().is_ok() &&
+           fields[9].parse::<u64>().is_ok() &&
+           fields[10].parse::<u64>().is_ok() {
+            return Ok(FileType::Paf);
+        }
+    }
+
+    anyhow::bail!("Could not detect file type for {}: not FASTA (starts with >) or PAF (12+ tab-delimited fields)", path);
+}
 
 /// Method for calculating ANI from alignments
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -77,17 +134,17 @@ fn parse_metric_number(s: &str) -> Result<u64, String> {
 ///
 /// This tool wraps genome aligners (FastGA by default) and applies wfmash's filtering algorithms.
 /// Can also process existing PAF files from any aligner.
+/// File type (FASTA or PAF) is automatically detected from content.
 #[derive(Parser, Debug)]
 #[clap(author, version, about, long_about = None)]
 struct Args {
-    /// FASTA files: either one (self-alignment) or two (target then query)
-    /// If no FASTA provided, reads PAF from stdin or -i flag
-    #[clap(value_name = "FASTA", num_args = 0..=2)]
-    fasta_files: Vec<String>,
-
-    /// Input PAF file (alternative to FASTA files)
-    #[clap(short = 'i', long = "input", conflicts_with = "fasta_files")]
-    input: Option<String>,
+    /// Input files: FASTA (1 or 2) or PAF (1 only), auto-detected
+    /// - 1 FASTA: self-alignment
+    /// - 2 FASTA: align first to second (target to query)
+    /// - 1 PAF: filter alignments
+    /// - stdin: auto-detect and process
+    #[clap(value_name = "FILE", num_args = 0..=2)]
+    files: Vec<String>,
 
     /// Output PAF file (stdout if not specified)
     #[clap(short = 'o', long = "output")]
@@ -688,44 +745,33 @@ fn main() -> Result<()> {
     // Track alignment time separately
     let mut alignment_time: Option<f64> = None;
 
-    // Handle FASTA input mode (alignment generation)
-    let _temp_paf = if !args.fasta_files.is_empty() {
-        let alignment_start = Instant::now();
-        match args.aligner.as_str() {
-            "fastga" => {
-                use crate::fastga_integration::FastGAIntegration;
-                use std::path::Path;
+    // Detect file types and route accordingly
+    let (_temp_paf, input_path) = if !args.files.is_empty() {
+        // Detect file types
+        let file_types: Result<Vec<FileType>> = args.files.iter()
+            .map(|f| detect_file_type(f))
+            .collect();
+        let file_types = file_types?;
 
-                let (targets, queries) = match args.fasta_files.len() {
-                    1 => {
-                        // Self-alignment
-                        let path = Path::new(&args.fasta_files[0]);
-                        (path, path)
-                    }
-                    2 => {
-                        // Two files: first is target, second is query
-                        (Path::new(&args.fasta_files[0]), Path::new(&args.fasta_files[1]))
-                    }
-                    _ => {
-                        anyhow::bail!("Expected 1 or 2 FASTA files, got {}", args.fasta_files.len());
-                    }
-                };
+        if !args.quiet {
+            for (i, (file, ftype)) in args.files.iter().zip(file_types.iter()).enumerate() {
+                eprintln!("[sweepga] Input {}: {} ({:?})", i + 1, file, ftype);
+            }
+        }
+
+        match (args.files.len(), file_types.as_slice()) {
+            (1, [FileType::Fasta]) => {
+                // Self-alignment
+                let alignment_start = Instant::now();
 
                 if !args.quiet {
-                    if args.fasta_files.len() == 1 {
-                        eprintln!("[sweepga] Running {} self-alignment on {}...", args.aligner, args.fasta_files[0]);
-                    } else {
-                        eprintln!("[sweepga] Running {} alignment: {} -> {}...",
-                                 args.aligner, args.fasta_files[0], args.fasta_files[1]);
-                    }
+                    eprintln!("[sweepga] Running {} self-alignment on {}...", args.aligner, args.files[0]);
                 }
 
-                // Configure FastGA with minimal parameters (just threads)
-                // FastGA will use its own defaults for identity and alignment length
+                use crate::fastga_integration::FastGAIntegration;
+                let path = Path::new(&args.files[0]);
                 let fastga = FastGAIntegration::new(args.threads);
-
-                // Run alignment and get temp PAF file
-                let temp_paf = fastga.align_to_temp_paf(targets, queries)?;
+                let temp_paf = fastga.align_to_temp_paf(path, path)?;
 
                 alignment_time = Some(alignment_start.elapsed().as_secs_f64());
                 if !args.quiet {
@@ -733,33 +779,109 @@ fn main() -> Result<()> {
                              args.aligner, alignment_time.unwrap());
                 }
 
-                // Update args to use the generated PAF file
-                args.input = Some(temp_paf.path().to_string_lossy().into_owned());
+                let paf_path = temp_paf.path().to_string_lossy().into_owned();
+                (Some(temp_paf), paf_path)
+            }
+            (2, [FileType::Fasta, FileType::Fasta]) => {
+                // Pairwise alignment
+                let alignment_start = Instant::now();
 
-                Some(temp_paf)
+                if !args.quiet {
+                    eprintln!("[sweepga] Running {} alignment: {} -> {}...",
+                             args.aligner, args.files[0], args.files[1]);
+                }
+
+                use crate::fastga_integration::FastGAIntegration;
+                let target = Path::new(&args.files[0]);
+                let query = Path::new(&args.files[1]);
+                let fastga = FastGAIntegration::new(args.threads);
+                let temp_paf = fastga.align_to_temp_paf(target, query)?;
+
+                alignment_time = Some(alignment_start.elapsed().as_secs_f64());
+                if !args.quiet {
+                    eprintln!("[sweepga] {} alignment complete ({:.1}s). Applying filtering...",
+                             args.aligner, alignment_time.unwrap());
+                }
+
+                let paf_path = temp_paf.path().to_string_lossy().into_owned();
+                (Some(temp_paf), paf_path)
+            }
+            (1, [FileType::Paf]) => {
+                // Filter existing PAF
+                if !args.quiet {
+                    eprintln!("[sweepga] Processing PAF file: {}", args.files[0]);
+                }
+                (None, args.files[0].clone())
             }
             _ => {
-                anyhow::bail!("Unknown aligner: {}", args.aligner);
+                anyhow::bail!("Invalid file combination: expected 1 FASTA (self-align), 2 FASTA (pairwise), or 1 PAF (filter)");
             }
         }
     } else {
-        None
-    };
-
-    // Check if stdin is available when no input specified
-    let stdin_available = if args.input.is_none() {
+        // Check if stdin is available
         use std::io::IsTerminal;
-        !std::io::stdin().is_terminal()
-    } else {
-        false
-    };
+        let stdin_available = !std::io::stdin().is_terminal();
 
-    // If no input specified and no stdin, print help
-    if args.input.is_none() && !stdin_available && !args.no_filter && args.fasta_files.is_empty() {
-        use clap::CommandFactory;
-        Args::command().print_help()?;
-        std::process::exit(0);
-    }
+        if !stdin_available && !args.no_filter {
+            use clap::CommandFactory;
+            Args::command().print_help()?;
+            std::process::exit(0);
+        }
+
+        // Read from stdin - save to temp file for auto-detection and two-pass processing
+        let temp = tempfile::NamedTempFile::new()?;
+        let temp_path = temp.path().to_str().unwrap().to_string();
+
+        {
+            use std::io::{self, BufRead, Write};
+            let stdin = io::stdin();
+            let mut temp_file = std::fs::File::create(&temp_path)?;
+
+            for line in stdin.lock().lines() {
+                writeln!(temp_file, "{}", line?)?;
+            }
+        }
+
+        // Detect stdin type
+        let file_type = detect_file_type(&temp_path)?;
+        if !args.quiet {
+            eprintln!("[sweepga] stdin: {:?}", file_type);
+        }
+
+        match file_type {
+            FileType::Fasta => {
+                // Self-align stdin FASTA
+                let alignment_start = Instant::now();
+
+                if !args.quiet {
+                    eprintln!("[sweepga] Running {} self-alignment on stdin...", args.aligner);
+                }
+
+                use crate::fastga_integration::FastGAIntegration;
+                let path = Path::new(&temp_path);
+                let fastga = FastGAIntegration::new(args.threads);
+                let temp_paf = fastga.align_to_temp_paf(path, path)?;
+
+                alignment_time = Some(alignment_start.elapsed().as_secs_f64());
+                if !args.quiet {
+                    eprintln!("[sweepga] {} alignment complete ({:.1}s). Applying filtering...",
+                             args.aligner, alignment_time.unwrap());
+                }
+
+                let paf_path = temp_paf.path().to_string_lossy().into_owned();
+                // Keep both temp files alive
+                Box::leak(Box::new(temp));
+                (Some(temp_paf), paf_path)
+            }
+            FileType::Paf => {
+                // Filter stdin PAF
+                if !args.quiet {
+                    eprintln!("[sweepga] Processing PAF from stdin");
+                }
+                (Some(temp), temp_path)
+            }
+        }
+    };
 
     // Set up rayon thread pool
     rayon::ThreadPoolBuilder::new()
@@ -768,18 +890,14 @@ fn main() -> Result<()> {
 
     // Handle no-filter mode - just copy input to output
     if args.no_filter {
-        use std::io::{self, BufRead, BufReader, Write};
+        use std::io::{BufRead, BufReader, Write};
 
-        let input: Box<dyn BufRead> = if let Some(ref path) = args.input {
-            Box::new(BufReader::new(std::fs::File::open(path)?))
-        } else {
-            Box::new(BufReader::new(io::stdin()))
-        };
+        let input = BufReader::new(std::fs::File::open(&input_path)?);
 
         let mut output: Box<dyn Write> = if let Some(ref path) = args.output {
             Box::new(std::fs::File::create(path)?)
         } else {
-            Box::new(io::stdout())
+            Box::new(std::io::stdout())
         };
 
         for line in input.lines() {
@@ -831,28 +949,6 @@ fn main() -> Result<()> {
         scoring_function,
         min_identity: 0.0,  // Will be set later
         min_scaffold_identity: 0.0,  // Will be set later
-    };
-
-    // Handle input: if stdin, save to temp file for two-pass processing
-    let (_input_temp, input_path) = if let Some(ref path) = args.input {
-        (None, path.clone())
-    } else {
-        // Read from stdin into a temp file for two-pass processing
-        let temp = tempfile::NamedTempFile::new()?;
-        let temp_path = temp.path().to_str().unwrap().to_string();
-
-        // Copy stdin to temp file
-        {
-            use std::io::{self, BufRead, Write};
-            let stdin = io::stdin();
-            let mut temp_file = std::fs::File::create(&temp_path)?;
-
-            for line in stdin.lock().lines() {
-                writeln!(temp_file, "{}", line?)?;
-            }
-        }
-
-        (Some(temp), temp_path)
     };
 
     // Parse ANI calculation method
