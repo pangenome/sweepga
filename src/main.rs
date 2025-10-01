@@ -804,9 +804,6 @@ fn main() -> Result<()> {
             }
             (1, [FileType::Paf]) => {
                 // Filter existing PAF
-                if !args.quiet {
-                    eprintln!("[sweepga] Processing PAF file: {}", args.files[0]);
-                }
                 (None, args.files[0].clone())
             }
             _ => {
@@ -871,9 +868,6 @@ fn main() -> Result<()> {
             }
             FileType::Paf => {
                 // Filter stdin PAF
-                if !args.quiet {
-                    eprintln!("[sweepga] Processing PAF from stdin");
-                }
                 (Some(temp), temp_path)
             }
         }
