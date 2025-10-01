@@ -146,10 +146,6 @@ struct Args {
     #[clap(value_name = "FILE", num_args = 0..=2)]
     files: Vec<String>,
 
-    /// Output PAF file (stdout if not specified)
-    #[clap(short = 'o', long = "output")]
-    output: Option<String>,
-
     /// Aligner to use for FASTA input
     #[clap(long = "aligner", default_value = "fastga", value_parser = ["fastga"])]
     aligner: String,
@@ -159,7 +155,7 @@ struct Args {
     block_length: u64,
 
     /// Maximum overlap ratio for plane sweep filtering
-    #[clap(short = 'p', long = "overlap", default_value = "0.95")]
+    #[clap(short = 'o', long = "overlap", default_value = "0.95")]
     overlap: f64,
 
     /// Keep this fraction of mappings
@@ -888,17 +884,13 @@ fn main() -> Result<()> {
         .num_threads(args.threads)
         .build_global()?;
 
-    // Handle no-filter mode - just copy input to output
+    // Handle no-filter mode - just copy input to stdout
     if args.no_filter {
         use std::io::{BufRead, BufReader, Write};
 
         let input = BufReader::new(std::fs::File::open(&input_path)?);
-
-        let mut output: Box<dyn Write> = if let Some(ref path) = args.output {
-            Box::new(std::fs::File::create(path)?)
-        } else {
-            Box::new(std::io::stdout())
-        };
+        let stdout = std::io::stdout();
+        let mut output = stdout.lock();
 
         for line in input.lines() {
             writeln!(output, "{}", line?)?;
@@ -989,19 +981,13 @@ fn main() -> Result<()> {
     config.min_identity = min_identity;
     config.min_scaffold_identity = min_scaffold_identity;
 
-    let (_output_temp, output_path) = if let Some(ref path) = args.output {
-        (None, path.clone())
-    } else {
-        // Use temp file then copy to stdout
-        let temp = tempfile::NamedTempFile::new()?;
-        let path = temp.path().to_str().unwrap().to_string();
-        (Some(temp), path)
-    };
-
-    // Apply filtering
+    // Apply filtering - always to temp file, then copy to stdout
     if !args.quiet {
         eprintln!("[sweepga] Parsing input PAF: {}", input_path);
     }
+
+    let output_temp = tempfile::NamedTempFile::new()?;
+    let output_path = output_temp.path().to_str().unwrap().to_string();
 
     // Note: -f (no_filter) implies --self (keep self-mappings)
     let filter = PafFilter::new(config)
@@ -1009,17 +995,15 @@ fn main() -> Result<()> {
         .with_scaffolds_only(args.scaffolds_only);
     filter.filter_paf(&input_path, &output_path)?;
 
-    // If output was to stdout, copy temp file to stdout
-    if args.output.is_none() {
-        use std::io::{self, BufRead, BufReader, Write};
-        let file = std::fs::File::open(&output_path)?;
-        let reader = BufReader::new(file);
-        let stdout = io::stdout();
-        let mut handle = stdout.lock();
+    // Copy temp file to stdout
+    use std::io::{BufRead, BufReader, Write};
+    let file = std::fs::File::open(&output_path)?;
+    let reader = BufReader::new(file);
+    let stdout = std::io::stdout();
+    let mut handle = stdout.lock();
 
-        for line in reader.lines() {
-            writeln!(handle, "{}", line?)?;
-        }
+    for line in reader.lines() {
+        writeln!(handle, "{}", line?)?;
     }
 
     if !args.quiet {

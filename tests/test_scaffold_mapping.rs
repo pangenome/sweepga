@@ -32,21 +32,17 @@ fn create_test_paf(mappings: &[(
 
 /// Run sweepga and return filtered output
 fn run_sweepga(input_file: &str, args: &[&str]) -> String {
-    let output_file = NamedTempFile::new().unwrap();
-    let output_path = output_file.path().to_str().unwrap();
-
     let mut cmd = std::process::Command::new("./target/release/sweepga");
-    cmd.arg("-i").arg(input_file)
-       .arg("-o").arg(output_path);
+    cmd.arg(input_file);
 
     for arg in args {
         cmd.arg(arg);
     }
 
-    let status = cmd.status().expect("Failed to run sweepga");
-    assert!(status.success(), "sweepga failed");
+    let output = cmd.output().expect("Failed to run sweepga");
+    assert!(output.status.success(), "sweepga failed: {}", String::from_utf8_lossy(&output.stderr));
 
-    fs::read_to_string(output_path).unwrap()
+    String::from_utf8_lossy(&output.stdout).to_string()
 }
 
 #[test]

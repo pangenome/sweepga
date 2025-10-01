@@ -20,13 +20,9 @@ fn debug_scaffold_output() {
     ).unwrap();
     file.flush().unwrap();
 
-    let output_file = NamedTempFile::new().unwrap();
-    let output_path = output_file.path().to_str().unwrap();
-
     // Run with scaffolding
     let cmd = std::process::Command::new("./target/release/sweepga")
-        .arg("-i").arg(file.path().to_str().unwrap())
-        .arg("-o").arg(output_path)
+        .arg(file.path().to_str().unwrap())
         .arg("-j").arg("20k")  // Enable scaffolding
         .arg("-s").arg("15k")  // Min scaffold size
         .arg("-d").arg("0")    // No rescue
@@ -36,8 +32,8 @@ fn debug_scaffold_output() {
     println!("STDERR:\n{}", String::from_utf8_lossy(&cmd.stderr));
     println!("STDOUT:\n{}", String::from_utf8_lossy(&cmd.stdout));
 
-    let output = fs::read_to_string(output_path).unwrap();
-    println!("OUTPUT FILE:\n{}", output);
+    let output = String::from_utf8_lossy(&cmd.stdout);
+    println!("OUTPUT:\n{}", output);
 
     assert!(!output.is_empty(), "Output should not be empty");
 }

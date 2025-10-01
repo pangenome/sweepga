@@ -16,7 +16,6 @@ fn run_sweepga_with_args(paf_content: &str, args: &[&str]) -> (String, String) {
        .arg("--release")
        .arg("--quiet")
        .arg("--")
-       .arg("-i")
        .arg(temp_file.path());
 
     for arg in args {

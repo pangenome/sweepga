@@ -19,7 +19,6 @@ fn test_overlapping_scaffolds_same_chromosome_pair() {
     paf.flush().unwrap();
 
     let output = std::process::Command::new("./target/release/sweepga")
-        .arg("-i")
         .arg(paf.path())
         .arg("-s")
         .arg("1000")
@@ -67,7 +66,6 @@ fn test_overlapping_scaffolds_different_targets() {
     paf.flush().unwrap();
 
     let output = std::process::Command::new("./target/release/sweepga")
-        .arg("-i")
         .arg(paf.path())
         .arg("-s")
         .arg("1000")
@@ -125,7 +123,6 @@ fn test_contained_scaffold_filtering() {
     paf.flush().unwrap();
 
     let output = std::process::Command::new("./target/release/sweepga")
-        .arg("-i")
         .arg(paf.path())
         .arg("-s")
         .arg("1000")
@@ -173,7 +170,6 @@ fn test_scaffolds_on_different_query_chromosomes() {
     paf.flush().unwrap();
 
     let output = std::process::Command::new("./target/release/sweepga")
-        .arg("-i")
         .arg(paf.path())
         .arg("-s")
         .arg("1000")

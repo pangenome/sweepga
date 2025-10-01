@@ -47,7 +47,6 @@ fn test_chaining_monotonicity() {
 
     for gap in &gaps {
         let output = std::process::Command::new("./target/release/sweepga")
-            .arg("-i")
             .arg("data/scerevisiae8.fa.gz")
             .arg("-j")
             .arg(gap.to_string())
@@ -86,7 +85,6 @@ fn test_chain_identity_stability() {
 
     for gap in gaps {
         let output = std::process::Command::new("./target/release/sweepga")
-            .arg("-i")
             .arg("data/scerevisiae8.fa.gz")
             .arg("-j")
             .arg(gap.to_string())

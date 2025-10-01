@@ -31,7 +31,6 @@ fn test_same_query_different_targets_better_wins() {
     paf.flush().unwrap();
 
     let output = std::process::Command::new("./target/release/sweepga")
-        .arg("-i")
         .arg(paf.path())
         .arg("-s")
         .arg("5000")  // 5kb minimum
@@ -89,7 +88,6 @@ fn test_non_overlapping_different_targets_both_kept() {
     paf.flush().unwrap();
 
     let output = std::process::Command::new("./target/release/sweepga")
-        .arg("-i")
         .arg(paf.path())
         .arg("-s")
         .arg("5000")

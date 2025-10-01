@@ -55,10 +55,12 @@ fn test_fastga_self_alignment() {
         "--self",  // Include self-mappings
         "-n", "N",  // No mapping filter
         "-j", "0",  // No scaffolding
-        "-o", output_path.to_str().unwrap(),
     ]);
 
     assert!(result.is_ok(), "FastGA self-alignment failed: {result:?}");
+
+    // Write stdout to output file
+    fs::write(&output_path, result.unwrap()).unwrap();
     assert!(output_path.exists(), "Output PAF not created");
 
     let line_count = count_lines(&output_path);
@@ -103,7 +105,6 @@ fn test_fastga_pairwise_alignment() {
         fasta2.to_str().unwrap(),
         "-t", "1",
         "-Y", "0",  // Disable identity threshold to avoid filtering test alignment
-        "-o", output.to_str().unwrap(),
     ]);
 
     if let Err(ref e) = result {
@@ -114,12 +115,13 @@ fn test_fastga_pairwise_alignment() {
     }
 
     assert!(result.is_ok(), "Pairwise alignment failed: {result:?}");
+
+    // Write stdout to output file
+    let content = result.unwrap();
+    fs::write(&output, &content).unwrap();
     assert!(output.exists(), "Output not created");
 
     // Should produce at least one alignment between similar sequences
-    let content = fs::read_to_string(&output).unwrap_or_else(|e| {
-        panic!("Failed to read output file: {e}");
-    });
     assert!(!content.is_empty(), "No alignments produced (file has {} bytes)", content.len());
     assert!(content.contains("seq1"), "Missing query sequence name");
     assert!(content.contains("seq2"), "Missing target sequence name");
@@ -140,7 +142,6 @@ fn test_thread_parameter() {
         test_fa.to_str().unwrap(),
         "-t", "1",
         "--self",  // Include self-mappings for consistency
-        "-o", output1.to_str().unwrap(),
     ]);
 
     // Run with 4 threads
@@ -148,10 +149,13 @@ fn test_thread_parameter() {
         test_fa.to_str().unwrap(),
         "-t", "4",
         "--self",  // Include self-mappings for consistency
-        "-o", output4.to_str().unwrap(),
     ]);
 
     assert!(result1.is_ok() && result4.is_ok(), "Thread tests failed");
+
+    // Write outputs to files
+    fs::write(&output1, result1.unwrap()).unwrap();
+    fs::write(&output4, result4.unwrap()).unwrap();
 
     // Both should produce output
     assert!(output1.exists() && output4.exists(), "Outputs not created");
@@ -174,7 +178,6 @@ fn test_filtering_with_fastga() {
         "-b", "0",  // No minimum block length
         "-t", "2",
         "--self",
-        "-o", loose.to_str().unwrap(),
     ]);
 
     let result_strict = run_sweepga(&[
@@ -182,10 +185,13 @@ fn test_filtering_with_fastga() {
         "-b", "10k",  // 10kb minimum
         "-t", "2",
         "--self",
-        "-o", strict.to_str().unwrap(),
     ]);
 
     assert!(result_loose.is_ok() && result_strict.is_ok(), "Filtering tests failed");
+
+    // Write outputs to files
+    fs::write(&loose, result_loose.unwrap()).unwrap();
+    fs::write(&strict, result_strict.unwrap()).unwrap();
 
     let loose_count = count_lines(&loose);
     let strict_count = count_lines(&strict);
@@ -208,7 +214,6 @@ fn test_scaffold_filtering() {
         "-s", "50k",   // Minimum scaffold mass
         "-t", "2",
         "--self",
-        "-o", with_scaffold.to_str().unwrap(),
     ]);
 
     // Without scaffolding
@@ -217,10 +222,13 @@ fn test_scaffold_filtering() {
         "-j", "0",  // Disable scaffolding
         "-t", "2",
         "--self",
-        "-o", no_scaffold.to_str().unwrap(),
     ]);
 
     assert!(result1.is_ok() && result2.is_ok(), "Scaffold tests failed");
+
+    // Write outputs to files
+    fs::write(&with_scaffold, result1.unwrap()).unwrap();
+    fs::write(&no_scaffold, result2.unwrap()).unwrap();
 
     // Check for scaffold annotations
     let scaffold_content = fs::read_to_string(&with_scaffold).unwrap();
@@ -243,15 +251,17 @@ fn test_empty_input_handling() {
     let result = run_sweepga(&[
         empty_fa.to_str().unwrap(),
         "-t", "1",
-        "-o", output.to_str().unwrap(),
     ]);
 
     // Should either succeed with no output or fail gracefully
     // Not asserting success as behavior may vary, but shouldn't panic
-    if result.is_ok() && output.exists() {
-        let content = fs::read_to_string(&output).unwrap();
-        assert!(content.is_empty() || content.lines().count() == 0,
-                "Empty input produced alignments");
+    if result.is_ok() {
+        fs::write(&output, result.unwrap()).unwrap();
+        if output.exists() {
+            let content = fs::read_to_string(&output).unwrap();
+            assert!(content.is_empty() || content.lines().count() == 0,
+                    "Empty input produced alignments");
+        }
     }
 }
 
@@ -276,10 +286,12 @@ fn test_large_sequence_handling() {
         large_fa.to_str().unwrap(),
         "-t", "2",
         "--self",  // Include self-mappings
-        "-o", output.to_str().unwrap(),
     ]);
 
     assert!(result.is_ok(), "Failed on large sequence");
+
+    // Write stdout to output file
+    fs::write(&output, result.unwrap()).unwrap();
     if output.exists() {
         // Should find self-alignments in the duplicated regions
         let content = fs::read_to_string(&output).unwrap();
@@ -313,11 +325,12 @@ fn test_multisequence_fasta() {
         multi_fa.to_str().unwrap(),
         "-t", "1",
         "--self",  // Include self-mappings
-        "-o", output.to_str().unwrap(),
     ]);
 
     assert!(result.is_ok(), "Failed on multi-sequence FASTA");
 
+    // Write stdout to output file
+    fs::write(&output, result.unwrap()).unwrap();
     if output.exists() {
         let content = fs::read_to_string(&output).unwrap();
         // Should have alignments between the related sequences
@@ -343,12 +356,14 @@ fn test_performance_regression() {
         "data/scerevisiae8.fa",
         "-t", "4",
         "--self",
-        "-o", output.to_str().unwrap(),
     ]);
 
     let duration = start.elapsed();
 
     assert!(result.is_ok(), "Performance test failed");
+
+    // Write stdout to output file
+    fs::write(&output, result.unwrap()).unwrap();
 
     // Yeast self-alignment should complete in reasonable time
     assert!(duration.as_secs() < 60,

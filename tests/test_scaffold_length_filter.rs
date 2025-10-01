@@ -25,7 +25,6 @@ fn test_scaffold_length_filtering() {
 
     // Test with -s 10000 (10kb minimum scaffold length)
     let output = std::process::Command::new("./target/release/sweepga")
-        .arg("-i")
         .arg(paf.path())
         .arg("-s")
         .arg("10000")
@@ -79,7 +78,6 @@ fn test_scaffold_aligned_mass_filtering() {
 
     // Test with -s 50000 (50kb minimum aligned mass)
     let output = std::process::Command::new("./target/release/sweepga")
-        .arg("-i")
         .arg(paf.path())
         .arg("-s")
         .arg("50000")
