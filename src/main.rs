@@ -268,6 +268,10 @@ struct Args {
     /// Number of threads for parallel processing
     #[clap(short = 't', long = "threads", default_value = "8")]
     threads: usize,
+
+    /// Output format: "paf" or "1aln" (defaults to input format)
+    #[clap(short = 'F', long = "format", value_parser = ["paf", "1aln"])]
+    output_format: Option<String>,
 }
 
 fn parse_filter_mode(mode: &str, filter_type: &str) -> (FilterMode, Option<usize>, Option<usize>) {
@@ -785,7 +789,7 @@ fn main() -> Result<()> {
     let mut alignment_time: Option<f64> = None;
 
     // Detect file types and route accordingly
-    let (_temp_paf, input_path) = if !args.files.is_empty() {
+    let (_temp_paf, input_path, input_format) = if !args.files.is_empty() {
         // Detect file types
         let file_types: Result<Vec<FileType>> = args.files.iter()
             .map(|f| detect_file_type(f))
@@ -818,7 +822,7 @@ fn main() -> Result<()> {
                 }
 
                 let paf_path = temp_paf.path().to_string_lossy().into_owned();
-                (Some(temp_paf), paf_path)
+                (Some(temp_paf), paf_path, FileType::Paf)  // FASTA → alignment → PAF
             }
             (2, [FileType::Fasta, FileType::Fasta]) => {
                 // Pairwise alignment
@@ -841,15 +845,15 @@ fn main() -> Result<()> {
                 }
 
                 let paf_path = temp_paf.path().to_string_lossy().into_owned();
-                (Some(temp_paf), paf_path)
+                (Some(temp_paf), paf_path, FileType::Paf)  // FASTA → alignment → PAF
             }
             (1, [FileType::Paf]) => {
                 // Filter existing PAF
-                (None, args.files[0].clone())
+                (None, args.files[0].clone(), FileType::Paf)
             }
             (1, [FileType::Aln]) => {
                 // Filter existing .1aln
-                (None, args.files[0].clone())
+                (None, args.files[0].clone(), FileType::Aln)
             }
             _ => {
                 anyhow::bail!("Invalid file combination: expected 1 FASTA (self-align), 2 FASTA (pairwise), 1 PAF (filter), or 1 .1aln (filter)");
@@ -908,16 +912,35 @@ fn main() -> Result<()> {
                 let paf_path = temp_paf.path().to_string_lossy().into_owned();
                 // Keep both temp files alive
                 Box::leak(Box::new(temp));
-                (Some(temp_paf), paf_path)
+                (Some(temp_paf), paf_path, FileType::Paf)  // FASTA → alignment → PAF
             }
             FileType::Paf => {
                 // Filter stdin PAF
-                (Some(temp), temp_path)
+                (Some(temp), temp_path, FileType::Paf)
             }
             FileType::Aln => {
                 // Filter stdin .1aln
-                (Some(temp), temp_path)
+                (Some(temp), temp_path, FileType::Aln)
             }
+        }
+    };
+
+    // Determine output format: use --format if specified, otherwise match input format
+    let output_format = match args.output_format.as_deref() {
+        Some("paf") => FileType::Paf,
+        Some("1aln") => FileType::Aln,
+        Some(other) => anyhow::bail!("Invalid output format: {}. Use 'paf' or '1aln'", other),
+        None => {
+            // Default to input format
+            if !args.quiet {
+                let format_name = match input_format {
+                    FileType::Paf => "PAF",
+                    FileType::Aln => ".1aln",
+                    FileType::Fasta => "PAF",  // FASTA input produces PAF
+                };
+                timing.log("format", &format!("Output format: {} (matching input)", format_name));
+            }
+            input_format
         }
     };
 
