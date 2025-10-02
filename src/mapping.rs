@@ -86,6 +86,7 @@ pub enum ChainStatus {
 }
 
 /// Auxiliary data for mappings during filtering/merging
+/// NO STRINGS - works with integer IDs only
 #[derive(Debug, Clone)]
 #[allow(dead_code)]
 pub struct MappingAux {
@@ -94,8 +95,6 @@ pub struct MappingAux {
     pub chain_pair_id: i64,
     pub query_seq_id: i32,
     pub query_len: u32,
-    pub ref_name: String,
-    pub query_name: String,
     pub chain_id: String,          // Chain identifier (e.g., "1.1.1")
     pub chain_status: ChainStatus, // Scaffold or rescued
     pub ref_len: u32,              // Reference sequence length
@@ -109,8 +108,6 @@ impl Default for MappingAux {
             chain_pair_id: i64::MIN,
             query_seq_id: -1,
             query_len: 0,
-            ref_name: String::new(),
-            query_name: String::new(),
             chain_id: String::new(),
             chain_status: ChainStatus::Unassigned,
             ref_len: 0,

@@ -195,16 +195,10 @@ impl AlnReader {
 
                 // Create aux structure with integer IDs only
                 let aux = MappingAux {
-                    split_mapping_id: 0,
-                    chain_pair_score: f64::MAX,
-                    chain_pair_id: i64::MIN,
                     query_seq_id: query_id as i32,
                     query_len,
-                    ref_name: String::new(), // Empty - IDs only
-                    query_name: String::new(), // Empty - IDs only
-                    chain_id: String::new(),
-                    chain_status: ChainStatus::Unassigned,
                     ref_len,
+                    ..Default::default()
                 };
 
                 return Ok(Some((mapping, aux)));

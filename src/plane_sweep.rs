@@ -506,21 +506,28 @@ pub fn apply_plane_sweep(
     *aux_data = new_aux;
 }
 
-/// Group mappings by query-target prefix pairs
+/// Group mappings by query-target chromosome pairs
+/// Groups by full sequence IDs (one per chromosome)
 fn group_by_prefix_pairs(
-    _mappings: &[Mapping],
+    mappings: &[Mapping],
     aux_data: &[MappingAux],
-    prefix_delimiter: char,
-    skip_prefix: bool,
+    _prefix_delimiter: char,
+    _skip_prefix: bool,
 ) -> HashMap<(String, String), Vec<usize>> {
     let mut groups: HashMap<(String, String), Vec<usize>> = HashMap::new();
 
-    for (idx, aux) in aux_data.iter().enumerate() {
-        let query_prefix = extract_prefix(&aux.query_name, prefix_delimiter, skip_prefix);
-        let target_prefix = extract_prefix(&aux.ref_name, prefix_delimiter, skip_prefix);
+    for (idx, (mapping, aux)) in mappings.iter().zip(aux_data.iter()).enumerate() {
+        // Group by full chromosome IDs (query_seq_id, ref_seq_id)
+        // Each chromosome gets its own group
+        // This matches the behavior in paf_filter.rs where we group by
+        // (query_name, target_name) which are full chromosome names
+        let query_key = aux.query_seq_id.to_string();
+        // Copy field first to avoid packed field reference
+        let ref_id = mapping.ref_seq_id;
+        let target_key = ref_id.to_string();
 
         groups
-            .entry((query_prefix, target_prefix))
+            .entry((query_key, target_key))
             .or_default()
             .push(idx);
     }

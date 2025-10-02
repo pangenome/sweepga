@@ -101,8 +101,6 @@ impl<R: Read> PafReader<R> {
             query_seq_id: query_id,
             query_len: paf.query_len,
             ref_len: paf.ref_len,
-            ref_name: paf.ref_name.clone(),
-            query_name: paf.query_name.clone(),
             ..Default::default()
         };
 
