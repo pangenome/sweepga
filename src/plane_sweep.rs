@@ -1,6 +1,6 @@
 #![allow(dead_code)]
 
-use crate::mapping::{Mapping, MappingAux};
+use sweepga::mapping::{Mapping, MappingAux};
 use std::cmp::Ordering;
 use std::collections::{BTreeSet, HashMap};
 

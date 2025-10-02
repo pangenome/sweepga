@@ -1,19 +1,12 @@
-mod compact_mapping;
+// Binary-only modules (not in library)
 mod fastga_integration;
-mod grouped_mappings;
-mod mapping;
-mod paf;
-mod paf_filter;
 mod plane_sweep;
-mod plane_sweep_core;
-mod plane_sweep_exact;
-mod sequence_index;
-mod union_find;
 
 use anyhow::Result;
 use clap::Parser;
 
-use crate::paf_filter::{FilterConfig, FilterMode, PafFilter, ScoringFunction};
+// Import from library
+use sweepga::paf_filter::{FilterConfig, FilterMode, PafFilter, ScoringFunction};
 use std::collections::HashMap;
 use std::fs::File;
 use std::io::{BufRead, BufReader};
@@ -424,7 +417,7 @@ fn parse_identity_value(value: &str, ani_percentile: Option<f64>) -> Result<f64>
 
 /// Calculate ANI statistics between genome pairs using specified method
 fn calculate_ani_stats(input_path: &str, method: AniMethod, quiet: bool) -> Result<f64> {
-    use crate::paf_filter::{PafFilter, FilterConfig, FilterMode, ScoringFunction};
+    use sweepga::paf_filter::{PafFilter, FilterConfig, FilterMode, ScoringFunction};
     use tempfile::NamedTempFile;
 
     let final_input_path = match method {

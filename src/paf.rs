@@ -154,6 +154,22 @@ impl<R: Read> PafReader<R> {
         }
         Ok(records)
     }
+
+    /// Extract the sequence registry (consumes the reader)
+    pub fn into_registry(self) -> crate::seq_registry::SequenceRegistry {
+        let mut registry = crate::seq_registry::SequenceRegistry::new();
+
+        // Transfer all mappings to the registry
+        // HashMap iteration gives (key, value) pairs
+        for (name, id) in self.ref_name_to_id.into_iter() {
+            registry.register_ref(id, name);
+        }
+        for (name, id) in self.query_name_to_id.into_iter() {
+            registry.register_query(id, name);
+        }
+
+        registry
+    }
 }
 
 /// Read PAF from file
