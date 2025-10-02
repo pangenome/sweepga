@@ -68,6 +68,7 @@ extern "C" {
 pub struct AlnReader {
     file: *mut OneFile,
     schema: *mut OneSchema,
+    at_alignment: bool, // True if we're already positioned at an 'A' record
 }
 
 impl AlnReader {
@@ -96,7 +97,7 @@ impl AlnReader {
                 bail!("Failed to open .1aln file: {}", path_str);
             }
 
-            Ok(AlnReader { file, schema })
+            Ok(AlnReader { file, schema, at_alignment: false })
         }
     }
 
@@ -104,105 +105,121 @@ impl AlnReader {
     /// Returns None when EOF is reached
     pub fn read_mapping(&mut self) -> Result<Option<(Mapping, MappingAux)>> {
         unsafe {
-            // Skip to next 'A' record (alignment)
-            loop {
-                let line_type = one_line_type(self.file);
-
-                // If we're not at an 'A' record, read next line
-                if line_type != b'A' as c_char {
-                    let next = oneReadLine(self.file);
-                    if next == 0 {
+            // Read lines until we find an 'A' record (alignment)
+            if !self.at_alignment {
+                loop {
+                    // Read next line
+                    let has_line = oneReadLine(self.file);
+                    if has_line == 0 {
                         return Ok(None); // EOF
                     }
-                    continue;
-                }
 
-                // We're at an 'A' record
-                // Schema: O A 6 3 INT 3 INT 3 INT 3 INT 3 INT 3 INT
-                // Fields: aread, abpos, aepos, bread, bbpos, bepos
-
-                let query_id = one_int(self.file, 0);
-                let query_start = one_int(self.file, 1) as u32;
-                let query_end = one_int(self.file, 2) as u32;
-                let ref_id = one_int(self.file, 3);
-                let ref_start = one_int(self.file, 4) as u32;
-                let ref_end = one_int(self.file, 5) as u32;
-
-                // Read associated data lines until we hit 'T' (trace) or next 'A'
-                let mut matches = 0u64;
-                let mut diffs = 0u64;
-                let mut is_reverse = false;
-                let mut query_len = 0u32;
-                let mut ref_len = 0u32;
-
-                loop {
-                    let next_type = oneReadLine(self.file);
-
-                    if next_type == 0 {
-                        break; // EOF
+                    // Check if this is an 'A' record
+                    let line_type = one_line_type(self.file);
+                    if line_type == b'A' as c_char {
+                        break; // Found an alignment record
                     }
-
-                    match next_type as u8 as char {
-                        'T' => {
-                            // Trace record - marks end of this alignment's data
-                            // Read next line to position for next alignment
-                            oneReadLine(self.file);
-                            break;
-                        }
-                        'M' => matches = one_int(self.file, 0) as u64,
-                        'D' => diffs = one_int(self.file, 0) as u64,
-                        'R' => is_reverse = true,
-                        'L' => {
-                            query_len = one_int(self.file, 0) as u32;
-                            ref_len = one_int(self.file, 1) as u32;
-                        }
-                        'A' => {
-                            // Hit next alignment without seeing 'T'
-                            // This is valid - not all alignments have traces
-                            break;
-                        }
-                        _ => {
-                            // Skip other records (X, C, Q, etc.)
-                            continue;
-                        }
-                    }
+                    // Otherwise continue to next line
                 }
-
-                // Calculate identity: matches / (matches + diffs)
-                let identity = if matches + diffs > 0 {
-                    matches as f64 / (matches + diffs) as f64
-                } else {
-                    0.0
-                };
-
-                // Create mapping structure
-                let mut mapping = Mapping {
-                    ref_seq_id: ref_id as u32,
-                    ref_start_pos: ref_start,
-                    query_start_pos: query_start,
-                    block_length: ref_end - ref_start,
-                    n_merged: 1,
-                    conserved_sketches: 0,
-                    nuc_identity: 0,
-                    flags: 0,
-                    kmer_complexity: 100,
-                };
-
-                mapping.set_identity(identity);
-                if is_reverse {
-                    mapping.set_reverse(true);
-                }
-
-                // Create aux structure with integer IDs only
-                let aux = MappingAux {
-                    query_seq_id: query_id as i32,
-                    query_len,
-                    ref_len,
-                    ..Default::default()
-                };
-
-                return Ok(Some((mapping, aux)));
             }
+
+            // Now we're positioned at an 'A' record
+            self.at_alignment = false; // Reset for next call
+
+            // Read alignment fields
+            // Schema: O A 6 3 INT 3 INT 3 INT 3 INT 3 INT 3 INT
+            // Fields: aread, abpos, aepos, bread, bbpos, bepos
+
+            let query_id = one_int(self.file, 0);
+            let query_start = one_int(self.file, 1) as u32;
+            let _query_end = one_int(self.file, 2) as u32;
+            let ref_id = one_int(self.file, 3);
+            let ref_start = one_int(self.file, 4) as u32;
+            let ref_end = one_int(self.file, 5) as u32;
+
+            // Read associated data lines until we hit 'T' (trace) or next 'A'
+            let mut matches = 0u64;
+            let mut diffs = 0u64;
+            let mut is_reverse = false;
+            let mut query_len = 0u32;
+            let mut ref_len = 0u32;
+
+            while oneReadLine(self.file) != 0 {
+                let next_type = one_line_type(self.file);
+
+                match next_type as u8 as char {
+                    'T' => {
+                        // Trace record - marks end of this alignment's data
+                        break;
+                    }
+                    'M' => matches = one_int(self.file, 0) as u64,
+                    'D' => diffs = one_int(self.file, 0) as u64,
+                    'R' => is_reverse = true,
+                    'L' => {
+                        query_len = one_int(self.file, 0) as u32;
+                        ref_len = one_int(self.file, 1) as u32;
+                    }
+                    'A' => {
+                        // Hit next alignment without seeing 'T'
+                        // File pointer is now positioned at next 'A' record
+                        self.at_alignment = true;
+                        break;
+                    }
+                    _ => {
+                        // Skip other records (X, C, Q, etc.)
+                        continue;
+                    }
+                }
+            }
+
+            // Calculate identity: matches / (matches + diffs)
+            // NOTE: Some .1aln files (like from FastGA) don't have M records,
+            // only D records. In that case, calculate matches from block length.
+            let block_length = ref_end - ref_start;
+            let final_matches = if matches == 0 && diffs > 0 {
+                // No M record, calculate from block_length and diffs
+                if diffs < block_length as u64 {
+                    block_length as u64 - diffs
+                } else {
+                    0
+                }
+            } else {
+                matches
+            };
+
+            let identity = if final_matches + diffs > 0 {
+                final_matches as f64 / (final_matches + diffs) as f64
+            } else {
+                0.0
+            };
+
+            // Create mapping structure
+            let mut mapping = Mapping {
+                ref_seq_id: ref_id as u32,
+                ref_start_pos: ref_start,
+                query_start_pos: query_start,
+                block_length: ref_end - ref_start,
+                n_merged: 1,
+                conserved_sketches: 0,
+                nuc_identity: 0,
+                flags: 0,
+                kmer_complexity: 100,
+            };
+
+            mapping.set_identity(identity);
+            if is_reverse {
+                mapping.set_reverse(true);
+            }
+
+            // Create aux structure with integer IDs only
+            let aux = MappingAux {
+                query_seq_id: query_id as i32,
+                query_len,
+                ref_len,
+                ..Default::default()
+            };
+
+            Ok(Some((mapping, aux)))
         }
     }
 

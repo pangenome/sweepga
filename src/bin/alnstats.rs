@@ -1,13 +1,14 @@
 /// alnstats - Statistics for alignment files (PAF, 1aln)
 ///
 /// Calculates per-genome-pair coverage, mapping counts, and other statistics
-/// for alignment files. Future support for 1aln format planned.
+/// for alignment files. Supports both PAF and .1aln formats with auto-detection.
 
 use anyhow::{Result, Context};
 use clap::Parser;
 use std::collections::HashMap;
 use std::fs::File;
 use std::io::{BufRead, BufReader};
+use sweepga::format_io;
 
 #[derive(Parser)]
 #[clap(name = "alnstats", about = "Statistics for alignment files (PAF, 1aln)")]
@@ -98,6 +99,81 @@ fn extract_genome_prefix(seq_name: &str) -> String {
     }
 }
 
+/// Detect file format by extension
+fn detect_format(path: &str) -> &str {
+    if path.ends_with(".1aln") {
+        "1aln"
+    } else {
+        "paf"
+    }
+}
+
+/// Parse a .1aln file and collect statistics
+fn parse_1aln(path: &str) -> Result<AlignmentStats> {
+    // Read .1aln file using format_io
+    let (mappings, registry) = format_io::read_alignments(path, "1aln")?;
+
+    let mut stats = AlignmentStats::default();
+    let mut chr_pairs = std::collections::HashSet::new();
+
+    for (mapping, aux) in mappings {
+        // Copy packed fields to avoid unaligned references
+        let query_seq_id = aux.query_seq_id;
+        let ref_seq_id = mapping.ref_seq_id;
+        let query_len = aux.query_len;
+        let target_len = aux.ref_len;
+        let block_len = mapping.block_length;
+
+        // Get sequence names from registry, or use ID-based names
+        let query = registry.get_query_name(query_seq_id)
+            .map(|s| s.to_string())
+            .unwrap_or_else(|| format!("query_{}", query_seq_id));
+        let target = registry.get_ref_name(ref_seq_id)
+            .map(|s| s.to_string())
+            .unwrap_or_else(|| format!("ref_{}", ref_seq_id));
+
+        let query_len = query_len as u64;
+        let target_len = target_len as u64;
+        let block_len = block_len as u64;
+        let identity = mapping.identity() / 100.0; // Convert from percentage
+        let matches = (identity * block_len as f64).round() as u64;
+
+        stats.total_mappings += 1;
+        stats.total_bases += block_len;
+        stats.total_matches += matches;
+
+        // Track genome sizes
+        stats.genome_sizes.insert(query.clone(), query_len);
+        stats.genome_sizes.insert(target.clone(), target_len);
+
+        // Extract genome prefixes
+        let q_genome = extract_genome_prefix(&query);
+        let t_genome = extract_genome_prefix(&target);
+
+        // Count mapping types
+        if query == target {
+            stats.self_mappings += 1;
+        } else if q_genome != t_genome {
+            stats.inter_genome += 1;
+
+            // Track genome pair bases and matches
+            let pair = (q_genome, t_genome);
+            *stats.genome_pair_bases.entry(pair.clone()).or_insert(0) += block_len;
+            *stats.genome_pair_matches.entry(pair).or_insert(0) += matches;
+        } else {
+            // Same genome, different chromosomes
+            stats.inter_chromosomal += 1;
+        }
+
+        // Track chromosome pairs
+        chr_pairs.insert((query, target));
+    }
+
+    stats.chr_pair_count = chr_pairs.len();
+
+    Ok(stats)
+}
+
 /// Parse a PAF file and collect statistics
 fn parse_paf(path: &str) -> Result<AlignmentStats> {
     let file = File::open(path).context(format!("Failed to open {}", path))?;
@@ -121,7 +197,7 @@ fn parse_paf(path: &str) -> Result<AlignmentStats> {
         let target = fields[5];
         let target_len: u64 = fields[6].parse().context("Invalid target length")?;
         let matches: u64 = fields[9].parse().context("Invalid match count")?;
-        let block_len: u64 = fields[10].parse().context("Invalid block length")?;
+        let _block_len: u64 = fields[10].parse().context("Invalid block length")?;
 
         stats.total_mappings += 1;
         let mapping_len = query_end - query_start;
@@ -158,6 +234,15 @@ fn parse_paf(path: &str) -> Result<AlignmentStats> {
     stats.chr_pair_count = chr_pairs.len();
 
     Ok(stats)
+}
+
+/// Parse alignment file (auto-detect format)
+fn parse_alignments(path: &str) -> Result<AlignmentStats> {
+    let format = detect_format(path);
+    match format {
+        "1aln" => parse_1aln(path),
+        _ => parse_paf(path),
+    }
 }
 
 fn print_stats(path: &str, stats: &AlignmentStats, detailed: bool) {
@@ -269,10 +354,10 @@ fn format_signed(n: i64) -> String {
 fn main() -> Result<()> {
     let args = Args::parse();
 
-    let stats1 = parse_paf(&args.file1)?;
+    let stats1 = parse_alignments(&args.file1)?;
 
     if let Some(file2) = args.file2 {
-        let stats2 = parse_paf(&file2)?;
+        let stats2 = parse_alignments(&file2)?;
         compare_stats(&args.file1, &file2, &stats1, &stats2);
     } else {
         print_stats(&args.file1, &stats1, args.detailed);

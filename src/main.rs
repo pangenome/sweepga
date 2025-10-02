@@ -944,14 +944,23 @@ fn main() -> Result<()> {
 
     // Handle no-filter mode - just copy input to stdout
     if args.no_filter {
-        use std::io::{BufRead, BufReader, Write};
+        if input_format == FileType::Aln {
+            // Binary copy for .1aln files
+            use std::io::Write;
+            let mut input = std::fs::File::open(&input_path)?;
+            let stdout = std::io::stdout();
+            let mut output = stdout.lock();
+            std::io::copy(&mut input, &mut output)?;
+        } else {
+            // Text copy for PAF/FASTA
+            use std::io::{BufRead, BufReader, Write};
+            let input = BufReader::new(std::fs::File::open(&input_path)?);
+            let stdout = std::io::stdout();
+            let mut output = stdout.lock();
 
-        let input = BufReader::new(std::fs::File::open(&input_path)?);
-        let stdout = std::io::stdout();
-        let mut output = stdout.lock();
-
-        for line in input.lines() {
-            writeln!(output, "{}", line?)?;
+            for line in input.lines() {
+                writeln!(output, "{}", line?)?;
+            }
         }
 
         return Ok(());
@@ -1039,10 +1048,37 @@ fn main() -> Result<()> {
     config.min_identity = min_identity;
     config.min_scaffold_identity = min_scaffold_identity;
 
-    // Apply filtering - always to temp file, then copy to stdout
+    // Apply filtering using format-aware I/O
+    let format_name = match input_format {
+        FileType::Paf => "PAF",
+        FileType::Aln => ".1aln",
+        FileType::Fasta => "PAF", // FASTA produces PAF
+    };
+
     if !args.quiet {
-        timing.log("parse", &format!("Parsing input PAF: {}", input_path));
+        timing.log("parse", &format!("Reading {} input: {}", format_name, input_path));
     }
+
+    // Handle format conversion if needed (.1aln → PAF → filter → PAF → .1aln)
+    let (filter_input_path, _temp_input, registry) = if input_format == FileType::Aln {
+        // Convert .1aln to temp PAF for filtering
+        use sweepga::format_io;
+
+        if !args.quiet {
+            timing.log("convert", "Converting .1aln to PAF for filtering");
+        }
+
+        let (mappings, registry) = format_io::read_alignments(&input_path, "1aln")?;
+
+        // Write to temp PAF
+        let temp_paf = tempfile::NamedTempFile::new()?;
+        format_io::write_alignments(temp_paf.path(), "paf", &mappings, &registry)?;
+
+        let path = temp_paf.path().to_string_lossy().into_owned();
+        (path, Some(temp_paf), Some(registry))
+    } else {
+        (input_path.clone(), None, None)
+    };
 
     let output_temp = tempfile::NamedTempFile::new()?;
     let output_path = output_temp.path().to_str().unwrap().to_string();
@@ -1051,17 +1087,50 @@ fn main() -> Result<()> {
     let filter = PafFilter::new(config)
         .with_keep_self(args.keep_self || args.no_filter)
         .with_scaffolds_only(args.scaffolds_only);
-    filter.filter_paf(&input_path, &output_path)?;
+    filter.filter_paf(&filter_input_path, &output_path)?;
 
-    // Copy temp file to stdout
-    use std::io::{BufRead, BufReader, Write};
-    let file = std::fs::File::open(&output_path)?;
-    let reader = BufReader::new(file);
-    let stdout = std::io::stdout();
-    let mut handle = stdout.lock();
+    // Handle output format
+    if output_format == FileType::Aln {
+        // Convert filtered PAF back to .1aln
+        use sweepga::format_io;
 
-    for line in reader.lines() {
-        writeln!(handle, "{}", line?)?;
+        if !args.quiet {
+            timing.log("convert", "Converting filtered PAF to .1aln");
+        }
+
+        let registry = registry.unwrap_or_else(|| {
+            // Read the original PAF to build registry
+            use sweepga::format_io;
+            let (_, reg) = format_io::read_alignments(&input_path, "paf").unwrap();
+            reg
+        });
+
+        // Read filtered PAF
+        let (filtered_mappings, _) = format_io::read_alignments(&output_path, "paf")?;
+
+        // Write to stdout as .1aln
+        let stdout_temp = tempfile::NamedTempFile::new()?;
+        format_io::write_alignments(stdout_temp.path(), "1aln", &filtered_mappings, &registry)?;
+
+        // Copy binary .1aln to stdout
+        use std::io::{BufRead, BufReader, Write};
+        let file = std::fs::File::open(stdout_temp.path())?;
+        let mut reader = BufReader::new(file);
+        let stdout = std::io::stdout();
+        let mut handle = stdout.lock();
+
+        std::io::copy(&mut reader, &mut handle)?;
+    } else {
+        // Output PAF to stdout
+        use std::io::{BufRead, BufReader, Write};
+        let file = std::fs::File::open(&output_path)?;
+        let reader = BufReader::new(file);
+        let stdout = std::io::stdout();
+        let mut handle = stdout.lock();
+
+        for line in reader.lines() {
+            writeln!(handle, "{}", line?)?;
+        }
     }
 
     if !args.quiet {
