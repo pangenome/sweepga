@@ -65,12 +65,18 @@ impl TimingContext {
 enum FileType {
     Fasta,
     Paf,
+    Aln, // .1aln binary format
 }
 
-/// Detect file type by reading first non-empty line
+/// Detect file type by reading first non-empty line or checking file extension
 /// Handles .gz files automatically
 fn detect_file_type(path: &str) -> Result<FileType> {
     use std::io::Read;
+
+    // Check for .1aln extension first (binary format)
+    if path.ends_with(".1aln") {
+        return Ok(FileType::Aln);
+    }
 
     let file = File::open(path)?;
     let mut reader: Box<dyn BufRead> = if path.ends_with(".gz") {
@@ -113,7 +119,7 @@ fn detect_file_type(path: &str) -> Result<FileType> {
         }
     }
 
-    anyhow::bail!("Could not detect file type for {}: not FASTA (starts with >) or PAF (12+ tab-delimited fields)", path);
+    anyhow::bail!("Could not detect file type for {}: not FASTA (starts with >), PAF (12+ tab-delimited fields), or .1aln (binary)", path);
 }
 
 /// Method for calculating ANI from alignments
@@ -841,8 +847,12 @@ fn main() -> Result<()> {
                 // Filter existing PAF
                 (None, args.files[0].clone())
             }
+            (1, [FileType::Aln]) => {
+                // Filter existing .1aln
+                (None, args.files[0].clone())
+            }
             _ => {
-                anyhow::bail!("Invalid file combination: expected 1 FASTA (self-align), 2 FASTA (pairwise), or 1 PAF (filter)");
+                anyhow::bail!("Invalid file combination: expected 1 FASTA (self-align), 2 FASTA (pairwise), 1 PAF (filter), or 1 .1aln (filter)");
             }
         }
     } else {
@@ -902,6 +912,10 @@ fn main() -> Result<()> {
             }
             FileType::Paf => {
                 // Filter stdin PAF
+                (Some(temp), temp_path)
+            }
+            FileType::Aln => {
+                // Filter stdin .1aln
                 (Some(temp), temp_path)
             }
         }
