@@ -807,15 +807,15 @@ fn main() -> Result<()> {
                 use crate::fastga_integration::FastGAIntegration;
                 let path = Path::new(&args.files[0]);
                 let fastga = FastGAIntegration::new(args.threads);
-                let temp_paf = fastga.align_to_temp_paf(path, path)?;
+                let temp_1aln = fastga.align_to_temp_1aln(path, path)?;
 
                 alignment_time = Some(alignment_start.elapsed().as_secs_f64());
                 if !args.quiet {
                     timing.log("align", &format!("{} alignment complete ({:.1}s)", args.aligner, alignment_time.unwrap()));
                 }
 
-                let paf_path = temp_paf.path().to_string_lossy().into_owned();
-                (Some(temp_paf), paf_path, FileType::Paf)  // FASTA → alignment → PAF
+                let aln_path = temp_1aln.path().to_string_lossy().into_owned();
+                (Some(temp_1aln), aln_path, FileType::Aln)  // FASTA → alignment → .1aln
             }
             (2, [FileType::Fasta, FileType::Fasta]) => {
                 // Pairwise alignment
@@ -830,15 +830,15 @@ fn main() -> Result<()> {
                 let target = Path::new(&args.files[0]);
                 let query = Path::new(&args.files[1]);
                 let fastga = FastGAIntegration::new(args.threads);
-                let temp_paf = fastga.align_to_temp_paf(target, query)?;
+                let temp_1aln = fastga.align_to_temp_1aln(target, query)?;
 
                 alignment_time = Some(alignment_start.elapsed().as_secs_f64());
                 if !args.quiet {
                     timing.log("align", &format!("{} alignment complete ({:.1}s)", args.aligner, alignment_time.unwrap()));
                 }
 
-                let paf_path = temp_paf.path().to_string_lossy().into_owned();
-                (Some(temp_paf), paf_path, FileType::Paf)  // FASTA → alignment → PAF
+                let aln_path = temp_1aln.path().to_string_lossy().into_owned();
+                (Some(temp_1aln), aln_path, FileType::Aln)  // FASTA → alignment → .1aln
             }
             (1, [FileType::Paf]) => {
                 // Filter existing PAF
@@ -895,17 +895,17 @@ fn main() -> Result<()> {
                 use crate::fastga_integration::FastGAIntegration;
                 let path = Path::new(&temp_path);
                 let fastga = FastGAIntegration::new(args.threads);
-                let temp_paf = fastga.align_to_temp_paf(path, path)?;
+                let temp_1aln = fastga.align_to_temp_1aln(path, path)?;
 
                 alignment_time = Some(alignment_start.elapsed().as_secs_f64());
                 if !args.quiet {
                     timing.log("align", &format!("{} alignment complete ({:.1}s)", args.aligner, alignment_time.unwrap()));
                 }
 
-                let paf_path = temp_paf.path().to_string_lossy().into_owned();
+                let aln_path = temp_1aln.path().to_string_lossy().into_owned();
                 // Keep both temp files alive
                 Box::leak(Box::new(temp));
-                (Some(temp_paf), paf_path, FileType::Paf)  // FASTA → alignment → PAF
+                (Some(temp_1aln), aln_path, FileType::Aln)  // FASTA → alignment → .1aln
             }
             FileType::Paf => {
                 // Filter stdin PAF

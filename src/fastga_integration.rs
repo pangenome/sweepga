@@ -1,71 +1,74 @@
 use anyhow::{Result, Context};
-use fastga_rs::{FastGA, Config};
 use std::path::Path;
+use std::process::Command;
 use tempfile::NamedTempFile;
-use std::io::Write;
 
-/// Simple FastGA integration using the fastga-rs FFI bindings
-/// This version just runs FastGA and writes output to a temp PAF file
+/// Simple FastGA integration that outputs to .1aln format
+/// Uses direct command-line invocation for .1aln output since fastga-rs
+/// doesn't yet support .1aln output format
 pub struct FastGAIntegration {
-    config: Config,
+    num_threads: usize,
 }
 
 impl FastGAIntegration {
     /// Create a new FastGA integration with minimal configuration
     pub fn new(num_threads: usize) -> Self {
-        // Use FastGA defaults for most parameters, only set threads
-        let config = Config::builder()
-            .num_threads(num_threads)
-            .build();
-
-        FastGAIntegration { config }
+        FastGAIntegration { num_threads }
     }
 
-    /// Create with custom parameters (for future use)
-    #[allow(dead_code)]
-    pub fn new_with_params(min_identity: f64, min_alignment_length: u32, num_threads: usize) -> Self {
-        let config = Config::builder()
-            .min_identity(min_identity)
-            .min_alignment_length(min_alignment_length as usize)
-            .num_threads(num_threads)
-            .build();
-
-        FastGAIntegration { config }
-    }
-
-    /// Run FastGA alignment and write output to a temporary PAF file
+    /// Run FastGA alignment and write output to a temporary .1aln file
     /// Returns the temporary file handle (which auto-deletes when dropped)
-    pub fn align_to_temp_paf(
+    pub fn align_to_temp_1aln(
         &self,
         queries: &Path,
         targets: &Path,
     ) -> Result<NamedTempFile> {
-        // Create FastGA aligner
-        let aligner = FastGA::new(self.config.clone())
-            .context("Failed to create FastGA aligner")?;
+        // Create temporary .1aln output file
+        let mut temp_file = NamedTempFile::with_suffix(".1aln")
+            .context("Failed to create temporary .1aln file")?;
 
-        // Run alignment
-        let alignments = aligner.align_files(queries, targets)
-            .context("Failed to run FastGA alignment")?;
+        let temp_path = temp_file.path().to_str()
+            .context("Invalid temp file path")?;
 
-        eprintln!("[sweepga] Got {} alignments", alignments.len());
+        // Find FastGA binary (from fastga-rs build)
+        let fastga_bin = std::env::var("FASTGA_PATH")
+            .unwrap_or_else(|_| {
+                // Try to find in target/release/build
+                let manifest_dir = std::env::var("CARGO_MANIFEST_DIR").ok();
+                if let Some(dir) = manifest_dir {
+                    // Look for FastGA in build directory
+                    let build_dir = format!("{}/target/release/build", dir);
+                    if let Ok(entries) = std::fs::read_dir(&build_dir) {
+                        for entry in entries.flatten() {
+                            if entry.file_name().to_string_lossy().starts_with("fastga-rs-") {
+                                let fastga_path = entry.path().join("out/FastGA");
+                                if fastga_path.exists() {
+                                    return fastga_path.to_string_lossy().to_string();
+                                }
+                            }
+                        }
+                    }
+                }
+                "FastGA".to_string() // Hope it's in PATH
+            });
 
-        // Convert to PAF format with extended CIGAR
-        let paf_output = alignments.to_paf()
-            .context("Failed to convert alignments to PAF format")?;
+        eprintln!("[fastga] Running alignment");
+        eprintln!("[fastga] Executing: FastGA -1:{} -T{} {:?} {:?}",
+                  temp_path, self.num_threads, queries, targets);
 
-        eprintln!("[sweepga] PAF output: {} bytes, {} lines",
-                  paf_output.len(), paf_output.lines().count());
+        // Run FastGA with .1aln output
+        let output = Command::new(&fastga_bin)
+            .arg(format!("-1:{}", temp_path))
+            .arg(format!("-T{}", self.num_threads))
+            .arg(queries)
+            .arg(targets)
+            .output()
+            .context("Failed to execute FastGA")?;
 
-        // Write to temporary file
-        let mut temp_file = NamedTempFile::new()
-            .context("Failed to create temporary PAF file")?;
-
-        temp_file.write_all(paf_output.as_bytes())
-            .context("Failed to write PAF output to temporary file")?;
-
-        temp_file.flush()
-            .context("Failed to flush temporary file")?;
+        if !output.status.success() {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            anyhow::bail!("FastGA failed: {}", stderr);
+        }
 
         Ok(temp_file)
     }
