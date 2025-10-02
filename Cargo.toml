@@ -20,6 +20,10 @@ libc = "0.2"
 name = "sweepga"
 path = "src/main.rs"
 
+[[bin]]
+name = "alnstats"
+path = "src/bin/alnstats.rs"
+
 [dev-dependencies]
 pretty_assertions = "1.4"
 rand = "0.8"
