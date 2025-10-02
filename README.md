@@ -10,6 +10,25 @@ SweepGA can either:
 
 By default, it applies 1:1 plane sweep filtering to keep the single best mapping per query-target chromosome pair. Optionally, you can enable scaffolding (`-j > 0`) to chain nearby mappings and rescue distant features.
 
+## Tools Included
+
+This package includes two binaries:
+
+- **`sweepga`** - Genome alignment and filtering tool
+- **`alnstats`** - Alignment statistics and validation tool
+
+Use `alnstats` to verify filtering results:
+```bash
+# Show statistics for a PAF file
+alnstats alignments.paf
+
+# Compare before/after filtering
+alnstats raw.paf filtered.paf
+
+# Detailed per-genome-pair breakdown
+alnstats alignments.paf -d
+```
+
 ## Installation
 
 Requires Rust 1.70+. Clone and install:
