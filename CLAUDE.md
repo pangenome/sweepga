@@ -1,5 +1,50 @@
 # SweepGA Filtering Algorithm
 
+## Tools Available
+
+### alnstats - Alignment Statistics Tool
+
+**Purpose:** Calculate and compare PAF alignment statistics, especially useful for validating filtering operations.
+
+**Usage:**
+```bash
+# Show statistics for a PAF file
+alnstats alignments.paf
+
+# Compare before/after filtering
+alnstats raw.paf filtered.paf
+
+# Detailed per-genome-pair breakdown
+alnstats alignments.paf -d
+```
+
+**Key Metrics:**
+- Total mappings, bases, average identity
+- Per-genome-pair coverage statistics
+- Genome pairs with >95% coverage
+- Inter-chromosomal and inter-genome mapping counts
+
+**When to Use:**
+1. **After filtering operations** - Verify genome pairs aren't lost
+2. **Before/after comparisons** - Quantify filtering effects
+3. **Debugging coverage issues** - Use `-d` to see per-pair breakdown
+4. **Validating changes** - Ensure modifications preserve expected coverage
+
+**Example validation workflow:**
+```bash
+# Before making changes
+alnstats z.paf > before_stats.txt
+
+# Make changes, rerun filtering
+sweepga z.paf > filtered.paf
+
+# Compare results
+alnstats z.paf filtered.paf
+
+# Verify all genome pairs preserved
+alnstats filtered.paf -d | grep "cov"
+```
+
 ## CRITICAL: Git Commit Rules - NEVER VIOLATE THESE
 
 **ABSOLUTELY FORBIDDEN - NO EXCEPTIONS:**
