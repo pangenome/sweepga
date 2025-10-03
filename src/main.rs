@@ -184,12 +184,12 @@ fn parse_metric_number(s: &str) -> Result<u64, String> {
 #[derive(Parser, Debug)]
 #[clap(author, version, about, long_about = None)]
 struct Args {
-    /// Input files (auto-detected format)
+    /// PAF (filter) or FASTA (align & filter). Optional 2nd FASTA for pairwise alignment
     #[clap(value_name = "FILE", num_args = 0..=2,
            long_help = "Input files: FASTA (1 or 2) or PAF (1 only), auto-detected\n\
                         \n  \
-                        1 FASTA: self-alignment\n  \
-                        2 FASTA: align first to second (target to query)\n  \
+                        1 FASTA: align to self and filter\n  \
+                        2 FASTA: align first to second (target to query) and filter\n  \
                         1 PAF: filter alignments\n  \
                         stdin: auto-detect and process")]
     files: Vec<String>,
