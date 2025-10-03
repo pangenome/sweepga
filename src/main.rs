@@ -775,6 +775,44 @@ fn calculate_ani_n_percentile(input_path: &str, percentile: f64, sort_method: NS
     Ok(ani50)
 }
 
+/// Convert .1aln file to PAF using ALNtoPAF
+fn aln_to_paf(aln_path: &str, threads: usize) -> Result<tempfile::NamedTempFile> {
+    // Find ALNtoPAF binary (same logic as PAFtoALN)
+    let alnto_paf_bin = std::env::current_exe().ok()
+        .and_then(|exe| exe.parent().map(|p| p.join("ALNtoPAF")))
+        .filter(|p| p.exists())
+        .or_else(|| {
+            let local = std::path::PathBuf::from("./ALNtoPAF");
+            if local.exists() { Some(local) } else { None }
+        })
+        .or_else(|| {
+            let deps = std::path::PathBuf::from("deps/fastga/ALNtoPAF");
+            if deps.exists() { Some(deps) } else { None }
+        })
+        .ok_or_else(|| anyhow::anyhow!("ALNtoPAF tool not found. Cannot convert .1aln to PAF."))?;
+
+    // Create temp file for PAF output
+    let temp_paf = tempfile::NamedTempFile::with_suffix(".paf")?;
+    let paf_path = temp_paf.path();
+
+    // Run ALNtoPAF: ALNtoPAF [-T<threads>] <alignment.1aln>
+    // It writes PAF to stdout
+    let output = std::process::Command::new(&alnto_paf_bin)
+        .arg(format!("-T{}", threads))
+        .arg(aln_path)
+        .output()?;
+
+    if !output.status.success() {
+        anyhow::bail!("ALNtoPAF conversion failed: {}",
+                     String::from_utf8_lossy(&output.stderr));
+    }
+
+    // Write stdout to temp file
+    std::fs::write(paf_path, &output.stdout)?;
+
+    Ok(temp_paf)
+}
+
 fn main() -> Result<()> {
     let mut args = Args::parse();
     let timing = TimingContext::new();
@@ -860,8 +898,19 @@ fn main() -> Result<()> {
                 (None, args.files[0].clone())
             }
             (1, [FileType::Aln]) => {
-                // Filter existing .1aln
-                (None, args.files[0].clone())
+                // Convert .1aln to PAF for filtering
+                if !args.quiet {
+                    timing.log("convert", &format!("Converting .1aln to PAF: {}", args.files[0]));
+                }
+
+                let temp_paf = aln_to_paf(&args.files[0], args.threads)?;
+                let paf_path = temp_paf.path().to_str().unwrap().to_string();
+
+                if !args.quiet {
+                    timing.log("convert", "Conversion complete");
+                }
+
+                (Some(temp_paf), paf_path)
             }
             _ => {
                 anyhow::bail!("Invalid file combination: expected 1 FASTA (self-align), 2 FASTA (pairwise), 1 PAF (filter), or 1 .1aln (filter)");
@@ -927,8 +976,21 @@ fn main() -> Result<()> {
                 (Some(temp), temp_path)
             }
             FileType::Aln => {
-                // Filter stdin .1aln
-                (Some(temp), temp_path)
+                // Convert stdin .1aln to PAF for filtering
+                if !args.quiet {
+                    timing.log("convert", "Converting .1aln from stdin to PAF");
+                }
+
+                let temp_paf = aln_to_paf(&temp_path, args.threads)?;
+                let paf_path = temp_paf.path().to_str().unwrap().to_string();
+
+                if !args.quiet {
+                    timing.log("convert", "Conversion complete");
+                }
+
+                // Keep both temp files alive
+                Box::leak(Box::new(temp));
+                (Some(temp_paf), paf_path)
             }
         }
     };
