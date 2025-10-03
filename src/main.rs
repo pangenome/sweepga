@@ -271,8 +271,8 @@ struct Args {
     #[clap(short = 't', long = "threads", default_value = "8")]
     threads: usize,
 
-    /// Output format: paf (default) or 1aln (compact binary, experimental)
-    #[clap(short = 'F', long = "format", default_value = "paf", value_parser = ["paf", "1aln"], hide = true)]
+    /// Output format: paf (default) or 1aln (compact binary)
+    #[clap(short = 'F', long = "format", default_value = "paf", value_parser = ["paf", "1aln"])]
     output_format: String,
 }
 
@@ -1040,8 +1040,10 @@ fn main() -> Result<()> {
         timing.log("parse", &format!("Parsing input PAF: {}", input_path));
     }
 
-    let mut output_temp = tempfile::NamedTempFile::new()?;
-    let output_path = output_temp.path().to_str().unwrap().to_string();
+    let output_temp = tempfile::NamedTempFile::with_suffix(".paf")?;
+    let (output_file, output_path_buf) = output_temp.keep()?;
+    let output_path = output_path_buf.to_str().unwrap().to_string();
+    drop(output_file);  // Close the file handle so filter_paf can open it
 
     // Note: -f (no_filter) implies --self (keep self-mappings)
     let filter = PafFilter::new(config)
@@ -1049,11 +1051,15 @@ fn main() -> Result<()> {
         .with_scaffolds_only(args.scaffolds_only);
     filter.filter_paf(&input_path, &output_path)?;
 
-    // Ensure output is flushed before conversion
-    output_temp.as_file_mut().sync_all()?;
-
     // Convert output format if requested
-    let final_output_path = if args.output_format == "1aln" {
+    // Note: PAFtoALN automatically appends .paf to the input filename, so we need to strip it
+    let paftoaln_input_path = if args.output_format == "1aln" {
+        output_path.strip_suffix(".paf").unwrap_or(&output_path).to_string()
+    } else {
+        output_path.clone()
+    };
+
+    let (final_output_path, _aln_temp) = if args.output_format == "1aln" {
         // Convert PAF to 1aln using PAFtoALN
         // Requires the original FASTA file(s)
         if input_file_types.is_empty() || input_file_types[0] != FileType::Fasta {
@@ -1075,31 +1081,35 @@ fn main() -> Result<()> {
             })
             .ok_or_else(|| anyhow::anyhow!("PAFtoALN tool not found. Cannot convert to 1aln format."))?;
 
-        let aln_output = tempfile::NamedTempFile::with_suffix(".1aln")?;
-        let aln_path = aln_output.path();
-
-        // PAFtoALN usage: PAFtoALN [-T<int>] <alignments.paf> <source1.fa> [<source2.fa>]
-        // It writes to stdout, so we redirect to our temp file
+        // PAFtoALN usage: PAFtoALN [-T<int>] <alignments> <source1.fa> [<source2.fa>]
+        // Note: PAFtoALN automatically appends .paf to the alignments filename for input
+        // and creates <alignments>.1aln for output
         let mut cmd = std::process::Command::new(&paftoaln_bin);
         cmd.arg(format!("-T{}", args.threads))
-            .arg(&output_path)
+            .arg(&paftoaln_input_path)
             .arg(&args.files[0]);
 
         if args.files.len() == 2 {
             cmd.arg(&args.files[1]);
         }
 
-        let output_file = std::fs::File::create(aln_path)?;
-        cmd.stdout(std::process::Stdio::from(output_file));
+        // Suppress PAFtoALN's normal output unless in verbose mode
+        if args.quiet {
+            cmd.stdout(std::process::Stdio::null())
+               .stderr(std::process::Stdio::null());
+        }
 
         let status = cmd.status()?;
         if !status.success() {
             anyhow::bail!("PAFtoALN conversion failed");
         }
 
-        aln_path.to_str().unwrap().to_string()
+        // PAFtoALN creates the output file as <input_path>.1aln
+        let aln_path = format!("{}.1aln", paftoaln_input_path);
+
+        (aln_path, None::<tempfile::NamedTempFile>)
     } else {
-        output_path.clone()
+        (output_path.clone(), None::<tempfile::NamedTempFile>)
     };
 
     // Copy final output to stdout
@@ -1120,6 +1130,12 @@ fn main() -> Result<()> {
         for line in reader.lines() {
             writeln!(handle, "{}", line?)?;
         }
+    }
+
+    // Clean up temp files
+    let _ = std::fs::remove_file(&output_path);
+    if args.output_format == "1aln" {
+        let _ = std::fs::remove_file(&final_output_path);
     }
 
     if !args.quiet {
