@@ -270,6 +270,10 @@ struct Args {
     /// Number of threads for parallel processing
     #[clap(short = 't', long = "threads", default_value = "8")]
     threads: usize,
+
+    /// Output format: paf (default) or 1aln (compact binary, experimental)
+    #[clap(short = 'F', long = "format", default_value = "paf", value_parser = ["paf", "1aln"], hide = true)]
+    output_format: String,
 }
 
 fn parse_filter_mode(mode: &str, filter_type: &str) -> (FilterMode, Option<usize>, Option<usize>) {
@@ -786,13 +790,19 @@ fn main() -> Result<()> {
     // Track alignment time separately
     let mut alignment_time: Option<f64> = None;
 
-    // Detect file types and route accordingly
-    let (_temp_paf, input_path) = if !args.files.is_empty() {
-        // Detect file types
+    // Detect file types early so we can use them for output conversion
+    let input_file_types: Vec<FileType> = if !args.files.is_empty() {
         let file_types: Result<Vec<FileType>> = args.files.iter()
             .map(|f| detect_file_type(f))
             .collect();
-        let file_types = file_types?;
+        file_types?
+    } else {
+        vec![]
+    };
+
+    // Detect file types and route accordingly
+    let (_temp_paf, input_path) = if !args.files.is_empty() {
+        let file_types = &input_file_types;
 
         if !args.quiet {
             for (i, (file, ftype)) in args.files.iter().zip(file_types.iter()).enumerate() {
@@ -1030,7 +1040,7 @@ fn main() -> Result<()> {
         timing.log("parse", &format!("Parsing input PAF: {}", input_path));
     }
 
-    let output_temp = tempfile::NamedTempFile::new()?;
+    let mut output_temp = tempfile::NamedTempFile::new()?;
     let output_path = output_temp.path().to_str().unwrap().to_string();
 
     // Note: -f (no_filter) implies --self (keep self-mappings)
@@ -1039,15 +1049,77 @@ fn main() -> Result<()> {
         .with_scaffolds_only(args.scaffolds_only);
     filter.filter_paf(&input_path, &output_path)?;
 
-    // Copy temp file to stdout
-    use std::io::{BufRead, BufReader, Write};
-    let file = std::fs::File::open(&output_path)?;
-    let reader = BufReader::new(file);
-    let stdout = std::io::stdout();
-    let mut handle = stdout.lock();
+    // Ensure output is flushed before conversion
+    output_temp.as_file_mut().sync_all()?;
 
-    for line in reader.lines() {
-        writeln!(handle, "{}", line?)?;
+    // Convert output format if requested
+    let final_output_path = if args.output_format == "1aln" {
+        // Convert PAF to 1aln using PAFtoALN
+        // Requires the original FASTA file(s)
+        if input_file_types.is_empty() || input_file_types[0] != FileType::Fasta {
+            anyhow::bail!("1aln output format requires FASTA input (not PAF input)");
+        }
+
+        // Look for PAFtoALN in same directory as sweepga binary, or in current directory
+        let paftoaln_bin = std::env::current_exe().ok()
+            .and_then(|exe| exe.parent().map(|p| p.join("PAFtoALN")))
+            .filter(|p| p.exists())
+            .or_else(|| {
+                let local = std::path::PathBuf::from("./PAFtoALN");
+                if local.exists() { Some(local) } else { None }
+            })
+            .or_else(|| {
+                // Try project root (for development)
+                let root = std::path::PathBuf::from("PAFtoALN");
+                if root.exists() { Some(root) } else { None }
+            })
+            .ok_or_else(|| anyhow::anyhow!("PAFtoALN tool not found. Cannot convert to 1aln format."))?;
+
+        let aln_output = tempfile::NamedTempFile::with_suffix(".1aln")?;
+        let aln_path = aln_output.path();
+
+        // PAFtoALN usage: PAFtoALN [-T<int>] <alignments.paf> <source1.fa> [<source2.fa>]
+        // It writes to stdout, so we redirect to our temp file
+        let mut cmd = std::process::Command::new(&paftoaln_bin);
+        cmd.arg(format!("-T{}", args.threads))
+            .arg(&output_path)
+            .arg(&args.files[0]);
+
+        if args.files.len() == 2 {
+            cmd.arg(&args.files[1]);
+        }
+
+        let output_file = std::fs::File::create(aln_path)?;
+        cmd.stdout(std::process::Stdio::from(output_file));
+
+        let status = cmd.status()?;
+        if !status.success() {
+            anyhow::bail!("PAFtoALN conversion failed");
+        }
+
+        aln_path.to_str().unwrap().to_string()
+    } else {
+        output_path.clone()
+    };
+
+    // Copy final output to stdout
+    use std::io::{BufRead, BufReader, Write, Read};
+    if args.output_format == "1aln" {
+        // Binary output - copy as bytes
+        let mut file = std::fs::File::open(&final_output_path)?;
+        let stdout = std::io::stdout();
+        let mut handle = stdout.lock();
+        std::io::copy(&mut file, &mut handle)?;
+    } else {
+        // Text output - copy line by line
+        let file = std::fs::File::open(&final_output_path)?;
+        let reader = BufReader::new(file);
+        let stdout = std::io::stdout();
+        let mut handle = stdout.lock();
+
+        for line in reader.lines() {
+            writeln!(handle, "{}", line?)?;
+        }
     }
 
     if !args.quiet {
