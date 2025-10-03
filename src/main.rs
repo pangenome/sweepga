@@ -274,6 +274,10 @@ struct Args {
     /// Output format: paf (default) or 1aln (compact binary)
     #[clap(short = 'F', long = "format", default_value = "paf", value_parser = ["paf", "1aln"])]
     output_format: String,
+
+    /// Output file path (required for .1aln format to create matching .1gdb)
+    #[clap(long = "output")]
+    output: Option<String>,
 }
 
 fn parse_filter_mode(mode: &str, filter_type: &str) -> (FilterMode, Option<usize>, Option<usize>) {
@@ -775,6 +779,53 @@ fn calculate_ani_n_percentile(input_path: &str, percentile: f64, sort_method: NS
     Ok(ani50)
 }
 
+/// Find .1gdb files referenced by a .1aln file or from input FASTAs
+fn find_gdb_files_for_aln(aln_path: &str, input_files: &[String]) -> Result<Vec<String>> {
+    let mut gdb_files = Vec::new();
+
+    // Strategy 1: Check if input files are FASTAs - their .1gdb files were created
+    for input_file in input_files {
+        if input_file.ends_with(".fa") || input_file.ends_with(".fasta") ||
+           input_file.ends_with(".fa.gz") || input_file.ends_with(".fasta.gz") {
+            // Derive .1gdb path from FASTA - need to handle .gz correctly
+            let base = if input_file.ends_with(".gz") {
+                input_file.strip_suffix(".gz").unwrap()
+            } else {
+                input_file
+            };
+
+            let base = if base.ends_with(".fasta") {
+                base.strip_suffix(".fasta").unwrap()
+            } else if base.ends_with(".fa") {
+                base.strip_suffix(".fa").unwrap()
+            } else {
+                base
+            };
+
+            let gdb_path = base.to_string() + ".1gdb";
+
+            if std::path::Path::new(&gdb_path).exists() {
+                gdb_files.push(gdb_path);
+            }
+        } else if input_file.ends_with(".1aln") {
+            // Input was .1aln - look for matching .1gdb
+            let gdb_path = input_file.strip_suffix(".1aln").unwrap_or(input_file).to_string() + ".1gdb";
+            if std::path::Path::new(&gdb_path).exists() {
+                gdb_files.push(gdb_path);
+            }
+        }
+    }
+
+    // Strategy 2: Parse .1aln file for references (more complex, skip for now)
+    // Could extract '<' lines from ONEcode format if needed
+
+    if gdb_files.is_empty() {
+        anyhow::bail!("Could not find .1gdb files for .1aln output. Input files: {:?}", input_files);
+    }
+
+    Ok(gdb_files)
+}
+
 /// Convert .1aln file to PAF using ALNtoPAF
 fn aln_to_paf(aln_path: &str, threads: usize) -> Result<tempfile::NamedTempFile> {
     // Find ALNtoPAF binary (same logic as PAFtoALN)
@@ -795,9 +846,11 @@ fn aln_to_paf(aln_path: &str, threads: usize) -> Result<tempfile::NamedTempFile>
     let temp_paf = tempfile::NamedTempFile::with_suffix(".paf")?;
     let paf_path = temp_paf.path();
 
-    // Run ALNtoPAF: ALNtoPAF [-T<threads>] <alignment.1aln>
+    // Run ALNtoPAF: ALNtoPAF [-mxsS] [-T<threads>] <alignment.1aln>
+    // -x: output CIGAR with X's (required if we want to convert back to .1aln later)
     // It writes PAF to stdout
     let output = std::process::Command::new(&alnto_paf_bin)
+        .arg("-x")  // Generate CIGAR with X's
         .arg(format!("-T{}", threads))
         .arg(aln_path)
         .output()?;
@@ -1123,9 +1176,14 @@ fn main() -> Result<()> {
 
     let (final_output_path, _aln_temp) = if args.output_format == "1aln" {
         // Convert PAF to 1aln using PAFtoALN
-        // Requires the original FASTA file(s)
-        if input_file_types.is_empty() || input_file_types[0] != FileType::Fasta {
-            anyhow::bail!("1aln output format requires FASTA input (not PAF input)");
+        // Requires the original FASTA or .1aln file(s) for sequence metadata
+        if input_file_types.is_empty() {
+            anyhow::bail!("1aln output format requires FASTA or .1aln input (not PAF input)");
+        }
+
+        let first_type = input_file_types[0];
+        if first_type != FileType::Fasta && first_type != FileType::Aln {
+            anyhow::bail!("1aln output format requires FASTA or .1aln input (not PAF input)");
         }
 
         // Look for PAFtoALN in same directory as sweepga binary, or in current directory
@@ -1143,16 +1201,24 @@ fn main() -> Result<()> {
             })
             .ok_or_else(|| anyhow::anyhow!("PAFtoALN tool not found. Cannot convert to 1aln format."))?;
 
-        // PAFtoALN usage: PAFtoALN [-T<int>] <alignments> <source1.fa> [<source2.fa>]
+        // PAFtoALN usage: PAFtoALN [-T<int>] <alignments> <source1.fa|source1.1gdb> [<source2.fa|source2.1gdb>]
         // Note: PAFtoALN automatically appends .paf to the alignments filename for input
         // and creates <alignments>.1aln for output
         let mut cmd = std::process::Command::new(&paftoaln_bin);
         cmd.arg(format!("-T{}", args.threads))
-            .arg(&paftoaln_input_path)
-            .arg(&args.files[0]);
+            .arg(&paftoaln_input_path);
 
-        if args.files.len() == 2 {
-            cmd.arg(&args.files[1]);
+        // Pass FASTA or .1gdb file(s) for sequence metadata
+        // If input is .1aln, pass matching .1gdb; if FASTA, pass FASTA
+        for input_file in &args.files {
+            if input_file.ends_with(".1aln") {
+                // Input is .1aln - pass matching .1gdb
+                let gdb_path = input_file.strip_suffix(".1aln").unwrap_or(input_file).to_string() + ".1gdb";
+                cmd.arg(&gdb_path);
+            } else {
+                // Input is FASTA - pass it directly
+                cmd.arg(input_file);
+            }
         }
 
         // Suppress PAFtoALN's normal output unless in verbose mode
@@ -1174,23 +1240,69 @@ fn main() -> Result<()> {
         (output_path.clone(), None::<tempfile::NamedTempFile>)
     };
 
-    // Copy final output to stdout
+    // Handle output based on format and destination
     use std::io::{BufRead, BufReader, Write, Read};
-    if args.output_format == "1aln" {
-        // Binary output - copy as bytes
-        let mut file = std::fs::File::open(&final_output_path)?;
-        let stdout = std::io::stdout();
-        let mut handle = stdout.lock();
-        std::io::copy(&mut file, &mut handle)?;
-    } else {
-        // Text output - copy line by line
-        let file = std::fs::File::open(&final_output_path)?;
-        let reader = BufReader::new(file);
-        let stdout = std::io::stdout();
-        let mut handle = stdout.lock();
 
-        for line in reader.lines() {
-            writeln!(handle, "{}", line?)?;
+    if args.output_format == "1aln" {
+        // For .1aln output, we need an output file to create matching .1gdb
+        let output_file = args.output.as_ref().ok_or_else(|| {
+            anyhow::anyhow!(".1aln format requires -o/--output <file.1aln> to create matching .1gdb file")
+        })?;
+
+        // Copy .1aln to output file
+        std::fs::copy(&final_output_path, output_file)?;
+
+        // Find and copy the .1gdb file(s) referenced in the .1aln
+        // Extract GDB paths from the original input
+        let gdb_paths = find_gdb_files_for_aln(&final_output_path, &args.files)?;
+
+        // Copy .1gdb to match output basename
+        let output_gdb = output_file.strip_suffix(".1aln")
+            .unwrap_or(output_file)
+            .to_string() + ".1gdb";
+
+        if let Some(source_gdb) = gdb_paths.first() {
+            std::fs::copy(source_gdb, &output_gdb)?;
+
+            // Also copy the hidden .bps file (required by GDB format)
+            // .bps is in same directory with a dot prefix
+            let source_dir = std::path::Path::new(source_gdb).parent()
+                .unwrap_or(std::path::Path::new("."));
+            let source_basename = std::path::Path::new(source_gdb).file_stem()
+                .and_then(|s| s.to_str())
+                .unwrap_or("unknown");
+            let source_bps = source_dir.join(format!(".{}.bps", source_basename));
+
+            if source_bps.exists() {
+                let output_dir = std::path::Path::new(&output_gdb).parent()
+                    .unwrap_or(std::path::Path::new("."));
+                let output_basename = std::path::Path::new(&output_gdb).file_stem()
+                    .and_then(|s| s.to_str())
+                    .unwrap_or("output");
+                let output_bps = output_dir.join(format!(".{}.bps", output_basename));
+
+                std::fs::copy(&source_bps, &output_bps)?;
+            }
+
+            if !args.quiet {
+                eprintln!("[sweepga] Created {} alongside {}",
+                         output_gdb, output_file);
+            }
+        }
+    } else {
+        // PAF output - write to file or stdout
+        if let Some(output_file) = &args.output {
+            std::fs::copy(&final_output_path, output_file)?;
+        } else {
+            // Write to stdout
+            let file = std::fs::File::open(&final_output_path)?;
+            let reader = BufReader::new(file);
+            let stdout = std::io::stdout();
+            let mut handle = stdout.lock();
+
+            for line in reader.lines() {
+                writeln!(handle, "{}", line?)?;
+            }
         }
     }
 
