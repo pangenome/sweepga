@@ -98,7 +98,7 @@ sweepga data/scerevisiae8.fa.gz > scerevisiae8.paf
 
 **`-l/--min-block-length`** - Minimum alignment block length (default: 0)
 
-**`-y/--min-identity`** - Minimum identity threshold (0-1 fraction, 1-100%, or "aniN")
+**`-i/--min-identity`** - Minimum identity threshold (0-1 fraction, 1-100%, or "aniN")
 
 **`-t/--threads`** - Number of threads (default: 8)
 

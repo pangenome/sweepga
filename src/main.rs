@@ -244,10 +244,10 @@ struct Args {
     ani_method: String,
 
     /// Minimum identity threshold (0-1 fraction, 1-100%, or "aniN" for Nth percentile)
-    #[clap(short = 'y', long = "min-identity", default_value = "0")]
+    #[clap(short = 'i', long = "min-identity", default_value = "0")]
     min_identity: String,
 
-    /// Minimum scaffold identity threshold (0-1 fraction, 1-100%, "aniN", or defaults to -y)
+    /// Minimum scaffold identity threshold (0-1 fraction, 1-100%, "aniN", or defaults to -i)
     #[clap(short = 'Y', long = "min-scaffold-identity", default_value = "0", hide = true)]
     min_scaffold_identity: String,
 
