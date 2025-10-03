@@ -87,11 +87,11 @@ sweepga data/scerevisiae8.fa.gz > scerevisiae8.paf
 
 ## Parameters
 
-**`-n/--num-mappings`** - Plane sweep filtering (default: `1:1`)
-- `"1:1"` - Keep best mapping on both query and target axes (default)
+**`-n/--num-mappings`** - n:m-best mappings in query:target dimensions (default: `1:1`)
+- `"1:1"` - Orthogonal: keep best mapping on both query and target axes
 - `"1"` - Keep best mapping per query position only
 - `"many"` - No filtering, keep all mappings
-- `"M:N"` - Keep top M per query, top N per target
+- `"n:m"` - Keep top n per query, top m per target (use ∞/many for unbounded)
 
 **`-o/--overlap`** - Maximum overlap ratio (default: 0.95)
 - Mappings with >95% overlap with a better-scoring mapping are removed

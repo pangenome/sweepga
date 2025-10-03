@@ -210,7 +210,7 @@ struct Args {
     #[clap(short = 'x', long = "sparsify", default_value = "1.0")]
     sparsify: f64,
 
-    /// Mapping filter: "1:1" (best), "M:N" (top M per query, N per target; ∞/many for unbounded)
+    /// n:m-best mappings kept in query:target dimensions. 1:1 (orthogonal), use ∞/many for unbounded
     #[clap(short = 'n', long = "num-mappings", default_value = "1:1")]
     num_mappings: String,
 
