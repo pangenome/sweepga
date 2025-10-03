@@ -213,23 +213,23 @@ struct Args {
     num_mappings: String,
 
     /// Scaffold filter: "1:1" (best), "M:N" (top M per query, N per target; ∞/many for unbounded)
-    #[clap(short = 'm', long = "scaffold-filter", default_value = "many:many")]
+    #[clap(short = 'm', long = "scaffold-filter", default_value = "many:many", hide = true)]
     scaffold_filter: String,
 
     /// Scaffold jump (gap) distance. 0 = disable scaffolding (plane sweep only), >0 = enable scaffolding
-    #[clap(short = 'j', long = "scaffold-jump", default_value = "0", value_parser = parse_metric_number)]
+    #[clap(short = 'j', long = "scaffold-jump", default_value = "0", value_parser = parse_metric_number, hide = true)]
     scaffold_jump: u64,
 
     /// Minimum scaffold length when scaffolding is enabled
-    #[clap(short = 's', long = "scaffold-mass", default_value = "10k", value_parser = parse_metric_number)]
+    #[clap(short = 's', long = "scaffold-mass", default_value = "10k", value_parser = parse_metric_number, hide = true)]
     scaffold_mass: u64,
 
     /// Scaffold chain overlap threshold
-    #[clap(short = 'O', long = "scaffold-overlap", default_value = "0.5")]
+    #[clap(short = 'O', long = "scaffold-overlap", default_value = "0.5", hide = true)]
     scaffold_overlap: f64,
 
     /// Maximum distance from scaffold anchor (0 = no rescue, only keep scaffold members)
-    #[clap(short = 'd', long = "scaffold-dist", default_value = "20k", value_parser = parse_metric_number)]
+    #[clap(short = 'd', long = "scaffold-dist", default_value = "20k", value_parser = parse_metric_number, hide = true)]
     scaffold_dist: u64,
 
     /// Scoring function for plane sweep
@@ -246,7 +246,7 @@ struct Args {
     min_identity: String,
 
     /// Minimum scaffold identity threshold (0-1 fraction, 1-100%, "aniN", or defaults to -y)
-    #[clap(short = 'Y', long = "min-scaffold-identity", default_value = "0")]
+    #[clap(short = 'Y', long = "min-scaffold-identity", default_value = "0", hide = true)]
     min_scaffold_identity: String,
 
     /// Disable all filtering
@@ -258,7 +258,7 @@ struct Args {
     keep_self: bool,
 
     /// Output scaffold chains only (for debugging)
-    #[clap(long = "scaffolds-only")]
+    #[clap(long = "scaffolds-only", hide = true)]
     scaffolds_only: bool,
 
     /// Quiet mode (no progress output)
