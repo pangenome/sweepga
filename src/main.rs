@@ -918,6 +918,10 @@ fn aln_to_paf(aln_path: &str, threads: usize) -> Result<tempfile::NamedTempFile>
     Ok(temp_paf)
 }
 
+// Note: Native .1aln writing is available via fastga-rs::AlnWriter
+// For PAF → .1aln conversion in sweepga, we still use PAFtoALN for compatibility
+// Future: implement direct PAF → .1aln conversion using AlnWriter
+
 fn main() -> Result<()> {
     let mut args = Args::parse();
     let timing = TimingContext::new();
