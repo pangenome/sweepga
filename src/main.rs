@@ -184,12 +184,14 @@ fn parse_metric_number(s: &str) -> Result<u64, String> {
 #[derive(Parser, Debug)]
 #[clap(author, version, about, long_about = None)]
 struct Args {
-    /// Input files: FASTA (1 or 2) or PAF (1 only), auto-detected
-    /// - 1 FASTA: self-alignment
-    /// - 2 FASTA: align first to second (target to query)
-    /// - 1 PAF: filter alignments
-    /// - stdin: auto-detect and process
-    #[clap(value_name = "FILE", num_args = 0..=2)]
+    /// Input files (auto-detected format)
+    #[clap(value_name = "FILE", num_args = 0..=2,
+           long_help = "Input files: FASTA (1 or 2) or PAF (1 only), auto-detected\n\
+                        \n  \
+                        1 FASTA: self-alignment\n  \
+                        2 FASTA: align first to second (target to query)\n  \
+                        1 PAF: filter alignments\n  \
+                        stdin: auto-detect and process")]
     files: Vec<String>,
 
     /// Aligner to use for FASTA input
@@ -233,8 +235,8 @@ struct Args {
     scaffold_dist: u64,
 
     /// Scoring function for plane sweep
-    #[clap(long = "scoring", default_value = "log-length-identity",
-           value_parser = ["identity", "length", "length-identity", "log-length-identity", "matches"])]
+    #[clap(long = "scoring", default_value = "log-length-ani",
+           value_parser = ["ani", "length", "length-ani", "log-length-ani", "matches"])]
     scoring: String,
 
     /// Method for calculating ANI: all, orthogonal, nX[-sort] (e.g. n50, n90-identity, n100-score)
@@ -951,11 +953,11 @@ fn main() -> Result<()> {
 
     // Parse scoring function
     let scoring_function = match args.scoring.as_str() {
-        "identity" => ScoringFunction::Identity,
+        "ani" | "identity" => ScoringFunction::Identity,
         "length" => ScoringFunction::Length,
-        "length-identity" => ScoringFunction::LengthIdentity,
+        "length-ani" | "length-identity" => ScoringFunction::LengthIdentity,
         "matches" => ScoringFunction::Matches,
-        "log-length-identity" => ScoringFunction::LogLengthIdentity,
+        "log-length-ani" | "log-length-identity" => ScoringFunction::LogLengthIdentity,
         _ => ScoringFunction::LogLengthIdentity,
     };
 
