@@ -29,6 +29,7 @@ impl FastGAPreset {
                     .frequency(10)
                     .chain_break(2000)
                     .num_threads(num_threads)
+                    .verbose(true)
                     .build()
             }
             FastGAPreset::Ani80 => {
@@ -40,6 +41,7 @@ impl FastGAPreset {
                     .frequency(10)
                     .chain_break(2000)
                     .num_threads(num_threads)
+                    .verbose(true)
                     .build()
             }
             FastGAPreset::Ani85 => {
@@ -51,6 +53,7 @@ impl FastGAPreset {
                     .frequency(8)
                     .chain_break(1800)
                     .num_threads(num_threads)
+                    .verbose(true)
                     .build()
             }
             FastGAPreset::Ani90 => {
@@ -62,6 +65,7 @@ impl FastGAPreset {
                     .frequency(8)
                     .chain_break(1500)
                     .num_threads(num_threads)
+                    .verbose(true)
                     .build()
             }
             FastGAPreset::Ani95 => {
@@ -73,6 +77,7 @@ impl FastGAPreset {
                     .frequency(5)
                     .chain_break(1200)
                     .num_threads(num_threads)
+                    .verbose(true)
                     .build()
             }
             FastGAPreset::Ani99 => {
@@ -84,6 +89,7 @@ impl FastGAPreset {
                     .frequency(5)
                     .chain_break(1000)
                     .num_threads(num_threads)
+                    .verbose(true)
                     .build()
             }
         }
@@ -130,6 +136,7 @@ impl FastGAIntegration {
         // Use FastGA defaults for most parameters, only set threads
         let config = Config::builder()
             .num_threads(num_threads)
+            .verbose(true)
             .build();
 
         FastGAIntegration { config }
@@ -148,6 +155,7 @@ impl FastGAIntegration {
             .min_identity(min_identity)
             .min_alignment_length(min_alignment_length as usize)
             .num_threads(num_threads)
+            .verbose(true)
             .build();
 
         FastGAIntegration { config }
