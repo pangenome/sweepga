@@ -2,7 +2,6 @@
 pub mod compact_mapping;
 pub mod grouped_mappings;
 pub mod mapping;
-pub mod onelib;
 pub mod paf;
 pub mod paf_filter;
 pub mod plane_sweep_core;
