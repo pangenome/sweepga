@@ -3,6 +3,120 @@ use fastga_rs::{FastGA, Config};
 use std::path::Path;
 use tempfile::NamedTempFile;
 use std::io::Write;
+use std::str::FromStr;
+
+/// FastGA parameter presets optimized for different ANI levels
+#[derive(Debug, Clone, Copy)]
+pub enum FastGAPreset {
+    Ani70,
+    Ani80,
+    Ani85,
+    Ani90,
+    Ani95,
+    Ani99,
+}
+
+impl FastGAPreset {
+    /// Convert preset to FastGA Config
+    pub fn to_config(&self, num_threads: usize) -> Config {
+        match self {
+            FastGAPreset::Ani70 => {
+                Config::builder()
+                    .min_identity(0.70)
+                    .min_alignment_length(100)
+                    .chain_start_threshold(1000)
+                    .min_chain_coverage(0.85)
+                    .frequency(10)
+                    .chain_break(2000)
+                    .num_threads(num_threads)
+                    .build()
+            }
+            FastGAPreset::Ani80 => {
+                Config::builder()
+                    .min_identity(0.78)
+                    .min_alignment_length(200)
+                    .chain_start_threshold(1500)
+                    .min_chain_coverage(0.87)
+                    .frequency(10)
+                    .chain_break(2000)
+                    .num_threads(num_threads)
+                    .build()
+            }
+            FastGAPreset::Ani85 => {
+                Config::builder()
+                    .min_identity(0.83)
+                    .min_alignment_length(300)
+                    .chain_start_threshold(1800)
+                    .min_chain_coverage(0.88)
+                    .frequency(8)
+                    .chain_break(1800)
+                    .num_threads(num_threads)
+                    .build()
+            }
+            FastGAPreset::Ani90 => {
+                Config::builder()
+                    .min_identity(0.88)
+                    .min_alignment_length(400)
+                    .chain_start_threshold(2500)
+                    .min_chain_coverage(0.90)
+                    .frequency(8)
+                    .chain_break(1500)
+                    .num_threads(num_threads)
+                    .build()
+            }
+            FastGAPreset::Ani95 => {
+                Config::builder()
+                    .min_identity(0.93)
+                    .min_alignment_length(500)
+                    .chain_start_threshold(3000)
+                    .min_chain_coverage(0.92)
+                    .frequency(5)
+                    .chain_break(1200)
+                    .num_threads(num_threads)
+                    .build()
+            }
+            FastGAPreset::Ani99 => {
+                Config::builder()
+                    .min_identity(0.98)
+                    .min_alignment_length(1000)
+                    .chain_start_threshold(5000)
+                    .min_chain_coverage(0.95)
+                    .frequency(5)
+                    .chain_break(1000)
+                    .num_threads(num_threads)
+                    .build()
+            }
+        }
+    }
+
+    /// List all available presets with descriptions
+    pub fn list_all() -> Vec<(&'static str, &'static str)> {
+        vec![
+            ("ani70", "Default - Distant relatives (20-30% divergence)"),
+            ("ani80", "Moderately distant (15-20% divergence)"),
+            ("ani85", "Related species (10-15% divergence)"),
+            ("ani90", "Close relatives (5-10% divergence)"),
+            ("ani95", "Closely related - Human-chimp level (2-5% divergence)"),
+            ("ani99", "Nearly identical - Human strains (<1% divergence)"),
+        ]
+    }
+}
+
+impl FromStr for FastGAPreset {
+    type Err = anyhow::Error;
+
+    fn from_str(s: &str) -> Result<Self> {
+        match s.to_lowercase().as_str() {
+            "ani70" | "70" => Ok(FastGAPreset::Ani70),
+            "ani80" | "80" => Ok(FastGAPreset::Ani80),
+            "ani85" | "85" => Ok(FastGAPreset::Ani85),
+            "ani90" | "90" => Ok(FastGAPreset::Ani90),
+            "ani95" | "95" => Ok(FastGAPreset::Ani95),
+            "ani99" | "99" => Ok(FastGAPreset::Ani99),
+            _ => anyhow::bail!("Unknown preset '{}'. Valid presets: ani70, ani80, ani85, ani90, ani95, ani99", s),
+        }
+    }
+}
 
 /// Simple FastGA integration using the fastga-rs FFI bindings
 /// This version just runs FastGA and writes output to a temp PAF file
@@ -18,6 +132,12 @@ impl FastGAIntegration {
             .num_threads(num_threads)
             .build();
 
+        FastGAIntegration { config }
+    }
+
+    /// Create with a preset configuration
+    pub fn with_preset(preset: FastGAPreset, num_threads: usize) -> Self {
+        let config = preset.to_config(num_threads);
         FastGAIntegration { config }
     }
 
