@@ -256,7 +256,7 @@ struct Args {
     min_scaffold_identity: String,
 
     /// Disable all filtering
-    #[clap(short = 'f', long = "no-filter")]
+    #[clap(short = 'N', long = "no-filter")]
     no_filter: bool,
 
     /// Keep self-mappings (excluded by default)
