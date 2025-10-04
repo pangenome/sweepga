@@ -198,14 +198,9 @@ struct Args {
     #[clap(long = "aligner", default_value = "fastga", value_parser = ["fastga"])]
     aligner: String,
 
-    /// FastGA parameter preset for expected ANI level
-    #[clap(short = 'p', long = "preset",
-           value_parser = ["ani70", "ani80", "ani85", "ani90", "ani95", "ani99"])]
-    preset: Option<String>,
-
-    /// List available FastGA presets and exit
-    #[clap(long = "list-presets")]
-    list_presets: bool,
+    /// FastGA k-mer frequency threshold (use k-mers occurring ≤ N times)
+    #[clap(short = 'f', long = "frequency")]
+    frequency: Option<usize>,
 
     /// Minimum block length
     #[clap(short = 'b', long = "block-length", default_value = "0", value_parser = parse_metric_number)]
@@ -931,31 +926,14 @@ fn aln_to_paf(aln_path: &str, threads: usize) -> Result<tempfile::NamedTempFile>
 // For PAF → .1aln conversion in sweepga, we still use PAFtoALN for compatibility
 // Future: implement direct PAF → .1aln conversion using AlnWriter
 
-/// Create FastGA integration with optional preset
-fn create_fastga_integration(preset: Option<&str>, num_threads: usize) -> Result<fastga_integration::FastGAIntegration> {
-    use crate::fastga_integration::{FastGAIntegration, FastGAPreset};
-
-    if let Some(preset_str) = preset {
-        let preset: FastGAPreset = preset_str.parse()?;
-        Ok(FastGAIntegration::with_preset(preset, num_threads))
-    } else {
-        Ok(FastGAIntegration::new(num_threads))
-    }
+/// Create FastGA integration with optional frequency parameter
+fn create_fastga_integration(frequency: Option<usize>, num_threads: usize) -> Result<fastga_integration::FastGAIntegration> {
+    use crate::fastga_integration::FastGAIntegration;
+    Ok(FastGAIntegration::new(frequency, num_threads))
 }
 
 fn main() -> Result<()> {
     let mut args = Args::parse();
-
-    // Handle --list-presets
-    if args.list_presets {
-        use crate::fastga_integration::FastGAPreset;
-        println!("Available FastGA presets:\n");
-        for (name, desc) in FastGAPreset::list_all() {
-            println!("  {:<8} {}", name, desc);
-        }
-        return Ok(());
-    }
-
     let timing = TimingContext::new();
 
     // Print startup banner
@@ -999,7 +977,7 @@ fn main() -> Result<()> {
                 }
 
                 let path = Path::new(&args.files[0]);
-                let fastga = create_fastga_integration(args.preset.as_deref(), args.threads)?;
+                let fastga = create_fastga_integration(args.frequency, args.threads)?;
                 let temp_paf = fastga.align_to_temp_paf(path, path)?;
 
                 alignment_time = Some(alignment_start.elapsed().as_secs_f64());
@@ -1021,7 +999,7 @@ fn main() -> Result<()> {
 
                 let target = Path::new(&args.files[0]);
                 let query = Path::new(&args.files[1]);
-                let fastga = create_fastga_integration(args.preset.as_deref(), args.threads)?;
+                let fastga = create_fastga_integration(args.frequency, args.threads)?;
                 let temp_paf = fastga.align_to_temp_paf(target, query)?;
 
                 alignment_time = Some(alignment_start.elapsed().as_secs_f64());
@@ -1096,7 +1074,7 @@ fn main() -> Result<()> {
                 }
 
                 let path = Path::new(&temp_path);
-                let fastga = create_fastga_integration(args.preset.as_deref(), args.threads)?;
+                let fastga = create_fastga_integration(args.frequency, args.threads)?;
                 let temp_paf = fastga.align_to_temp_paf(path, path)?;
 
                 alignment_time = Some(alignment_start.elapsed().as_secs_f64());

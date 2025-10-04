@@ -131,20 +131,17 @@ pub struct FastGAIntegration {
 }
 
 impl FastGAIntegration {
-    /// Create a new FastGA integration with minimal configuration
-    pub fn new(num_threads: usize) -> Self {
-        // Use FastGA defaults for most parameters, only set threads
-        let config = Config::builder()
+    /// Create a new FastGA integration with optional frequency parameter
+    pub fn new(frequency: Option<usize>, num_threads: usize) -> Self {
+        let mut builder = Config::builder()
             .num_threads(num_threads)
-            .verbose(true)
-            .build();
+            .verbose(true);
 
-        FastGAIntegration { config }
-    }
+        if let Some(freq) = frequency {
+            builder = builder.adaptive_seed_cutoff(freq);
+        }
 
-    /// Create with a preset configuration
-    pub fn with_preset(preset: FastGAPreset, num_threads: usize) -> Self {
-        let config = preset.to_config(num_threads);
+        let config = builder.build();
         FastGAIntegration { config }
     }
 
