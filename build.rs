@@ -4,11 +4,11 @@ use std::path::PathBuf;
 
 fn main() {
     println!("cargo:rerun-if-changed=build.rs");
-    println!("cargo:rerun-if-changed=deps/fastga");
+    println!("cargo:rerun-if-changed=deps/FASTGA");
     println!("cargo:rerun-if-changed=rust_onelib.c");
 
     let manifest_dir = PathBuf::from(env::var("CARGO_MANIFEST_DIR").unwrap());
-    let fastga_dir = manifest_dir.join("deps").join("fastga");
+    let fastga_dir = manifest_dir.join("deps").join("FASTGA");
 
     // Build ONElib and our wrapper functions
     cc::Build::new()
