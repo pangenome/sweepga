@@ -6,8 +6,7 @@
 use anyhow::{Result, Context};
 use clap::Parser;
 use std::collections::HashMap;
-use std::fs::File;
-use std::io::{BufRead, BufReader};
+use std::io::BufRead;
 
 #[derive(Parser)]
 #[clap(name = "alnstats", about = "Statistics for alignment files (PAF, 1aln)")]
@@ -100,8 +99,8 @@ fn extract_genome_prefix(seq_name: &str) -> String {
 
 /// Parse a PAF file and collect statistics
 fn parse_paf(path: &str) -> Result<AlignmentStats> {
-    let file = File::open(path).context(format!("Failed to open {}", path))?;
-    let reader = BufReader::new(file);
+    let reader = sweepga::paf::open_paf_input(path)
+        .context(format!("Failed to open {}", path))?;
 
     let mut stats = AlignmentStats::default();
     let mut chr_pairs = std::collections::HashSet::new();

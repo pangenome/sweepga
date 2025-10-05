@@ -1,7 +1,28 @@
 use crate::mapping::{Mapping, MappingAux, PafRecord};
 use anyhow::{bail, Result};
+use noodles::bgzf;
 use std::collections::HashMap;
+use std::fs::File;
 use std::io::{BufRead, BufReader, Read};
+use std::path::Path;
+
+/// Open a file and auto-detect bgzip compression, returning a boxed BufRead
+pub fn open_paf_input<P: AsRef<Path>>(path: P) -> Result<Box<dyn BufRead>> {
+    let path = path.as_ref();
+    let file = File::open(path)?;
+
+    // Check by file extension (faster than reading magic bytes)
+    let is_compressed = path.extension()
+        .and_then(|ext| ext.to_str())
+        .map(|ext| ext == "gz" || ext == "bgz")
+        .unwrap_or(false);
+
+    if is_compressed {
+        Ok(Box::new(BufReader::new(bgzf::io::reader::Reader::new(file))))
+    } else {
+        Ok(Box::new(BufReader::new(file)))
+    }
+}
 
 /// Parse CIGAR string to count exact matches (= operations)
 /// Returns (matches, mismatches, insertions, deletions)
@@ -156,12 +177,11 @@ impl<R: Read> PafReader<R> {
     }
 }
 
-/// Read PAF from file
+/// Read PAF from file (auto-detects bgzip compression)
 #[allow(dead_code)]
 pub fn read_paf_file(path: &str) -> Result<Vec<(PafRecord, Mapping, MappingAux)>> {
-    use std::fs::File;
-    let file = File::open(path)?;
-    let mut reader = PafReader::new(file);
+    let input = open_paf_input(path)?;
+    let mut reader = PafReader::new(input);
     reader.read_all()
 }
 

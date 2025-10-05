@@ -5,7 +5,8 @@ use std::io::{BufRead, BufReader, BufWriter, Write};
 use std::path::Path;
 
 use crate::mapping::ChainStatus;
-use crate::plane_sweep_exact::{plane_sweep_grouped_pairs, PlaneSweepMapping};
+use crate::paf::open_paf_input;
+use crate::plane_sweep_exact::PlaneSweepMapping;
 use crate::sequence_index::SequenceIndex;
 
 /// Scoring function for plane sweep
@@ -278,8 +279,7 @@ impl PafFilter {
 
     /// Extract metadata from PAF without modifying records
     fn extract_metadata<P: AsRef<Path>>(&self, path: P) -> Result<Vec<RecordMeta>> {
-        let file = File::open(path)?;
-        let reader = BufReader::new(file);
+        let reader = open_paf_input(path.as_ref())?;
         let mut metadata = Vec::new();
         let mut has_cigar = false;
         let mut checked_cigar = false;
@@ -1597,8 +1597,7 @@ impl PafFilter {
         // since we're returning actual mappings, not synthetic records
 
         // Normal mode - read input and filter
-        let input_file = File::open(input_path)?;
-        let reader = BufReader::new(input_file);
+        let reader = open_paf_input(input_path)?;
 
         for (rank, line) in reader.lines().enumerate() {
             if let Some(meta) = passing.get(&rank) {
