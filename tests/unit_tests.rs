@@ -3,33 +3,6 @@ use std::fs;
 use tempfile::NamedTempFile;
 
 #[test]
-fn test_metric_number_parsing() {
-    // Test the parse_metric_number function behavior
-    // (Would need to expose this function or test via CLI)
-
-    use std::process::Command;
-
-    // Test various metric suffixes via CLI
-    let test_cases = vec![
-        ("1k", "1000"),
-        ("10k", "10000"),
-        ("1m", "1000000"),
-        ("1g", "1000000000"),
-    ];
-
-    for (input, _expected) in test_cases {
-        let output = Command::new("cargo")
-            .args(["run", "--quiet", "--", "--help"])
-            .output()
-            .expect("Failed to run help");
-
-        // Just verify the program accepts these formats
-        assert!(output.status.success() || output.status.code() == Some(0),
-                "Failed to parse metric number: {input}");
-    }
-}
-
-#[test]
 fn test_paf_format_validation() {
     // Test that we produce valid PAF format
     let temp = NamedTempFile::new().unwrap();
