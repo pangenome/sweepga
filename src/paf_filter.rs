@@ -1597,8 +1597,7 @@ impl PafFilter {
         // since we're returning actual mappings, not synthetic records
 
         // Normal mode - read input and filter
-        let input_file = File::open(input_path)?;
-        let reader = BufReader::new(input_file);
+        let reader = open_paf_input(input_path)?;
 
         for (rank, line) in reader.lines().enumerate() {
             if let Some(meta) = passing.get(&rank) {
