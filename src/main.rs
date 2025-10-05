@@ -79,8 +79,9 @@ fn detect_file_type(path: &str) -> Result<FileType> {
     }
 
     let file = File::open(path)?;
-    let mut reader: Box<dyn BufRead> = if path.ends_with(".gz") {
-        Box::new(BufReader::new(flate2::read::GzDecoder::new(file)))
+    let mut reader: Box<dyn BufRead> = if path.ends_with(".gz") || path.ends_with(".bgz") {
+        // Use bgzf reader for .gz and .bgz files (handles both gzip and bgzip)
+        Box::new(BufReader::new(noodles::bgzf::io::reader::Reader::new(file)))
     } else {
         Box::new(BufReader::new(file))
     };
