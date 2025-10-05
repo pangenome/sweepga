@@ -1119,9 +1119,9 @@ fn main() -> Result<()> {
 
     // Handle no-filter mode - just copy input to stdout
     if args.no_filter {
-        use std::io::{BufRead, BufReader, Write};
+        use std::io::{BufRead, Write};
 
-        let input = BufReader::new(std::fs::File::open(&input_path)?);
+        let input = crate::paf::open_paf_input(&input_path)?;
         let stdout = std::io::stdout();
         let mut output = stdout.lock();
 
