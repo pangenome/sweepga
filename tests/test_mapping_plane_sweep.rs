@@ -23,7 +23,7 @@ fn test_mapping_plane_sweep_across_targets() {
         .arg("1:1")   // Pre-scaffold 1:1 filtering
         .arg("-j")
         .arg("0")     // No scaffolding
-        .arg("-Y")
+        .arg("-i")
         .arg("0")
         .arg("-o")
         .arg("0.5")   // Lower overlap threshold (default 0.95 is too high)
@@ -68,7 +68,7 @@ fn test_mapping_plane_sweep_target_axis() {
         .arg("1:1")
         .arg("-j")
         .arg("0")
-        .arg("-Y")
+        .arg("-i")
         .arg("0")
         .arg("-o")
         .arg("0.5")   // Lower overlap threshold

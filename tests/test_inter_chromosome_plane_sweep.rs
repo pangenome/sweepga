@@ -36,7 +36,7 @@ fn test_same_query_different_targets_better_wins() {
         .arg("5000")  // 5kb minimum
         .arg("-j")
         .arg("2000")  // Merge within 2kb
-        .arg("-Y")
+        .arg("-i")
         .arg("0")     // No identity filter
         .arg("-m")
         .arg("1:1")   // True 1:1 filtering
@@ -93,7 +93,7 @@ fn test_non_overlapping_different_targets_both_kept() {
         .arg("5000")
         .arg("-j")
         .arg("2000")
-        .arg("-Y")
+        .arg("-i")
         .arg("0")
         .arg("-m")
         .arg("1:1")

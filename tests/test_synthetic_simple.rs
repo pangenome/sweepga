@@ -119,7 +119,7 @@ fn test_minimum_requirements() {
         fs::write(&test_fa, format!(">test_{length}\n{sequence}\n")).unwrap();
 
         let result = Command::new("cargo")
-            .args(["run", "--release", "--quiet", "--"])
+            .args(["run", "--release", "--bin", "sweepga", "--quiet", "--"])
             .arg(&test_fa)
             .arg("-t").arg("1")
             .arg("-o").arg(&output)

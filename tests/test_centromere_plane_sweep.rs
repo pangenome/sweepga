@@ -26,7 +26,7 @@ fn test_reverse_strand_scaffold_plane_sweep() {
     // With Y=0 (no identity filter) and scaffolding enabled
     let output = std::process::Command::new("./target/release/sweepga")
         .arg(paf.path())
-        .arg("-Y")
+        .arg("-i")
         .arg("0")
         .arg("-j")
         .arg("100000")  // Enable scaffolding
@@ -76,7 +76,7 @@ fn test_reverse_vs_forward_scaffold_scoring() {
     
     let output = std::process::Command::new("./target/release/sweepga")
         .arg(paf.path())
-        .arg("-Y")
+        .arg("-i")
         .arg("0")
         .arg("-j")
         .arg("100000")
