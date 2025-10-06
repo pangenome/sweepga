@@ -2,7 +2,6 @@
 ///
 /// This is only used for PAF input/output. When working with .1aln files,
 /// we work directly with integer IDs and skip string conversion entirely.
-
 use std::collections::HashMap;
 
 /// Registry that maps sequence IDs to names

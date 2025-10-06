@@ -1,3 +1,4 @@
+#![allow(dead_code)]
 /// Efficient grouped storage for mappings
 use std::collections::HashMap;
 use crate::compact_mapping::CompactRecordMeta;

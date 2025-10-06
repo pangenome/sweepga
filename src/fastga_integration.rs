@@ -7,6 +7,7 @@ use std::str::FromStr;
 
 /// FastGA parameter presets optimized for different ANI levels
 #[derive(Debug, Clone, Copy)]
+#[allow(dead_code)]
 pub enum FastGAPreset {
     Ani70,
     Ani80,
@@ -18,6 +19,7 @@ pub enum FastGAPreset {
 
 impl FastGAPreset {
     /// Convert preset to FastGA Config
+    #[allow(clippy::wrong_self_convention, dead_code)]
     pub fn to_config(&self, num_threads: usize) -> Config {
         match self {
             FastGAPreset::Ani70 => {
@@ -96,6 +98,7 @@ impl FastGAPreset {
     }
 
     /// List all available presets with descriptions
+    #[allow(dead_code)]
     pub fn list_all() -> Vec<(&'static str, &'static str)> {
         vec![
             ("ani70", "Default - Distant relatives (20-30% divergence)"),

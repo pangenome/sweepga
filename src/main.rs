@@ -56,7 +56,7 @@ impl TimingContext {
     /// Log message with timing in minimap2 format
     fn log(&self, phase: &str, message: &str) {
         let (elapsed, cpu_ratio) = self.stats();
-        eprintln!("[sweepga::{}::{:.3}*{:.2}] {}", phase, elapsed, cpu_ratio, message);
+        eprintln!("[sweepga::{phase}::{elapsed:.3}*{cpu_ratio:.2}] {message}");
     }
 }
 
@@ -71,7 +71,7 @@ enum FileType {
 /// Detect file type by reading first non-empty line or checking file extension
 /// Handles .gz files automatically
 fn detect_file_type(path: &str) -> Result<FileType> {
-    use std::io::Read;
+    
 
     // Check for .1aln extension first (binary format)
     if path.ends_with(".1aln") {
@@ -608,6 +608,7 @@ fn calculate_ani_n_percentile(input_path: &str, percentile: f64, sort_method: NS
     let reader = BufReader::new(file);
 
     // Collect all alignments with their lengths and identity
+    #[allow(dead_code)]
     struct Alignment {
         query_genome: String,
         target_genome: String,
@@ -785,7 +786,7 @@ fn calculate_ani_n_percentile(input_path: &str, percentile: f64, sort_method: NS
 }
 
 /// Find .1gdb files referenced by a .1aln file or from input FASTAs
-fn find_gdb_files_for_aln(aln_path: &str, input_files: &[String]) -> Result<Vec<String>> {
+fn find_gdb_files_for_aln(_aln_path: &str, input_files: &[String]) -> Result<Vec<String>> {
     let mut gdb_files = Vec::new();
 
     // Strategy 1: Check if input files are FASTAs - their .1gdb files were created
@@ -833,7 +834,7 @@ fn find_gdb_files_for_aln(aln_path: &str, input_files: &[String]) -> Result<Vec<
 
 /// Convert .1aln file to PAF using native reader (fast path)
 fn aln_to_paf_native(aln_path: &str) -> Result<tempfile::NamedTempFile> {
-    use fastga_rs::{AlnReader, AlnRecord};
+    use fastga_rs::AlnReader;
     use std::io::Write;
 
     // Create temp file for PAF output
@@ -908,7 +909,7 @@ fn aln_to_paf(aln_path: &str, threads: usize) -> Result<tempfile::NamedTempFile>
     // It writes PAF to stdout
     let output = std::process::Command::new(&alnto_paf_bin)
         .arg("-x")  // Generate CIGAR with X's
-        .arg(format!("-T{}", threads))
+        .arg(format!("-T{threads}"))
         .arg(aln_path)
         .output()?;
 
@@ -934,7 +935,7 @@ fn create_fastga_integration(frequency: Option<usize>, num_threads: usize) -> Re
 }
 
 fn main() -> Result<()> {
-    let mut args = Args::parse();
+    let args = Args::parse();
     let timing = TimingContext::new();
 
     // Print startup banner
@@ -1062,7 +1063,7 @@ fn main() -> Result<()> {
         // Detect stdin type
         let file_type = detect_file_type(&temp_path)?;
         if !args.quiet {
-            timing.log("detect", &format!("stdin: {:?}", file_type));
+            timing.log("detect", &format!("stdin: {file_type:?}"));
         }
 
         match file_type {
@@ -1216,7 +1217,7 @@ fn main() -> Result<()> {
 
     // Apply filtering - always to temp file, then copy to stdout
     if !args.quiet {
-        timing.log("parse", &format!("Parsing input PAF: {}", input_path));
+        timing.log("parse", &format!("Parsing input PAF: {input_path}"));
     }
 
     let output_temp = tempfile::NamedTempFile::with_suffix(".paf")?;
@@ -1297,7 +1298,7 @@ fn main() -> Result<()> {
         }
 
         // PAFtoALN creates the output file as <input_path>.1aln
-        let aln_path = format!("{}.1aln", paftoaln_input_path);
+        let aln_path = format!("{paftoaln_input_path}.1aln");
 
         (aln_path, None::<tempfile::NamedTempFile>)
     } else {
@@ -1305,7 +1306,7 @@ fn main() -> Result<()> {
     };
 
     // Handle output based on format and destination
-    use std::io::{BufRead, BufReader, Write, Read};
+    use std::io::{BufRead, BufReader, Write};
 
     if args.output_format == "1aln" {
         // For .1aln output, we need an output file to create matching .1gdb
@@ -1335,7 +1336,7 @@ fn main() -> Result<()> {
             let source_basename = std::path::Path::new(source_gdb).file_stem()
                 .and_then(|s| s.to_str())
                 .unwrap_or("unknown");
-            let source_bps = source_dir.join(format!(".{}.bps", source_basename));
+            let source_bps = source_dir.join(format!(".{source_basename}.bps"));
 
             if source_bps.exists() {
                 let output_dir = std::path::Path::new(&output_gdb).parent()
@@ -1343,14 +1344,13 @@ fn main() -> Result<()> {
                 let output_basename = std::path::Path::new(&output_gdb).file_stem()
                     .and_then(|s| s.to_str())
                     .unwrap_or("output");
-                let output_bps = output_dir.join(format!(".{}.bps", output_basename));
+                let output_bps = output_dir.join(format!(".{output_basename}.bps"));
 
                 std::fs::copy(&source_bps, &output_bps)?;
             }
 
             if !args.quiet {
-                eprintln!("[sweepga] Created {} alongside {}",
-                         output_gdb, output_file);
+                eprintln!("[sweepga] Created {output_gdb} alongside {output_file}");
             }
         }
     } else {

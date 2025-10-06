@@ -1,3 +1,4 @@
+#![allow(dead_code)]
 use std::cmp::Ordering;
 /// Core plane sweep algorithm that works on intervals
 /// This is the single implementation used for both query and target axes

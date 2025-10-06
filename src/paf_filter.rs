@@ -1,7 +1,7 @@
 use anyhow::Result;
 use std::collections::{HashMap, HashSet};
 use std::fs::File;
-use std::io::{BufRead, BufReader, BufWriter, Write};
+use std::io::{BufRead, BufWriter, Write};
 use std::path::Path;
 
 use crate::mapping::ChainStatus;
@@ -925,7 +925,7 @@ impl PafFilter {
         }
 
         // Convert RecordMeta to PlaneSweepMapping with grouping keys
-        let mut plane_sweep_mappings: Vec<(PlaneSweepMapping, String, String)> = mappings
+        let plane_sweep_mappings: Vec<(PlaneSweepMapping, String, String)> = mappings
             .iter()
             .enumerate()
             .map(|(idx, meta)| {
@@ -1068,7 +1068,7 @@ impl PafFilter {
         }
 
         // Convert MergedChain to PlaneSweepMapping - same as regular mappings
-        let mut plane_sweep_mappings: Vec<(PlaneSweepMapping, String, String)> = chains
+        let plane_sweep_mappings: Vec<(PlaneSweepMapping, String, String)> = chains
             .iter()
             .enumerate()
             .map(|(idx, chain)| {

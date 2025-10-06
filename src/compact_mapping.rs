@@ -1,3 +1,4 @@
+#![allow(dead_code)]
 /// Compact mapping structures using sequence IDs instead of strings
 use crate::mapping::ChainStatus;
 

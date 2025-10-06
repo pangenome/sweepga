@@ -2,7 +2,6 @@
 ///
 /// Calculates per-genome-pair coverage, mapping counts, and other statistics
 /// for alignment files. Future support for 1aln format planned.
-
 use anyhow::{Result, Context};
 use clap::Parser;
 use std::collections::HashMap;
@@ -100,7 +99,7 @@ fn extract_genome_prefix(seq_name: &str) -> String {
 /// Parse a PAF file and collect statistics
 fn parse_paf(path: &str) -> Result<AlignmentStats> {
     let reader = sweepga::paf::open_paf_input(path)
-        .context(format!("Failed to open {}", path))?;
+        .context(format!("Failed to open {path}"))?;
 
     let mut stats = AlignmentStats::default();
     let mut chr_pairs = std::collections::HashSet::new();
@@ -120,7 +119,7 @@ fn parse_paf(path: &str) -> Result<AlignmentStats> {
         let target = fields[5];
         let target_len: u64 = fields[6].parse().context("Invalid target length")?;
         let matches: u64 = fields[9].parse().context("Invalid match count")?;
-        let block_len: u64 = fields[10].parse().context("Invalid block length")?;
+        let _block_len: u64 = fields[10].parse().context("Invalid block length")?;
 
         stats.total_mappings += 1;
         let mapping_len = query_end - query_start;
@@ -163,7 +162,7 @@ fn print_stats(path: &str, stats: &AlignmentStats, detailed: bool) {
     let coverage = stats.calculate_coverage_stats();
     let avg_identity = stats.calculate_avg_identity();
 
-    println!("\nStatistics for {}:", path);
+    println!("\nStatistics for {path}:");
     println!("{}", "=".repeat(60));
     println!("Total mappings:        {:>12}", format_number(stats.total_mappings));
     println!("Total bases:           {:>12}", format_number(stats.total_bases as usize));
@@ -207,7 +206,7 @@ fn compare_stats(file1: &str, file2: &str, stats1: &AlignmentStats, stats2: &Ali
     let identity1 = stats1.calculate_avg_identity();
     let identity2 = stats2.calculate_avg_identity();
 
-    println!("\nComparison: {} vs {}", file1, file2);
+    println!("\nComparison: {file1} vs {file2}");
     println!("{}", "=".repeat(60));
 
     print_comparison("Mappings", stats1.total_mappings, stats2.total_mappings);
@@ -232,7 +231,7 @@ fn compare_stats(file1: &str, file2: &str, stats1: &AlignmentStats, stats2: &Ali
 }
 
 fn print_comparison(label: &str, val1: usize, val2: usize) {
-    println!("\n{}:", label);
+    println!("\n{label}:");
     println!("  {:30} {:>12}", "Before", format_number(val1));
     println!("  {:30} {:>12}", "After", format_number(val2));
 
@@ -249,7 +248,7 @@ fn format_number(n: usize) -> String {
     let s = n.to_string();
     let mut result = String::new();
     for (i, c) in s.chars().rev().enumerate() {
-        if i > 0 && i % 3 == 0 {
+        if i > 0 && i.is_multiple_of(3) {
             result.push(',');
         }
         result.push(c);

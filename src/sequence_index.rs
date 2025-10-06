@@ -1,3 +1,4 @@
+#![allow(dead_code)]
 /// Efficient sequence name indexing for compact storage
 use std::collections::HashMap;
 
