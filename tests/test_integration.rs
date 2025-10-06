@@ -1,3 +1,4 @@
+#![allow(clippy::uninlined_format_args)]
 // Integration tests for sweepga with plane sweep
 use std::fs;
 use std::process::Command;

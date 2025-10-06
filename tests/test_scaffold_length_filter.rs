@@ -1,3 +1,4 @@
+#![allow(clippy::uninlined_format_args)]
 /// Test that scaffolds below the minimum length threshold are filtered out
 use std::io::Write;
 use tempfile::NamedTempFile;

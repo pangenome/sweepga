@@ -211,7 +211,7 @@ struct Args {
     block_length: u64,
 
     /// Maximum overlap ratio for plane sweep filtering
-    #[clap(short = 'o', long = "overlap", default_value = "0.95")]
+    #[clap(long = "overlap", default_value = "0.95")]
     overlap: f64,
 
     /// Keep this fraction of mappings
@@ -294,13 +294,13 @@ struct Args {
     #[clap(short = 't', long = "threads", default_value = "8")]
     threads: usize,
 
-    /// Output format: paf (default) or 1aln (compact binary)
-    #[clap(short = 'F', long = "format", default_value = "paf", value_parser = ["paf", "1aln"])]
-    output_format: String,
+    /// Use 1aln format for output (compact binary, requires .1gdb files)
+    #[clap(short = '1', long = "one-aln")]
+    one_aln: bool,
 
-    /// Output file path (required for .1aln format to create matching .1gdb)
-    #[clap(long = "output")]
-    output: Option<String>,
+    /// Output file path (.1aln path if -1 is used, otherwise optional for PAF)
+    #[clap(short = 'o', long = "output-file")]
+    output_file: Option<String>,
 }
 
 fn parse_filter_mode(mode: &str, filter_type: &str) -> (FilterMode, Option<usize>, Option<usize>) {
@@ -1380,7 +1380,7 @@ fn main() -> Result<()> {
 
     // Convert output format if requested
     // Note: PAFtoALN automatically appends .paf to the input filename, so we need to strip it
-    let paftoaln_input_path = if args.output_format == "1aln" {
+    let paftoaln_input_path = if args.one_aln {
         output_path
             .strip_suffix(".paf")
             .unwrap_or(&output_path)
@@ -1389,7 +1389,7 @@ fn main() -> Result<()> {
         output_path.clone()
     };
 
-    let (final_output_path, _aln_temp) = if args.output_format == "1aln" {
+    let (final_output_path, _aln_temp) = if args.one_aln {
         // Convert PAF to 1aln using PAFtoALN
         // Requires the original FASTA or .1aln file(s) for sequence metadata
         if input_file_types.is_empty() {
@@ -1473,11 +1473,11 @@ fn main() -> Result<()> {
     // Handle output based on format and destination
     use std::io::{BufRead, BufReader, Write};
 
-    if args.output_format == "1aln" {
+    if args.one_aln {
         // For .1aln output, we need an output file to create matching .1gdb
-        let output_file = args.output.as_ref().ok_or_else(|| {
+        let output_file = args.output_file.as_ref().ok_or_else(|| {
             anyhow::anyhow!(
-                ".1aln format requires -o/--output <file.1aln> to create matching .1gdb file"
+                ".1aln format requires -O/--output-file <file.1aln> to create matching .1gdb file"
             )
         })?;
 
@@ -1528,7 +1528,7 @@ fn main() -> Result<()> {
         }
     } else {
         // PAF output - write to file or stdout
-        if let Some(output_file) = &args.output {
+        if let Some(output_file) = &args.output_file {
             std::fs::copy(&final_output_path, output_file)?;
         } else {
             // Write to stdout
@@ -1545,7 +1545,7 @@ fn main() -> Result<()> {
 
     // Clean up temp files
     let _ = std::fs::remove_file(&output_path);
-    if args.output_format == "1aln" {
+    if args.one_aln {
         let _ = std::fs::remove_file(&final_output_path);
     }
 

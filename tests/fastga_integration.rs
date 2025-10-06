@@ -1,9 +1,13 @@
+#![allow(clippy::uninlined_format_args)]
 /// Comprehensive integration tests for FastGA-RS
 /// These tests verify that FastGA correctly generates alignments from FASTA inputs
 use std::fs;
 use std::path::Path;
 use std::process::Command;
 use tempfile::TempDir;
+
+#[path = "synthetic_genomes.rs"]
+mod synthetic_genomes;
 
 /// Helper to count lines in a file
 fn count_lines(path: &Path) -> usize {
@@ -84,9 +88,7 @@ fn test_fastga_self_alignment() {
 #[test]
 fn test_fastga_pairwise_alignment() {
     // Import from synthetic_genomes module
-    #[path = "synthetic_genomes.rs"]
-    mod synthetic_genomes;
-    use synthetic_genomes::generate_test_pair;
+    use self::synthetic_genomes::generate_test_pair;
 
     let temp_dir = TempDir::new().unwrap();
 
@@ -300,8 +302,8 @@ fn test_empty_input_handling() {
 
     // Should either succeed with no output or fail gracefully
     // Not asserting success as behavior may vary, but shouldn't panic
-    if result.is_ok() {
-        fs::write(&output, result.unwrap()).unwrap();
+    if let Ok(content) = result {
+        fs::write(&output, content).unwrap();
         if output.exists() {
             let content = fs::read_to_string(&output).unwrap();
             assert!(
@@ -314,9 +316,7 @@ fn test_empty_input_handling() {
 
 #[test]
 fn test_large_sequence_handling() {
-    #[path = "synthetic_genomes.rs"]
-    mod synthetic_genomes;
-    use synthetic_genomes::generate_base_sequence;
+    use self::synthetic_genomes::generate_base_sequence;
 
     let temp_dir = TempDir::new().unwrap();
     let large_fa = temp_dir.path().join("large.fa");
@@ -356,9 +356,7 @@ fn test_large_sequence_handling() {
 
 #[test]
 fn test_multisequence_fasta() {
-    #[path = "synthetic_genomes.rs"]
-    mod synthetic_genomes;
-    use synthetic_genomes::{generate_base_sequence, mutate_sequence};
+    use self::synthetic_genomes::{generate_base_sequence, mutate_sequence};
 
     let temp_dir = TempDir::new().unwrap();
     let multi_fa = temp_dir.path().join("multi.fa");

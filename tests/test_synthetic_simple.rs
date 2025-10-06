@@ -1,3 +1,4 @@
+#![allow(clippy::uninlined_format_args)]
 /// Simple test to understand FastGA's requirements
 
 #[test]

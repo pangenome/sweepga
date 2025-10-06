@@ -16,6 +16,7 @@ pub fn generate_base_sequence(length: usize, seed: u64) -> String {
 
 /// Mutation types
 #[derive(Debug, Clone, Copy)]
+#[allow(dead_code)]
 pub enum MutationType {
     Substitution,
     Insertion,
@@ -23,6 +24,7 @@ pub enum MutationType {
 }
 
 /// Apply controlled mutations to create a derived sequence
+#[allow(dead_code)]
 pub fn mutate_sequence(base: &str, num_mutations: usize, seed: u64) -> String {
     let mut rng = StdRng::seed_from_u64(seed);
     let mut sequence: Vec<char> = base.chars().collect();
@@ -82,6 +84,7 @@ pub fn mutate_sequence(base: &str, num_mutations: usize, seed: u64) -> String {
 }
 
 /// Generate a pair of related sequences for testing alignment
+#[allow(dead_code)]
 pub fn generate_test_pair(length: usize, divergence: f64) -> (String, String) {
     // Use fixed seeds for reproducibility
     let base = generate_base_sequence(length, 42);
@@ -96,6 +99,7 @@ pub fn generate_test_pair(length: usize, divergence: f64) -> (String, String) {
 }
 
 /// Create test FASTA files with various sequence lengths
+#[allow(dead_code)]
 pub fn create_scaled_test_files(dir: &Path) -> Vec<(PathBuf, PathBuf, usize)> {
     let sizes = vec![1000, 10000, 50000, 100000];
     let mut results = Vec::new();
@@ -118,6 +122,7 @@ pub fn create_scaled_test_files(dir: &Path) -> Vec<(PathBuf, PathBuf, usize)> {
 }
 
 /// Create multi-chromosome test genome
+#[allow(dead_code)]
 pub fn create_multichrom_genome(path: &Path, size_per_chr: usize, num_chromosomes: usize) {
     let mut content = String::new();
 
@@ -131,6 +136,7 @@ pub fn create_multichrom_genome(path: &Path, size_per_chr: usize, num_chromosome
 }
 
 /// Create a genome with repeats for testing repeat detection
+#[allow(dead_code)]
 pub fn create_genome_with_repeats(path: &Path, base_size: usize) {
     let mut sequence = generate_base_sequence(base_size, 99);
 
@@ -161,6 +167,7 @@ mod tests {
     use tempfile::TempDir;
 
     #[test]
+    #[allow(dead_code)]
     fn test_stable_sequence_generation() {
         // Same seed should produce same sequence
         let seq1 = generate_base_sequence(100, 42);
@@ -176,6 +183,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(dead_code)]
     fn test_mutations() {
         let base = "ACGTACGTACGTACGT";
         let mutated = mutate_sequence(base, 3, 42);
@@ -196,6 +204,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(dead_code)]
     fn test_scaled_generation() {
         let temp_dir = TempDir::new().unwrap();
         let files = create_scaled_test_files(temp_dir.path());

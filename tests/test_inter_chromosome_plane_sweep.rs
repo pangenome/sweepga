@@ -9,6 +9,7 @@ use std::io::Write;
 use tempfile::NamedTempFile;
 
 #[test]
+#[allow(clippy::uninlined_format_args)]
 fn test_same_query_different_targets_better_wins() {
     let mut paf = NamedTempFile::new().unwrap();
 
@@ -50,33 +51,34 @@ fn test_same_query_different_targets_better_wins() {
     eprintln!("Mappings:\n{}", stdout);
 
     // Check which targets survived
-    let has_chrA_target = stdout.lines().any(|l| l.contains("genome2#chrA"));
-    let has_chrB_target = stdout.lines().any(|l| l.contains("genome2#chrB"));
+    let has_chr_a_target = stdout.lines().any(|l| l.contains("genome2#chrA"));
+    let has_chr_b_target = stdout.lines().any(|l| l.contains("genome2#chrB"));
 
     eprintln!(
         "Has mapping to genome2#chrA (98%, 10kb): {}",
-        has_chrA_target
+        has_chr_a_target
     );
     eprintln!(
         "Has mapping to genome2#chrB (90%, 6kb): {}",
-        has_chrB_target
+        has_chr_b_target
     );
 
     // The better scaffold (chrA→chrA) should be kept
     assert!(
-        has_chrA_target,
+        has_chr_a_target,
         "Better scaffold (98% identity, 10kb to chrA) should be kept"
     );
 
     // The worse scaffold (chrA→chrB) should be FILTERED because it overlaps on query axis
     assert!(
-        !has_chrB_target,
+        !has_chr_b_target,
         "BUG: Worse scaffold (90% identity, 6kb to chrB) should be filtered! \
              Overlapping scaffolds to different targets must compete in 1:1 mode."
     );
 }
 
 #[test]
+#[allow(clippy::uninlined_format_args)]
 fn test_non_overlapping_different_targets_both_kept() {
     let mut paf = NamedTempFile::new().unwrap();
 
@@ -116,19 +118,19 @@ fn test_non_overlapping_different_targets_both_kept() {
 
     eprintln!("Output:\n{}", stderr);
 
-    let has_chrA_target = stdout.lines().any(|l| l.contains("genome2#chrA"));
-    let has_chrB_target = stdout.lines().any(|l| l.contains("genome2#chrB"));
+    let has_chr_a_target = stdout.lines().any(|l| l.contains("genome2#chrA"));
+    let has_chr_b_target = stdout.lines().any(|l| l.contains("genome2#chrB"));
 
-    eprintln!("Has mapping to genome2#chrA: {}", has_chrA_target);
-    eprintln!("Has mapping to genome2#chrB: {}", has_chrB_target);
+    eprintln!("Has mapping to genome2#chrA: {}", has_chr_a_target);
+    eprintln!("Has mapping to genome2#chrB: {}", has_chr_b_target);
 
     // Both should be kept since they don't overlap on query axis
     assert!(
-        has_chrA_target,
+        has_chr_a_target,
         "Non-overlapping scaffold to chrA should be kept"
     );
     assert!(
-        has_chrB_target,
+        has_chr_b_target,
         "Non-overlapping scaffold to chrB should be kept"
     );
 }

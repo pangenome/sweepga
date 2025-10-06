@@ -1,3 +1,4 @@
+#![allow(clippy::uninlined_format_args)]
 // Tests specifically for verifying correct scoring and ranking of mappings
 use sweepga::paf_filter::ScoringFunction;
 use sweepga::plane_sweep_exact::{plane_sweep_query, PlaneSweepMapping};

@@ -1,3 +1,4 @@
+#![allow(clippy::uninlined_format_args)]
 /// Test symmetry property: swapping query and target should give same results
 use sweepga::plane_sweep_core::{plane_sweep, Interval};
 

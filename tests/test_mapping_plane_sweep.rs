@@ -1,3 +1,4 @@
+#![allow(clippy::uninlined_format_args)]
 /// Test that plane sweep for raw mappings (before scaffolding) works correctly
 /// This tests the -n 1:1 flag, not -m 1:1
 use std::io::Write;
@@ -36,18 +37,18 @@ fn test_mapping_plane_sweep_across_targets() {
     eprintln!("Stderr:\n{}", stderr);
     eprintln!("Mappings:\n{}", stdout);
 
-    let has_chrA = stdout.lines().any(|l| l.contains("genome2#chrA"));
-    let has_chrB = stdout.lines().any(|l| l.contains("genome2#chrB"));
+    let has_chr_a = stdout.lines().any(|l| l.contains("genome2#chrA"));
+    let has_chr_b = stdout.lines().any(|l| l.contains("genome2#chrB"));
 
-    eprintln!("Has mapping to chrA (95%): {}", has_chrA);
-    eprintln!("Has mapping to chrB (90%): {}", has_chrB);
+    eprintln!("Has mapping to chrA (95%): {}", has_chr_a);
+    eprintln!("Has mapping to chrB (90%): {}", has_chr_b);
 
     // The better mapping (chrA, 95%) should be kept
-    assert!(has_chrA, "Better mapping (95% to chrA) should be kept");
+    assert!(has_chr_a, "Better mapping (95% to chrA) should be kept");
 
     // The worse mapping (chrB, 90%, overlapping) should be filtered
     assert!(
-        !has_chrB,
+        !has_chr_b,
         "Worse mapping (90% to chrB) should be filtered by -n 1:1"
     );
 }
@@ -84,18 +85,18 @@ fn test_mapping_plane_sweep_target_axis() {
     eprintln!("Stderr:\n{}", stderr);
     eprintln!("Mappings:\n{}", stdout);
 
-    let has_chrA = stdout.lines().any(|l| l.contains("genome1#chrA"));
-    let has_chrB = stdout.lines().any(|l| l.contains("genome1#chrB"));
+    let has_chr_a = stdout.lines().any(|l| l.contains("genome1#chrA"));
+    let has_chr_b = stdout.lines().any(|l| l.contains("genome1#chrB"));
 
-    eprintln!("Has mapping from chrA (95%): {}", has_chrA);
-    eprintln!("Has mapping from chrB (98%): {}", has_chrB);
+    eprintln!("Has mapping from chrA (95%): {}", has_chr_a);
+    eprintln!("Has mapping from chrB (98%): {}", has_chr_b);
 
     // The better mapping (chrB, 98%) should be kept
-    assert!(has_chrB, "Better mapping (98% from chrB) should be kept");
+    assert!(has_chr_b, "Better mapping (98% from chrB) should be kept");
 
     // The worse mapping (chrA, 95%) should be filtered on target axis
     assert!(
-        !has_chrA,
+        !has_chr_a,
         "Worse mapping (95% from chrA) should be filtered - target axis competition"
     );
 }

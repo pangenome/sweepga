@@ -1,3 +1,4 @@
+#![allow(clippy::uninlined_format_args)]
 /// Test that large reverse-strand scaffolds aren't filtered out by plane sweep
 /// when they should win over smaller forward-strand scaffolds
 ///
@@ -40,8 +41,8 @@ fn test_reverse_strand_scaffold_plane_sweep() {
     eprintln!("Mappings:\n{}", stdout);
 
     // Check which alignment(s) survived
-    let has_forward = stdout.contains("\t+\t");
-    let has_reverse = stdout.contains("\t-\t");
+    let _has_forward = stdout.contains("\t+\t");
+    let _has_reverse = stdout.contains("\t-\t");
 
     // Count lines
     let forward_count = stdout
@@ -59,7 +60,7 @@ fn test_reverse_strand_scaffold_plane_sweep() {
     // The 8Mb reverse-strand alignment should be kept
     // It's twice the size of the forward-strand alignment!
     assert!(
-        has_reverse,
+        _has_reverse,
         "8Mb reverse-strand alignment should NOT be filtered out by plane sweep"
     );
 
@@ -99,16 +100,16 @@ fn test_reverse_vs_forward_scaffold_scoring() {
     eprintln!("Test 2 Output:\n{}", stderr);
     eprintln!("Test 2 Mappings:\n{}", stdout);
 
-    let has_forward = stdout.contains("\t+\t");
-    let has_reverse = stdout.contains("\t-\t");
+    let _has_forward = stdout.contains("\t+\t");
+    let _has_reverse = stdout.contains("\t-\t");
 
     // The 2Mb reverse-strand should win over the 1Mb forward-strand
     assert!(
-        has_reverse,
+        _has_reverse,
         "Larger reverse-strand alignment should be kept"
     );
 
     // In an ideal world, only the reverse would be kept
     // But at minimum, the reverse MUST be present
-    eprintln!("Has forward: {}, Has reverse: {}", has_forward, has_reverse);
+    eprintln!("Has forward: {}, Has reverse: {}", _has_forward, _has_reverse);
 }

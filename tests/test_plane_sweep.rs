@@ -1,3 +1,4 @@
+#![allow(clippy::uninlined_format_args)]
 // Comprehensive tests for the plane sweep algorithm
 use sweepga::plane_sweep_exact::{
     plane_sweep_both, plane_sweep_query, plane_sweep_target, PlaneSweepMapping,

@@ -1,3 +1,4 @@
+#![allow(clippy::uninlined_format_args)]
 /// Test that chains are monotonic: larger gap thresholds should find supersets of smaller gaps
 ///
 /// Create synthetic alignments with various gap patterns to try to reproduce
@@ -78,6 +79,7 @@ fn create_fragmented_paf() -> NamedTempFile {
     file
 }
 
+#[allow(dead_code)]
 fn extract_chains(output: &str) -> Vec<Vec<String>> {
     use std::collections::HashMap;
 
@@ -96,8 +98,8 @@ fn extract_chains(output: &str) -> Vec<Vec<String>> {
         // Find chain ID
         let mut chain_id = None;
         for field in fields.iter().skip(12) {
-            if field.starts_with("ch:Z:") {
-                chain_id = Some(field[5..].to_string());
+            if let Some(stripped) = field.strip_prefix("ch:Z:") {
+                chain_id = Some(stripped.to_string());
                 break;
             }
         }
@@ -105,7 +107,7 @@ fn extract_chains(output: &str) -> Vec<Vec<String>> {
         if let Some(cid) = chain_id {
             // Create mapping ID from coordinates
             let mapping_id = format!("{}:{}-{}", fields[2], fields[3], fields[0]);
-            chains.entry(cid).or_insert_with(Vec::new).push(mapping_id);
+            chains.entry(cid).or_default().push(mapping_id);
         }
     }
 

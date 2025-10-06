@@ -1,3 +1,4 @@
+#![allow(clippy::uninlined_format_args)]
 /// Test that plane sweep correctly filters overlapping scaffolds
 use std::io::Write;
 use tempfile::NamedTempFile;

@@ -1,3 +1,4 @@
+#![allow(clippy::uninlined_format_args)]
 // Test to demonstrate the plane sweep grouping bug
 use std::fs;
 use std::process::Command;

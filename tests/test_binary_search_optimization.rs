@@ -1,3 +1,4 @@
+#![allow(clippy::uninlined_format_args)]
 /// Comprehensive tests to PROVE the binary search optimization works correctly
 /// and is actually faster than the O(n²) approach
 use std::time::Instant;

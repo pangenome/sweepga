@@ -1,3 +1,4 @@
+#![allow(clippy::uninlined_format_args)]
 /// Tests for chaining stability across different gap values
 ///
 /// Key property: When gap threshold increases, chains should only grow or stay the same,
@@ -21,8 +22,8 @@ fn parse_chains(output: &str) -> HashMap<String, Vec<String>> {
         // Find chain ID in tags
         let mut chain_id = None;
         for field in fields.iter().skip(12) {
-            if field.starts_with("ch:Z:") {
-                chain_id = Some(field[5..].to_string());
+            if let Some(stripped) = field.strip_prefix("ch:Z:") {
+                chain_id = Some(stripped.to_string());
                 break;
             }
         }
@@ -30,7 +31,7 @@ fn parse_chains(output: &str) -> HashMap<String, Vec<String>> {
         if let Some(cid) = chain_id {
             // Create a unique mapping ID from query and coordinates
             let mapping_id = format!("{}:{}-{}", fields[0], fields[2], fields[3]);
-            chains.entry(cid).or_insert_with(Vec::new).push(mapping_id);
+            chains.entry(cid).or_default().push(mapping_id);
         }
     }
 
@@ -104,7 +105,7 @@ fn test_chain_identity_stability() {
             if line.contains("Output:") && line.contains("Mb total") {
                 // Parse: "Output: 2778.5 Mb total, 94.8% avg identity"
                 if let Some(parts) = line.split("Output:").nth(1) {
-                    if let Some(mb_str) = parts.trim().split_whitespace().next() {
+                    if let Some(mb_str) = parts.split_whitespace().next() {
                         coverage = mb_str.parse::<f64>().ok();
                     }
                 }

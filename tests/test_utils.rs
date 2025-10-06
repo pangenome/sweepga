@@ -1,3 +1,4 @@
+#![allow(clippy::uninlined_format_args)]
 /// Utility functions for testing
 use std::fs;
 use std::path::{Path, PathBuf};

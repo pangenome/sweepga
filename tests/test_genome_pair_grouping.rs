@@ -1,3 +1,4 @@
+#![allow(clippy::uninlined_format_args)]
 /// Test that plane sweep respects genome pair grouping
 ///
 /// When we have alignments like:
@@ -12,12 +13,11 @@
 #[test]
 fn test_plane_sweep_preserves_genome_pairs() {
     use std::fs;
-    use std::io::Write;
     use tempfile::TempDir;
 
     let temp_dir = TempDir::new().unwrap();
     let input_paf = temp_dir.path().join("input.paf");
-    let output_paf = temp_dir.path().join("output.paf");
+    let _output_paf = temp_dir.path().join("output.paf");
 
     // Create test PAF with 3 genomes: A, B, C
     // All alignments from A#1#chr1 to different targets
