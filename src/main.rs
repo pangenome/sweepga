@@ -1217,6 +1217,7 @@ fn align_multiple_fastas(
             // Append to merged output
             let paf_content = std::fs::read_to_string(temp_paf.path())?;
             merged_output.write_all(paf_content.as_bytes())?;
+            merged_output.flush()?; // Flush after each alignment to prevent corruption
 
             let alignment_count = paf_content.lines().count();
             total_alignments += alignment_count;
@@ -1237,6 +1238,7 @@ fn align_multiple_fastas(
 
             let paf_content = std::fs::read_to_string(temp_paf.path())?;
             merged_output.write_all(paf_content.as_bytes())?;
+            merged_output.flush()?; // Flush after each alignment to prevent corruption
 
             let alignment_count = paf_content.lines().count();
             total_alignments += alignment_count;
@@ -1244,6 +1246,7 @@ fn align_multiple_fastas(
         }
     }
 
+    // Final flush (redundant but safe)
     merged_output.flush()?;
 
     if !quiet {
