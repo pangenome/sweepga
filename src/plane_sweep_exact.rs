@@ -441,7 +441,8 @@ pub fn plane_sweep_both(
     scoring: ScoringFunction,
 ) -> Vec<usize> {
     // First apply query axis filtering
-    let query_kept = plane_sweep_query(mappings, query_mappings_to_keep, overlap_threshold, scoring);
+    let query_kept =
+        plane_sweep_query(mappings, query_mappings_to_keep, overlap_threshold, scoring);
 
     // Create a filtered set for target sweep
     let mut filtered_mappings: Vec<PlaneSweepMapping> =
@@ -475,10 +476,7 @@ pub fn plane_sweep_grouped_query(
     // Group by query sequence
     let mut groups: HashMap<String, Vec<usize>> = HashMap::new();
     for (idx, (_, query_name)) in mappings.iter().enumerate() {
-        groups
-            .entry(query_name.clone())
-            .or_default()
-            .push(idx);
+        groups.entry(query_name.clone()).or_default().push(idx);
     }
 
     let mut all_kept = Vec::new();
@@ -494,8 +492,12 @@ pub fn plane_sweep_grouped_query(
             indices.iter().map(|&idx| mappings[idx].0).collect();
 
         // Apply plane sweep to this group
-        let kept_in_group =
-            plane_sweep_query(&mut group_mappings, mappings_to_keep, overlap_threshold, scoring);
+        let kept_in_group = plane_sweep_query(
+            &mut group_mappings,
+            mappings_to_keep,
+            overlap_threshold,
+            scoring,
+        );
 
         // Map back to original indices
         for &local_idx in &kept_in_group {
@@ -549,7 +551,12 @@ pub fn plane_sweep_grouped_pairs(
             plane_sweep_both(&mut group_mappings, 1, 1, overlap_threshold, scoring)
         } else {
             // Otherwise just filter on query axis
-            plane_sweep_query(&mut group_mappings, mappings_to_keep, overlap_threshold, scoring)
+            plane_sweep_query(
+                &mut group_mappings,
+                mappings_to_keep,
+                overlap_threshold,
+                scoring,
+            )
         };
 
         // Map back to original indices
@@ -578,10 +585,7 @@ pub fn plane_sweep_grouped_target(
     // Group by target sequence
     let mut groups: HashMap<String, Vec<usize>> = HashMap::new();
     for (idx, (_, target_name)) in mappings.iter().enumerate() {
-        groups
-            .entry(target_name.clone())
-            .or_default()
-            .push(idx);
+        groups.entry(target_name.clone()).or_default().push(idx);
     }
 
     let mut all_kept = Vec::new();
@@ -597,8 +601,12 @@ pub fn plane_sweep_grouped_target(
             indices.iter().map(|&idx| mappings[idx].0).collect();
 
         // Apply plane sweep to this group
-        let kept_in_group =
-            plane_sweep_target(&mut group_mappings, mappings_to_keep, overlap_threshold, scoring);
+        let kept_in_group = plane_sweep_target(
+            &mut group_mappings,
+            mappings_to_keep,
+            overlap_threshold,
+            scoring,
+        );
 
         // Map back to original indices
         for &local_idx in &kept_in_group {

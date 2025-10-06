@@ -65,14 +65,17 @@ fn test_chaining_monotonicity() {
 
     // Verify monotonicity: larger gaps should have same or more chain members
     for i in 1..all_chains.len() {
-        let (gap1, _, count1) = &all_chains[i-1];
+        let (gap1, _, count1) = &all_chains[i - 1];
         let (gap2, _, count2) = &all_chains[i];
 
         assert!(
             count2 >= count1,
             "Chain membership should not decrease with larger gaps: \
              -j {} has {} members, but -j {} has {} members",
-            gap1, count1, gap2, count2
+            gap1,
+            count1,
+            gap2,
+            count2
         );
     }
 }

@@ -526,10 +526,7 @@ fn group_by_prefix_pairs(
         let ref_id = mapping.ref_seq_id;
         let target_key = ref_id.to_string();
 
-        groups
-            .entry((query_key, target_key))
-            .or_default()
-            .push(idx);
+        groups.entry((query_key, target_key)).or_default().push(idx);
     }
 
     groups

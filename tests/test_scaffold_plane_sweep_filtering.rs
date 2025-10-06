@@ -46,7 +46,10 @@ fn test_overlapping_scaffolds_same_chromosome_pair() {
 
     // Only the better scaffold (98% identity) should survive
     assert!(has_scaffold_2, "Better scaffold (98%) should be kept");
-    assert!(!has_scaffold_1, "Worse scaffold (95%) should be filtered out due to overlap");
+    assert!(
+        !has_scaffold_1,
+        "Worse scaffold (95%) should be filtered out due to overlap"
+    );
 }
 
 #[test]
@@ -92,7 +95,10 @@ fn test_overlapping_scaffolds_different_targets() {
     eprintln!("Has mapping to target_chr2 (98%): {}", has_chr2);
 
     // Count output lines
-    let output_count = stdout.lines().filter(|l| !l.starts_with('[') && !l.is_empty()).count();
+    let output_count = stdout
+        .lines()
+        .filter(|l| !l.starts_with('[') && !l.is_empty())
+        .count();
     eprintln!("Total output alignments: {}", output_count);
 
     // With 1:1 filtering, overlapping scaffolds to different targets should both be filtered
@@ -150,7 +156,10 @@ fn test_contained_scaffold_filtering() {
 
     // The large scaffold should win (more aligned bases) even though identity is slightly lower
     assert!(has_large, "Large containing scaffold should be kept");
-    assert!(!has_small, "Small contained scaffold should be filtered out");
+    assert!(
+        !has_small,
+        "Small contained scaffold should be filtered out"
+    );
 }
 
 #[test]
@@ -198,6 +207,12 @@ fn test_scaffolds_on_different_query_chromosomes() {
     // For true 1:1 filtering, we filter on BOTH query and target axes
     // Two different queries mapping to the same target region should compete
     // The better one (98% identity) should win
-    assert!(has_chr2, "Better scaffold (98% from query_chr2) should be kept");
-    assert!(!has_chr1, "Worse scaffold (95% from query_chr1) should be filtered - target axis competition");
+    assert!(
+        has_chr2,
+        "Better scaffold (98% from query_chr2) should be kept"
+    );
+    assert!(
+        !has_chr1,
+        "Worse scaffold (95% from query_chr1) should be filtered - target axis competition"
+    );
 }

@@ -12,7 +12,7 @@ use crate::sequence_index::SequenceIndex;
 /// Scoring function for plane sweep
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum ScoringFunction {
-    Identity,           // Identity only
+    Identity,          // Identity only
     Length,            // Length only
     LengthIdentity,    // Length * Identity
     LogLengthIdentity, // log(Length) * Identity (default)
@@ -57,8 +57,8 @@ pub struct FilterConfig {
 
     // Scoring and identity filtering
     pub scoring_function: ScoringFunction,
-    pub min_identity: f64,  // Minimum block identity threshold (0.0-1.0)
-    pub min_scaffold_identity: f64,  // Minimum scaffold identity threshold (0.0-1.0)
+    pub min_identity: f64, // Minimum block identity threshold (0.0-1.0)
+    pub min_scaffold_identity: f64, // Minimum scaffold identity threshold (0.0-1.0)
 }
 
 /// Record metadata for filtering without modifying records
@@ -73,9 +73,9 @@ struct RecordMeta {
     target_start: u64,
     target_end: u64,
     block_length: u64,
-    identity: f64,          // Block identity: matches / alignment_length
-    matches: u64,           // Number of matching bases
-    alignment_length: u64,  // Total alignment length (including gaps)
+    identity: f64,         // Block identity: matches / alignment_length
+    matches: u64,          // Number of matching bases
+    alignment_length: u64, // Total alignment length (including gaps)
     strand: char,
     chain_id: Option<String>,
     chain_status: ChainStatus,
@@ -161,9 +161,9 @@ struct MergedChain {
     target_end: u64,
     strand: char,
     total_length: u64,
-    weighted_identity: f64,      // Average identity of mapped regions (matches/mapped_length)
-    sum_matches: u64,            // Sum of matches from all mappings
-    sum_block_lengths: u64,      // Sum of actual mapped lengths
+    weighted_identity: f64, // Average identity of mapped regions (matches/mapped_length)
+    sum_matches: u64,       // Sum of matches from all mappings
+    sum_block_lengths: u64, // Sum of actual mapped lengths
     member_indices: Vec<usize>, // Indices of original mappings in this chain
 }
 
@@ -319,7 +319,8 @@ impl PafFilter {
                     }
                 } else if let Some(cigar_str) = field.strip_prefix("cg:Z:") {
                     // Parse CIGAR to get exact match count
-                    if let Ok((cigar_matches, _, _, _)) = crate::paf::parse_cigar_counts(cigar_str) {
+                    if let Ok((cigar_matches, _, _, _)) = crate::paf::parse_cigar_counts(cigar_str)
+                    {
                         if cigar_matches > 0 {
                             exact_matches = cigar_matches;
                             // Also update identity based on CIGAR matches
@@ -350,7 +351,7 @@ impl PafFilter {
                 target_end,
                 block_length,
                 identity,
-                matches: exact_matches,  // Use exact matches from CIGAR if available
+                matches: exact_matches, // Use exact matches from CIGAR if available
                 alignment_length,
                 strand,
                 chain_id: None,
@@ -402,13 +403,17 @@ impl PafFilter {
             };
 
             eprintln!("[sweepga] Plane sweep filtering (no scaffolding)");
-            eprintln!("[sweepga] Summary: {} → {} mappings ({:.1}% kept)",
-                     all_original_mappings.len(),
-                     metadata.len(),
-                     (metadata.len() as f64 / all_original_mappings.len().max(1) as f64) * 100.0);
-            eprintln!("[sweepga]   Output: {:.1} Mb total, {:.1}% avg identity",
-                     total_kept_bases as f64 / 1_000_000.0,
-                     avg_kept_identity * 100.0);
+            eprintln!(
+                "[sweepga] Summary: {} → {} mappings ({:.1}% kept)",
+                all_original_mappings.len(),
+                metadata.len(),
+                (metadata.len() as f64 / all_original_mappings.len().max(1) as f64) * 100.0
+            );
+            eprintln!(
+                "[sweepga]   Output: {:.1} Mb total, {:.1}% avg identity",
+                total_kept_bases as f64 / 1_000_000.0,
+                avg_kept_identity * 100.0
+            );
 
             let mut result = HashMap::new();
             for m in metadata {
@@ -430,16 +435,20 @@ impl PafFilter {
         };
 
         eprintln!("[sweepga] Scaffold creation");
-        eprintln!("[sweepga]   Input: {} mappings, {:.1} Mb total, {:.1}% avg identity",
-                 metadata.len(),
-                 total_mapped_bases as f64 / 1_000_000.0,
-                 avg_identity * 100.0);
+        eprintln!(
+            "[sweepga]   Input: {} mappings, {:.1} Mb total, {:.1}% avg identity",
+            metadata.len(),
+            total_mapped_bases as f64 / 1_000_000.0,
+            avg_identity * 100.0
+        );
 
         // Use scaffold_gap for merging into scaffolds
         let merged_chains = self.merge_mappings_into_chains(&metadata, self.config.scaffold_gap)?;
-        eprintln!("[sweepga]   Merged into {} chains (gap ≤ {})",
-                 merged_chains.len(),
-                 self.config.scaffold_gap);
+        eprintln!(
+            "[sweepga]   Merged into {} chains (gap ≤ {})",
+            merged_chains.len(),
+            self.config.scaffold_gap
+        );
 
         // Step 2: Filter chains by minimum scaffold length and identity
         let before_filter = merged_chains.len();
@@ -451,13 +460,17 @@ impl PafFilter {
             })
             .collect();
         let filtered_out = before_filter - filtered_chains.len();
-        eprintln!("[sweepga]   Length/identity filter: {} chains kept, {} removed",
-                 filtered_chains.len(),
-                 filtered_out);
+        eprintln!(
+            "[sweepga]   Length/identity filter: {} chains kept, {} removed",
+            filtered_chains.len(),
+            filtered_out
+        );
         if self.config.min_scaffold_length > 0 || self.config.min_scaffold_identity > 0.0 {
-            eprintln!("[sweepga]   Min length: {}, min identity: {:.1}%",
-                     self.config.min_scaffold_length,
-                     self.config.min_scaffold_identity * 100.0);
+            eprintln!(
+                "[sweepga]   Min length: {}, min identity: {:.1}%",
+                self.config.min_scaffold_length,
+                self.config.min_scaffold_identity * 100.0
+            );
         }
 
         // Step 3: Apply plane sweep to scaffolds
@@ -473,9 +486,11 @@ impl PafFilter {
         }
 
         filtered_chains = self.apply_scaffold_plane_sweep(filtered_chains)?;
-        eprintln!("[sweepga]   Scaffold sweep: {} → {} scaffolds",
-                 before_sweep,
-                 filtered_chains.len());
+        eprintln!(
+            "[sweepga]   Scaffold sweep: {} → {} scaffolds",
+            before_sweep,
+            filtered_chains.len()
+        );
 
         // If scaffolds_only mode, return the actual mappings that form scaffolds
         if self.scaffolds_only {
@@ -530,9 +545,11 @@ impl PafFilter {
             .collect();
 
         eprintln!("[sweepga] Rescue phase");
-        eprintln!("[sweepga]   Anchors: {} mappings in {} scaffolds",
-                 anchor_ranks.len(),
-                 filtered_chains.len());
+        eprintln!(
+            "[sweepga]   Anchors: {} mappings in {} scaffolds",
+            anchor_ranks.len(),
+            filtered_chains.len()
+        );
 
         // Map ranks to indices in all_original_mappings
         let mut rank_to_idx = HashMap::new();
@@ -547,10 +564,7 @@ impl PafFilter {
         let mut mappings_by_chr_pair: HashMap<(String, String), Vec<usize>> = HashMap::new();
         for (idx, mapping) in all_original_mappings.iter().enumerate() {
             let key = (mapping.query_name.clone(), mapping.target_name.clone());
-            mappings_by_chr_pair
-                .entry(key)
-                .or_default()
-                .push(idx);
+            mappings_by_chr_pair.entry(key).or_default().push(idx);
         }
 
         // Sort each chromosome pair's mappings by query position for binary search
@@ -564,10 +578,7 @@ impl PafFilter {
             if let Some(&anchor_idx) = rank_to_idx.get(&anchor_rank) {
                 let anchor = &all_original_mappings[anchor_idx];
                 let key = (anchor.query_name.clone(), anchor.target_name.clone());
-                anchors_by_chr_pair
-                    .entry(key)
-                    .or_default()
-                    .push(anchor_idx);
+                anchors_by_chr_pair.entry(key).or_default().push(anchor_idx);
             }
         }
 
@@ -669,16 +680,21 @@ impl PafFilter {
             0.0
         };
 
-        eprintln!("[sweepga]   Rescued: {} mappings within {}bp of anchors",
-                 rescued_count,
-                 self.config.scaffold_max_deviation);
-        eprintln!("[sweepga] Summary: {} → {} mappings ({:.1}% kept)",
-                 all_original_mappings.len(),
-                 kept_mappings.len(),
-                 (kept_mappings.len() as f64 / all_original_mappings.len().max(1) as f64) * 100.0);
-        eprintln!("[sweepga]   Output: {:.1} Mb total, {:.1}% avg identity",
-                 total_kept_bases as f64 / 1_000_000.0,
-                 avg_kept_identity * 100.0);
+        eprintln!(
+            "[sweepga]   Rescued: {} mappings within {}bp of anchors",
+            rescued_count, self.config.scaffold_max_deviation
+        );
+        eprintln!(
+            "[sweepga] Summary: {} → {} mappings ({:.1}% kept)",
+            all_original_mappings.len(),
+            kept_mappings.len(),
+            (kept_mappings.len() as f64 / all_original_mappings.len().max(1) as f64) * 100.0
+        );
+        eprintln!(
+            "[sweepga]   Output: {:.1} Mb total, {:.1}% avg identity",
+            total_kept_bases as f64 / 1_000_000.0,
+            avg_kept_identity * 100.0
+        );
 
         // Build result map directly from kept mappings
         let mut passing = HashMap::new();
@@ -713,10 +729,7 @@ impl PafFilter {
                 meta.target_name.clone(),
                 meta.strand,
             );
-            groups
-                .entry(key)
-                .or_default()
-                .push((meta.rank, idx));
+            groups.entry(key).or_default().push((meta.rank, idx));
         }
 
         let mut all_chains = Vec::new();
@@ -753,9 +766,9 @@ impl PafFilter {
                         // Overlap: use overlap amount as distance, penalize if too large
                         let overlap = metadata[idx_i].query_end - metadata[idx_j].query_start;
                         if overlap <= max_gap / 5 {
-                            overlap  // Small overlap: use actual overlap distance
+                            overlap // Small overlap: use actual overlap distance
                         } else {
-                            max_gap + 1  // Large overlap: reject
+                            max_gap + 1 // Large overlap: reject
                         }
                     };
 
@@ -1002,10 +1015,8 @@ impl PafFilter {
             }
 
             for (_q_chr, indices) in by_query {
-                let mut query_mappings: Vec<_> = indices
-                    .iter()
-                    .map(|&i| plane_sweep_mappings[i].0)
-                    .collect();
+                let mut query_mappings: Vec<_> =
+                    indices.iter().map(|&i| plane_sweep_mappings[i].0).collect();
 
                 let kept = plane_sweep_query(
                     &mut query_mappings,
@@ -1028,10 +1039,8 @@ impl PafFilter {
             }
 
             for (_t_chr, indices) in by_target {
-                let mut target_mappings: Vec<_> = indices
-                    .iter()
-                    .map(|&i| plane_sweep_mappings[i].0)
-                    .collect();
+                let mut target_mappings: Vec<_> =
+                    indices.iter().map(|&i| plane_sweep_mappings[i].0).collect();
 
                 let kept = plane_sweep_target(
                     &mut target_mappings,
@@ -1087,7 +1096,6 @@ impl PafFilter {
             })
             .collect();
 
-
         // Get the scaffold filter params (vs mapping filter params)
         let overlap_threshold = self.config.scaffold_overlap_threshold;
 
@@ -1112,13 +1120,15 @@ impl PafFilter {
                 }
 
                 for (_q_chr, indices) in by_query {
-                    let mut query_mappings: Vec<_> = indices
-                        .iter()
-                        .map(|&i| plane_sweep_mappings[i].0)
-                        .collect();
+                    let mut query_mappings: Vec<_> =
+                        indices.iter().map(|&i| plane_sweep_mappings[i].0).collect();
 
-                    let kept =
-                        plane_sweep_query(&mut query_mappings, 1, overlap_threshold, self.config.scoring_function);
+                    let kept = plane_sweep_query(
+                        &mut query_mappings,
+                        1,
+                        overlap_threshold,
+                        self.config.scoring_function,
+                    );
                     for k in kept {
                         query_kept_set.insert(indices[k]);
                     }
@@ -1134,13 +1144,15 @@ impl PafFilter {
                 }
 
                 for (_t_chr, indices) in by_target {
-                    let mut target_mappings: Vec<_> = indices
-                        .iter()
-                        .map(|&i| plane_sweep_mappings[i].0)
-                        .collect();
+                    let mut target_mappings: Vec<_> =
+                        indices.iter().map(|&i| plane_sweep_mappings[i].0).collect();
 
-                    let kept =
-                        plane_sweep_target(&mut target_mappings, 1, overlap_threshold, self.config.scoring_function);
+                    let kept = plane_sweep_target(
+                        &mut target_mappings,
+                        1,
+                        overlap_threshold,
+                        self.config.scoring_function,
+                    );
                     for k in kept {
                         target_kept_set.insert(indices[k]);
                     }
@@ -1156,13 +1168,19 @@ impl PafFilter {
                 // Same independent sweep pattern as 1:1, just different limits
                 let query_limit = match self.config.scaffold_filter_mode {
                     FilterMode::OneToMany => self.config.scaffold_max_per_query.unwrap_or(1),
-                    FilterMode::ManyToMany => self.config.scaffold_max_per_query.unwrap_or(usize::MAX),
+                    FilterMode::ManyToMany => {
+                        self.config.scaffold_max_per_query.unwrap_or(usize::MAX)
+                    }
                     _ => unreachable!(),
                 };
 
                 let target_limit = match self.config.scaffold_filter_mode {
-                    FilterMode::OneToMany => self.config.scaffold_max_per_target.unwrap_or(usize::MAX),
-                    FilterMode::ManyToMany => self.config.scaffold_max_per_target.unwrap_or(usize::MAX),
+                    FilterMode::OneToMany => {
+                        self.config.scaffold_max_per_target.unwrap_or(usize::MAX)
+                    }
+                    FilterMode::ManyToMany => {
+                        self.config.scaffold_max_per_target.unwrap_or(usize::MAX)
+                    }
                     _ => unreachable!(),
                 };
 
@@ -1176,13 +1194,15 @@ impl PafFilter {
                 }
 
                 for (_q_chr, indices) in by_query {
-                    let mut query_mappings: Vec<_> = indices
-                        .iter()
-                        .map(|&i| plane_sweep_mappings[i].0)
-                        .collect();
+                    let mut query_mappings: Vec<_> =
+                        indices.iter().map(|&i| plane_sweep_mappings[i].0).collect();
 
-                    let kept =
-                        plane_sweep_query(&mut query_mappings, query_limit, overlap_threshold, self.config.scoring_function);
+                    let kept = plane_sweep_query(
+                        &mut query_mappings,
+                        query_limit,
+                        overlap_threshold,
+                        self.config.scoring_function,
+                    );
                     for k in kept {
                         query_kept_set.insert(indices[k]);
                     }
@@ -1198,13 +1218,15 @@ impl PafFilter {
                 }
 
                 for (_t_chr, indices) in by_target {
-                    let mut target_mappings: Vec<_> = indices
-                        .iter()
-                        .map(|&i| plane_sweep_mappings[i].0)
-                        .collect();
+                    let mut target_mappings: Vec<_> =
+                        indices.iter().map(|&i| plane_sweep_mappings[i].0).collect();
 
-                    let kept =
-                        plane_sweep_target(&mut target_mappings, target_limit, overlap_threshold, self.config.scoring_function);
+                    let kept = plane_sweep_target(
+                        &mut target_mappings,
+                        target_limit,
+                        overlap_threshold,
+                        self.config.scoring_function,
+                    );
                     for k in kept {
                         target_kept_set.insert(indices[k]);
                     }
@@ -1223,7 +1245,6 @@ impl PafFilter {
             .iter()
             .map(|&idx| chains[idx].clone())
             .collect();
-
 
         Ok(result)
     }
@@ -1359,7 +1380,9 @@ impl PafFilter {
             query_chains.sort_by(|a, b| {
                 let score_a = a.score(scoring);
                 let score_b = b.score(scoring);
-                score_b.partial_cmp(&score_a).unwrap_or(std::cmp::Ordering::Equal)
+                score_b
+                    .partial_cmp(&score_a)
+                    .unwrap_or(std::cmp::Ordering::Equal)
             });
 
             let mut kept: Vec<MergedChain> = Vec::new();

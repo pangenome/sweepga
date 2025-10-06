@@ -33,13 +33,13 @@ fn test_same_query_different_targets_better_wins() {
     let output = std::process::Command::new("./target/release/sweepga")
         .arg(paf.path())
         .arg("-s")
-        .arg("5000")  // 5kb minimum
+        .arg("5000") // 5kb minimum
         .arg("-j")
-        .arg("2000")  // Merge within 2kb
+        .arg("2000") // Merge within 2kb
         .arg("-i")
-        .arg("0")     // No identity filter
+        .arg("0") // No identity filter
         .arg("-m")
-        .arg("1:1")   // True 1:1 filtering
+        .arg("1:1") // True 1:1 filtering
         .output()
         .expect("Failed to run sweepga");
 
@@ -53,16 +53,27 @@ fn test_same_query_different_targets_better_wins() {
     let has_chrA_target = stdout.lines().any(|l| l.contains("genome2#chrA"));
     let has_chrB_target = stdout.lines().any(|l| l.contains("genome2#chrB"));
 
-    eprintln!("Has mapping to genome2#chrA (98%, 10kb): {}", has_chrA_target);
-    eprintln!("Has mapping to genome2#chrB (90%, 6kb): {}", has_chrB_target);
+    eprintln!(
+        "Has mapping to genome2#chrA (98%, 10kb): {}",
+        has_chrA_target
+    );
+    eprintln!(
+        "Has mapping to genome2#chrB (90%, 6kb): {}",
+        has_chrB_target
+    );
 
     // The better scaffold (chrA→chrA) should be kept
-    assert!(has_chrA_target, "Better scaffold (98% identity, 10kb to chrA) should be kept");
+    assert!(
+        has_chrA_target,
+        "Better scaffold (98% identity, 10kb to chrA) should be kept"
+    );
 
     // The worse scaffold (chrA→chrB) should be FILTERED because it overlaps on query axis
-    assert!(!has_chrB_target,
-            "BUG: Worse scaffold (90% identity, 6kb to chrB) should be filtered! \
-             Overlapping scaffolds to different targets must compete in 1:1 mode.");
+    assert!(
+        !has_chrB_target,
+        "BUG: Worse scaffold (90% identity, 6kb to chrB) should be filtered! \
+             Overlapping scaffolds to different targets must compete in 1:1 mode."
+    );
 }
 
 #[test]
@@ -112,6 +123,12 @@ fn test_non_overlapping_different_targets_both_kept() {
     eprintln!("Has mapping to genome2#chrB: {}", has_chrB_target);
 
     // Both should be kept since they don't overlap on query axis
-    assert!(has_chrA_target, "Non-overlapping scaffold to chrA should be kept");
-    assert!(has_chrB_target, "Non-overlapping scaffold to chrB should be kept");
+    assert!(
+        has_chrA_target,
+        "Non-overlapping scaffold to chrA should be kept"
+    );
+    assert!(
+        has_chrB_target,
+        "Non-overlapping scaffold to chrB should be kept"
+    );
 }

@@ -4,8 +4,8 @@
 #[ignore] // FastGA may not find alignments in synthetic homopolymer sequences
 fn test_duplicate_sequence_alignment() {
     use std::fs;
-    use tempfile::TempDir;
     use std::process::Command;
+    use tempfile::TempDir;
 
     let temp_dir = TempDir::new().unwrap();
     let test_fa = temp_dir.path().join("test.fa");
@@ -24,9 +24,11 @@ fn test_duplicate_sequence_alignment() {
     let duplicate = sequence.clone();
 
     // Create FASTA with duplicated sequence
-    fs::write(&test_fa, format!(
-        ">chr1\n{sequence}\n>chr2_duplicate\n{duplicate}\n"
-    )).unwrap();
+    fs::write(
+        &test_fa,
+        format!(">chr1\n{sequence}\n>chr2_duplicate\n{duplicate}\n"),
+    )
+    .unwrap();
 
     // Run self-alignment using compiled binary
     let sweepga_path = if cfg!(debug_assertions) {
@@ -37,9 +39,11 @@ fn test_duplicate_sequence_alignment() {
 
     let result = Command::new(sweepga_path)
         .arg(&test_fa)
-        .arg("-t").arg("1")
+        .arg("-t")
+        .arg("1")
         // Don't use --self since we want chr1 vs chr2_duplicate alignment
-        .arg("-o").arg(&output)
+        .arg("-o")
+        .arg(&output)
         .output()
         .expect("Failed to run");
 
@@ -47,19 +51,24 @@ fn test_duplicate_sequence_alignment() {
     assert!(output.exists(), "No output produced");
 
     let content = fs::read_to_string(&output).unwrap();
-    assert!(!content.is_empty(), "Duplicate sequences should produce alignments!");
+    assert!(
+        !content.is_empty(),
+        "Duplicate sequences should produce alignments!"
+    );
 
     // Should find chr1 vs chr2_duplicate alignment (identical sequences)
-    assert!(content.contains("chr1") && content.contains("chr2_duplicate"),
-            "Should align identical sequences");
+    assert!(
+        content.contains("chr1") && content.contains("chr2_duplicate"),
+        "Should align identical sequences"
+    );
 }
 
 #[test]
 #[ignore] // FastGA may not find alignments in synthetic repetitive sequences
 fn test_repetitive_sequence() {
     use std::fs;
-    use tempfile::TempDir;
     use std::process::Command;
+    use tempfile::TempDir;
 
     let temp_dir = TempDir::new().unwrap();
     let test_fa = temp_dir.path().join("repeat.fa");
@@ -69,7 +78,8 @@ fn test_repetitive_sequence() {
     // Use 100kb minimum as FastGA needs longer sequences
     let repeat_unit = "ACGTACGTACGTACGT";
     let mut sequence = String::new();
-    for _ in 0..6250 {  // 16 * 6250 = 100kb
+    for _ in 0..6250 {
+        // 16 * 6250 = 100kb
         sequence.push_str(repeat_unit);
     }
 
@@ -84,9 +94,11 @@ fn test_repetitive_sequence() {
 
     let result = Command::new(sweepga_path)
         .arg(&test_fa)
-        .arg("-t").arg("1")
-        .arg("--self")  // Include self-mappings
-        .arg("-o").arg(&output)
+        .arg("-t")
+        .arg("1")
+        .arg("--self") // Include self-mappings
+        .arg("-o")
+        .arg(&output)
         .output()
         .expect("Failed to run");
 
@@ -94,7 +106,10 @@ fn test_repetitive_sequence() {
         let content = fs::read_to_string(&output).unwrap();
         // Tandem repeats should produce many self-alignments
         let line_count = content.lines().count();
-        assert!(line_count > 0, "Repetitive sequence should produce alignments");
+        assert!(
+            line_count > 0,
+            "Repetitive sequence should produce alignments"
+        );
         println!("Repetitive sequence produced {line_count} alignments");
     }
 }
@@ -102,8 +117,8 @@ fn test_repetitive_sequence() {
 #[test]
 fn test_minimum_requirements() {
     use std::fs;
-    use tempfile::TempDir;
     use std::process::Command;
+    use tempfile::TempDir;
 
     let temp_dir = TempDir::new().unwrap();
 
@@ -121,8 +136,10 @@ fn test_minimum_requirements() {
         let result = Command::new("cargo")
             .args(["run", "--release", "--bin", "sweepga", "--quiet", "--"])
             .arg(&test_fa)
-            .arg("-t").arg("1")
-            .arg("-o").arg(&output)
+            .arg("-t")
+            .arg("1")
+            .arg("-o")
+            .arg(&output)
             .output();
 
         if let Ok(result) = result {

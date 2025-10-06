@@ -100,7 +100,6 @@ chr1\t10000\t1000\t2000\t+\tchr1_ref\t10000\t9000\t10000\t1000\t1000\t60\tcg:Z:1
             "--bin",
             "sweepga",
             "--",
-            
             temp_path,
             "--output",
             output_path,
@@ -149,7 +148,6 @@ read1\t5000\t3000\t3400\t+\tref1\t10000\t5000\t5400\t400\t400\t60\tcg:Z:400M
             "--bin",
             "sweepga",
             "--",
-            
             temp_path,
             "--output",
             output_path,
@@ -202,7 +200,6 @@ contig1\t8000\t4000\t5000\t+\tref1\t10000\t4000\t5000\t1000\t1000\t60\tcg:Z:1000
             "--bin",
             "sweepga",
             "--",
-            
             temp_path,
             "--output",
             output_path,
@@ -264,7 +261,6 @@ seq2\t4000\t200\t1200\t+\tref2\t8000\t300\t1300\t1000\t1000\t60\tcg:Z:1000M
             "--bin",
             "sweepga",
             "--",
-            
             temp_path,
             "--output",
             output_filtered,
@@ -284,7 +280,6 @@ seq2\t4000\t200\t1200\t+\tref2\t8000\t300\t1300\t1000\t1000\t60\tcg:Z:1000M
             "--bin",
             "sweepga",
             "--",
-
             temp_path,
             "--output",
             output_unfiltered,

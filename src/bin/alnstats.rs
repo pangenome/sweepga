@@ -2,13 +2,16 @@
 ///
 /// Calculates per-genome-pair coverage, mapping counts, and other statistics
 /// for alignment files. Future support for 1aln format planned.
-use anyhow::{Result, Context};
+use anyhow::{Context, Result};
 use clap::Parser;
 use std::collections::HashMap;
 use std::io::BufRead;
 
 #[derive(Parser)]
-#[clap(name = "alnstats", about = "Statistics for alignment files (PAF, 1aln)")]
+#[clap(
+    name = "alnstats",
+    about = "Statistics for alignment files (PAF, 1aln)"
+)]
 struct Args {
     /// First alignment file (PAF format)
     file1: String,
@@ -98,8 +101,7 @@ fn extract_genome_prefix(seq_name: &str) -> String {
 
 /// Parse a PAF file and collect statistics
 fn parse_paf(path: &str) -> Result<AlignmentStats> {
-    let reader = sweepga::paf::open_paf_input(path)
-        .context(format!("Failed to open {path}"))?;
+    let reader = sweepga::paf::open_paf_input(path).context(format!("Failed to open {path}"))?;
 
     let mut stats = AlignmentStats::default();
     let mut chr_pairs = std::collections::HashSet::new();
@@ -164,16 +166,37 @@ fn print_stats(path: &str, stats: &AlignmentStats, detailed: bool) {
 
     println!("\nStatistics for {path}:");
     println!("{}", "=".repeat(60));
-    println!("Total mappings:        {:>12}", format_number(stats.total_mappings));
-    println!("Total bases:           {:>12}", format_number(stats.total_bases as usize));
+    println!(
+        "Total mappings:        {:>12}",
+        format_number(stats.total_mappings)
+    );
+    println!(
+        "Total bases:           {:>12}",
+        format_number(stats.total_bases as usize)
+    );
     println!("Average identity:      {:>11.1}%", avg_identity * 100.0);
-    println!("Self mappings:         {:>12}", format_number(stats.self_mappings));
-    println!("Inter-chromosomal:     {:>12}", format_number(stats.inter_chromosomal));
-    println!("Inter-genome:          {:>12}", format_number(stats.inter_genome));
-    println!("Chromosome pairs:      {:>12}", format_number(stats.chr_pair_count));
+    println!(
+        "Self mappings:         {:>12}",
+        format_number(stats.self_mappings)
+    );
+    println!(
+        "Inter-chromosomal:     {:>12}",
+        format_number(stats.inter_chromosomal)
+    );
+    println!(
+        "Inter-genome:          {:>12}",
+        format_number(stats.inter_genome)
+    );
+    println!(
+        "Chromosome pairs:      {:>12}",
+        format_number(stats.chr_pair_count)
+    );
     println!("Genome pairs:          {:>12}", coverage.genome_pairs);
     println!("Average coverage:      {:>11.1}%", coverage.avg_coverage);
-    println!("Pairs >95% coverage:   {:>12}", format!("{}/{}", coverage.above_95_pct, coverage.genome_pairs));
+    println!(
+        "Pairs >95% coverage:   {:>12}",
+        format!("{}/{}", coverage.above_95_pct, coverage.genome_pairs)
+    );
 
     if detailed && !coverage.per_pair.is_empty() {
         println!("\nPer-genome-pair statistics:");
@@ -183,19 +206,24 @@ fn print_stats(path: &str, stats: &AlignmentStats, detailed: bool) {
 
         for (q, t, cov, bases) in pairs {
             // Calculate identity for this pair
-            let pair_matches = stats.genome_pair_matches.get(&(q.clone(), t.clone())).unwrap_or(&0);
+            let pair_matches = stats
+                .genome_pair_matches
+                .get(&(q.clone(), t.clone()))
+                .unwrap_or(&0);
             let identity = if bases > 0 {
                 *pair_matches as f64 / bases as f64 * 100.0
             } else {
                 0.0
             };
 
-            println!("{:20} -> {:20} {:6.1}% cov, {:6.1}% id, {:>10} bp",
-                     q.trim_end_matches('#'),
-                     t.trim_end_matches('#'),
-                     cov,
-                     identity,
-                     format_number(bases as usize));
+            println!(
+                "{:20} -> {:20} {:6.1}% cov, {:6.1}% id, {:>10} bp",
+                q.trim_end_matches('#'),
+                t.trim_end_matches('#'),
+                cov,
+                identity,
+                format_number(bases as usize)
+            );
         }
     }
 }
@@ -210,24 +238,52 @@ fn compare_stats(file1: &str, file2: &str, stats1: &AlignmentStats, stats2: &Ali
     println!("{}", "=".repeat(60));
 
     print_comparison("Mappings", stats1.total_mappings, stats2.total_mappings);
-    print_comparison("Total bases", stats1.total_bases as usize, stats2.total_bases as usize);
+    print_comparison(
+        "Total bases",
+        stats1.total_bases as usize,
+        stats2.total_bases as usize,
+    );
 
     println!("\nAverage identity:");
     println!("  {:30} {:>11.1}%", file1, identity1 * 100.0);
     println!("  {:30} {:>11.1}%", file2, identity2 * 100.0);
-    println!("  {:30} {:>+10.1}%", "Change", (identity2 - identity1) * 100.0);
+    println!(
+        "  {:30} {:>+10.1}%",
+        "Change",
+        (identity2 - identity1) * 100.0
+    );
 
-    print_comparison("Inter-chromosomal", stats1.inter_chromosomal, stats2.inter_chromosomal);
-    print_comparison("Chromosome pairs", stats1.chr_pair_count, stats2.chr_pair_count);
+    print_comparison(
+        "Inter-chromosomal",
+        stats1.inter_chromosomal,
+        stats2.inter_chromosomal,
+    );
+    print_comparison(
+        "Chromosome pairs",
+        stats1.chr_pair_count,
+        stats2.chr_pair_count,
+    );
 
     println!("\nAverage genome pair coverage:");
     println!("  {:30} {:>11.1}%", file1, coverage1.avg_coverage);
     println!("  {:30} {:>11.1}%", file2, coverage2.avg_coverage);
-    println!("  {:30} {:>+10.1}%", "Change", coverage2.avg_coverage - coverage1.avg_coverage);
+    println!(
+        "  {:30} {:>+10.1}%",
+        "Change",
+        coverage2.avg_coverage - coverage1.avg_coverage
+    );
 
     println!("\nGenome pairs with >95% coverage:");
-    println!("  {:30} {:>12}", file1, format!("{}/{}", coverage1.above_95_pct, coverage1.genome_pairs));
-    println!("  {:30} {:>12}", file2, format!("{}/{}", coverage2.above_95_pct, coverage2.genome_pairs));
+    println!(
+        "  {:30} {:>12}",
+        file1,
+        format!("{}/{}", coverage1.above_95_pct, coverage1.genome_pairs)
+    );
+    println!(
+        "  {:30} {:>12}",
+        file2,
+        format!("{}/{}", coverage2.above_95_pct, coverage2.genome_pairs)
+    );
 }
 
 fn print_comparison(label: &str, val1: usize, val2: usize) {
@@ -241,7 +297,12 @@ fn print_comparison(label: &str, val1: usize, val2: usize) {
     } else {
         0.0
     };
-    println!("  {:30} {:>12} ({:+.1}%)", "Change", format_signed(diff), pct);
+    println!(
+        "  {:30} {:>12} ({:+.1}%)",
+        "Change",
+        format_signed(diff),
+        pct
+    );
 }
 
 fn format_number(n: usize) -> String {

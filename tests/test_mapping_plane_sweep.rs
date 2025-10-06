@@ -20,13 +20,13 @@ fn test_mapping_plane_sweep_across_targets() {
     let output = std::process::Command::new("./target/release/sweepga")
         .arg(paf.path())
         .arg("-n")
-        .arg("1:1")   // Pre-scaffold 1:1 filtering
+        .arg("1:1") // Pre-scaffold 1:1 filtering
         .arg("-j")
-        .arg("0")     // No scaffolding
+        .arg("0") // No scaffolding
         .arg("-i")
         .arg("0")
         .arg("-o")
-        .arg("0.5")   // Lower overlap threshold (default 0.95 is too high)
+        .arg("0.5") // Lower overlap threshold (default 0.95 is too high)
         .output()
         .expect("Failed to run sweepga");
 
@@ -46,7 +46,10 @@ fn test_mapping_plane_sweep_across_targets() {
     assert!(has_chrA, "Better mapping (95% to chrA) should be kept");
 
     // The worse mapping (chrB, 90%, overlapping) should be filtered
-    assert!(!has_chrB, "Worse mapping (90% to chrB) should be filtered by -n 1:1");
+    assert!(
+        !has_chrB,
+        "Worse mapping (90% to chrB) should be filtered by -n 1:1"
+    );
 }
 
 #[test]
@@ -71,7 +74,7 @@ fn test_mapping_plane_sweep_target_axis() {
         .arg("-i")
         .arg("0")
         .arg("-o")
-        .arg("0.5")   // Lower overlap threshold
+        .arg("0.5") // Lower overlap threshold
         .output()
         .expect("Failed to run sweepga");
 
@@ -91,5 +94,8 @@ fn test_mapping_plane_sweep_target_axis() {
     assert!(has_chrB, "Better mapping (98% from chrB) should be kept");
 
     // The worse mapping (chrA, 95%) should be filtered on target axis
-    assert!(!has_chrA, "Worse mapping (95% from chrA) should be filtered - target axis competition");
+    assert!(
+        !has_chrA,
+        "Worse mapping (95% from chrA) should be filtered - target axis competition"
+    );
 }

@@ -12,13 +12,16 @@ pub fn open_paf_input<P: AsRef<Path>>(path: P) -> Result<Box<dyn BufRead>> {
     let file = File::open(path)?;
 
     // Check by file extension (faster than reading magic bytes)
-    let is_compressed = path.extension()
+    let is_compressed = path
+        .extension()
         .and_then(|ext| ext.to_str())
         .map(|ext| ext == "gz" || ext == "bgz")
         .unwrap_or(false);
 
     if is_compressed {
-        Ok(Box::new(BufReader::new(bgzf::io::reader::Reader::new(file))))
+        Ok(Box::new(BufReader::new(bgzf::io::reader::Reader::new(
+            file,
+        ))))
     } else {
         Ok(Box::new(BufReader::new(file)))
     }
@@ -37,15 +40,16 @@ pub fn parse_cigar_counts(cigar: &str) -> Result<(u64, u64, u64, u64)> {
         if ch.is_ascii_digit() {
             num_str.push(ch);
         } else {
-            let count: u64 = num_str.parse()
+            let count: u64 = num_str
+                .parse()
                 .map_err(|_| anyhow::anyhow!("Invalid number in CIGAR: {}", num_str))?;
             num_str.clear();
 
             match ch {
-                '=' => matches += count,      // Exact match
-                'X' => mismatches += count,   // Mismatch
-                'I' => insertions += count,   // Insertion to reference
-                'D' => deletions += count,    // Deletion from reference
+                '=' => matches += count,    // Exact match
+                'X' => mismatches += count, // Mismatch
+                'I' => insertions += count, // Insertion to reference
+                'D' => deletions += count,  // Deletion from reference
                 'M' => {
                     // M means match or mismatch, we can't distinguish
                     // In this case, use the provided matches field from PAF

@@ -1,19 +1,17 @@
+use rand::rngs::StdRng;
+use rand::seq::{IteratorRandom, SliceRandom};
+use rand::{Rng, SeedableRng};
 /// Generate synthetic genomes with controlled mutations for testing
 /// This ensures FastGA can find homologous regions to align
 use std::fs;
 use std::path::{Path, PathBuf};
-use rand::{Rng, SeedableRng};
-use rand::rngs::StdRng;
-use rand::seq::{SliceRandom, IteratorRandom};
 
 /// Generate a stable random DNA sequence with a fixed seed
 pub fn generate_base_sequence(length: usize, seed: u64) -> String {
     let mut rng = StdRng::seed_from_u64(seed);
     let bases = ['A', 'C', 'G', 'T'];
 
-    (0..length)
-        .map(|_| bases[rng.gen_range(0..4)])
-        .collect()
+    (0..length).map(|_| bases[rng.gen_range(0..4)]).collect()
 }
 
 /// Mutation types
@@ -25,11 +23,7 @@ pub enum MutationType {
 }
 
 /// Apply controlled mutations to create a derived sequence
-pub fn mutate_sequence(
-    base: &str,
-    num_mutations: usize,
-    seed: u64,
-) -> String {
+pub fn mutate_sequence(base: &str, num_mutations: usize, seed: u64) -> String {
     let mut rng = StdRng::seed_from_u64(seed);
     let mut sequence: Vec<char> = base.chars().collect();
     let bases = ['A', 'C', 'G', 'T'];
@@ -56,7 +50,8 @@ pub fn mutate_sequence(
             MutationType::Substitution => {
                 // Change to a different base
                 let current = sequence[pos];
-                let new_base = bases.iter()
+                let new_base = bases
+                    .iter()
                     .filter(|&&b| b != current)
                     .choose(&mut rng)
                     .copied()
@@ -174,7 +169,10 @@ mod tests {
 
         // Different seeds should produce different sequences
         let seq3 = generate_base_sequence(100, 43);
-        assert_ne!(seq1, seq3, "Different seeds should produce different sequences");
+        assert_ne!(
+            seq1, seq3,
+            "Different seeds should produce different sequences"
+        );
     }
 
     #[test]
@@ -189,8 +187,12 @@ mod tests {
         // With 3 mutations on a 16-char string, could have up to 3 insertions
         // or 3 deletions, so allow +/- 3 characters
         let len_diff = (mutated.len() as i32 - base.len() as i32).abs();
-        assert!(len_diff <= 10,  // Allow reasonable change for indels
-                "Length change unexpected: {} -> {}", base.len(), mutated.len());
+        assert!(
+            len_diff <= 10, // Allow reasonable change for indels
+            "Length change unexpected: {} -> {}",
+            base.len(),
+            mutated.len()
+        );
     }
 
     #[test]
@@ -209,8 +211,18 @@ mod tests {
 
             // Check approximate size (accounting for header, newlines, and mutations)
             // Content should be at least 90% of expected size (mutations can delete)
-            assert!(content1.len() > size * 9 / 10, "File 1 too small: {} bytes for {} bp sequence", content1.len(), size);
-            assert!(content2.len() > size * 9 / 10, "File 2 too small: {} bytes for {} bp sequence", content2.len(), size);
+            assert!(
+                content1.len() > size * 9 / 10,
+                "File 1 too small: {} bytes for {} bp sequence",
+                content1.len(),
+                size
+            );
+            assert!(
+                content2.len() > size * 9 / 10,
+                "File 2 too small: {} bytes for {} bp sequence",
+                content2.len(),
+                size
+            );
         }
     }
 }

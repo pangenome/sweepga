@@ -1,8 +1,8 @@
 #![allow(dead_code)]
-/// Efficient grouped storage for mappings
-use std::collections::HashMap;
 use crate::compact_mapping::CompactRecordMeta;
 use crate::sequence_index::SequenceIndex;
+/// Efficient grouped storage for mappings
+use std::collections::HashMap;
 
 /// Key for grouping mappings by chromosome pair
 #[derive(Debug, Clone, Copy, Hash, Eq, PartialEq)]
@@ -55,13 +55,23 @@ impl GroupedMappings {
 
     /// Get mappings for a specific chromosome pair
     pub fn get_group(&self, query_id: u32, target_id: u32) -> Option<&Vec<CompactRecordMeta>> {
-        let key = ChromosomePair { query_id, target_id };
+        let key = ChromosomePair {
+            query_id,
+            target_id,
+        };
         self.groups.get(&key)
     }
 
     /// Get mutable mappings for a specific chromosome pair
-    pub fn get_group_mut(&mut self, query_id: u32, target_id: u32) -> Option<&mut Vec<CompactRecordMeta>> {
-        let key = ChromosomePair { query_id, target_id };
+    pub fn get_group_mut(
+        &mut self,
+        query_id: u32,
+        target_id: u32,
+    ) -> Option<&mut Vec<CompactRecordMeta>> {
+        let key = ChromosomePair {
+            query_id,
+            target_id,
+        };
         self.groups.get_mut(&key)
     }
 
@@ -86,7 +96,9 @@ impl GroupedMappings {
     }
 
     /// Iterate over all groups mutably
-    pub fn iter_mut(&mut self) -> impl Iterator<Item = (&ChromosomePair, &mut Vec<CompactRecordMeta>)> {
+    pub fn iter_mut(
+        &mut self,
+    ) -> impl Iterator<Item = (&ChromosomePair, &mut Vec<CompactRecordMeta>)> {
         self.groups.iter_mut()
     }
 

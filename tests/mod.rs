@@ -3,8 +3,8 @@
 /// Test module declarations
 mod fastga_integration;
 mod synthetic_genomes;
-mod unit_tests;
 mod test_utils;
+mod unit_tests;
 
 // Re-export for convenience
 pub use synthetic_genomes::*;

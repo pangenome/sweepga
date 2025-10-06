@@ -32,7 +32,6 @@ chrII_query\t15000\t2000\t3000\t+\tchrII_target2\t10000\t4000\t5000\t1000\t1000\
             "--bin",
             "sweepga",
             "--",
-            
             temp_path,
             "--output",
             output_path,
@@ -120,7 +119,6 @@ query1\t5000\t1000\t2000\t+\ttarget_D\t10000\t1000\t2000\t1000\t1000\t60\tcg:Z:1
             "--bin",
             "sweepga",
             "--",
-            
             temp_path,
             "--output",
             output_path,

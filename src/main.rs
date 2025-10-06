@@ -49,7 +49,11 @@ impl TimingContext {
     fn stats(&self) -> (f64, f64) {
         let elapsed = self.start_time.elapsed().as_secs_f64();
         let cpu_used = Self::cpu_time() - self.start_cpu;
-        let cpu_ratio = if elapsed > 0.0 { cpu_used / elapsed } else { 0.0 };
+        let cpu_ratio = if elapsed > 0.0 {
+            cpu_used / elapsed
+        } else {
+            0.0
+        };
         (elapsed, cpu_ratio)
     }
 
@@ -71,8 +75,6 @@ enum FileType {
 /// Detect file type by reading first non-empty line or checking file extension
 /// Handles .gz files automatically
 fn detect_file_type(path: &str) -> Result<FileType> {
-    
-
     // Check for .1aln extension first (binary format)
     if path.ends_with(".1aln") {
         return Ok(FileType::Aln);
@@ -110,12 +112,13 @@ fn detect_file_type(path: &str) -> Result<FileType> {
     let fields: Vec<&str> = trimmed.split('\t').collect();
     if fields.len() >= 12 {
         // Check that numeric fields parse correctly (columns 1, 2, 3, 6, 7, 8, 9, 10, 11)
-        if fields[1].parse::<u64>().is_ok() &&
-           fields[2].parse::<u64>().is_ok() &&
-           fields[3].parse::<u64>().is_ok() &&
-           fields[6].parse::<u64>().is_ok() &&
-           fields[9].parse::<u64>().is_ok() &&
-           fields[10].parse::<u64>().is_ok() {
+        if fields[1].parse::<u64>().is_ok()
+            && fields[2].parse::<u64>().is_ok()
+            && fields[3].parse::<u64>().is_ok()
+            && fields[6].parse::<u64>().is_ok()
+            && fields[9].parse::<u64>().is_ok()
+            && fields[10].parse::<u64>().is_ok()
+        {
             return Ok(FileType::Paf);
         }
     }
@@ -220,7 +223,12 @@ struct Args {
     num_mappings: String,
 
     /// Scaffold filter: "1:1" (best), "M:N" (top M per query, N per target; ∞/many for unbounded)
-    #[clap(short = 'm', long = "scaffold-filter", default_value = "many:many", hide = true)]
+    #[clap(
+        short = 'm',
+        long = "scaffold-filter",
+        default_value = "many:many",
+        hide = true
+    )]
     scaffold_filter: String,
 
     /// Scaffold jump (gap) distance. 0 = disable scaffolding (plane sweep only), >0 = enable scaffolding
@@ -232,7 +240,12 @@ struct Args {
     scaffold_mass: u64,
 
     /// Scaffold chain overlap threshold
-    #[clap(short = 'O', long = "scaffold-overlap", default_value = "0.5", hide = true)]
+    #[clap(
+        short = 'O',
+        long = "scaffold-overlap",
+        default_value = "0.5",
+        hide = true
+    )]
     scaffold_overlap: f64,
 
     /// Maximum distance from scaffold anchor (0 = no rescue, only keep scaffold members)
@@ -253,7 +266,12 @@ struct Args {
     min_identity: String,
 
     /// Minimum scaffold identity threshold (0-1 fraction, 1-100%, "aniN", or defaults to -i)
-    #[clap(short = 'Y', long = "min-scaffold-identity", default_value = "0", hide = true)]
+    #[clap(
+        short = 'Y',
+        long = "min-scaffold-identity",
+        default_value = "0",
+        hide = true
+    )]
     min_scaffold_identity: String,
 
     /// Disable all filtering
@@ -317,9 +335,7 @@ fn parse_filter_mode(mode: &str, filter_type: &str) -> (FilterMode, Option<usize
                 };
                 return (mode, per_query, per_target);
             }
-            eprintln!(
-                "Warning: Invalid {filter_type} filter '{s}', using default 1:1"
-            );
+            eprintln!("Warning: Invalid {filter_type} filter '{s}', using default 1:1");
             (FilterMode::OneToOne, Some(1), Some(1))
         }
         _ => {
@@ -332,9 +348,7 @@ fn parse_filter_mode(mode: &str, filter_type: &str) -> (FilterMode, Option<usize
                 // Single number means filter on query axis only
                 return (FilterMode::OneToMany, Some(n), None);
             }
-            eprintln!(
-                "Warning: Invalid {filter_type} filter '{mode}', using default 1:1"
-            );
+            eprintln!("Warning: Invalid {filter_type} filter '{mode}', using default 1:1");
             (FilterMode::OneToOne, Some(1), Some(1))
         }
     }
@@ -393,9 +407,15 @@ fn parse_identity_value(value: &str, ani_percentile: Option<f64>) -> Result<f64>
             // Parse percentile number and optional offset
             // Find offset position if exists
             let (percentile_str, offset_part) = if let Some(plus_pos) = remainder.find('+') {
-                (&remainder[..plus_pos], Some(('+', &remainder[plus_pos+1..])))
+                (
+                    &remainder[..plus_pos],
+                    Some(('+', &remainder[plus_pos + 1..])),
+                )
             } else if let Some(minus_pos) = remainder.find('-') {
-                (&remainder[..minus_pos], Some(('-', &remainder[minus_pos+1..])))
+                (
+                    &remainder[..minus_pos],
+                    Some(('-', &remainder[minus_pos + 1..])),
+                )
             } else {
                 (remainder, None)
             };
@@ -403,12 +423,15 @@ fn parse_identity_value(value: &str, ani_percentile: Option<f64>) -> Result<f64>
             // For now we only support ani50 (median), ignore the percentile number
             // Could extend to support ani25, ani75, etc. in future
             if !percentile_str.is_empty() && percentile_str != "50" {
-                eprintln!("[sweepga] WARNING: Only ani50 (median) currently supported, using median");
+                eprintln!(
+                    "[sweepga] WARNING: Only ani50 (median) currently supported, using median"
+                );
             }
 
             // Apply offset if provided
             if let Some((sign, offset_str)) = offset_part {
-                let offset: f64 = offset_str.parse()
+                let offset: f64 = offset_str
+                    .parse()
                     .map_err(|_| anyhow::anyhow!("Invalid ANI offset: {}", offset_str))?;
                 match sign {
                     '+' => Ok((ani_value + offset / 100.0).min(1.0)),
@@ -424,9 +447,9 @@ fn parse_identity_value(value: &str, ani_percentile: Option<f64>) -> Result<f64>
     } else if let Ok(val) = value.parse::<f64>() {
         // Numeric value
         if val > 1.0 {
-            Ok(val / 100.0)  // Percentage to fraction
+            Ok(val / 100.0) // Percentage to fraction
         } else {
-            Ok(val)  // Already fraction
+            Ok(val) // Already fraction
         }
     } else {
         anyhow::bail!("Invalid identity value: {}", value);
@@ -435,7 +458,7 @@ fn parse_identity_value(value: &str, ani_percentile: Option<f64>) -> Result<f64>
 
 /// Calculate ANI statistics between genome pairs using specified method
 fn calculate_ani_stats(input_path: &str, method: AniMethod, quiet: bool) -> Result<f64> {
-    use crate::paf_filter::{PafFilter, FilterConfig, FilterMode, ScoringFunction};
+    use crate::paf_filter::{FilterConfig, FilterMode, PafFilter, ScoringFunction};
     use tempfile::NamedTempFile;
 
     let final_input_path = match method {
@@ -561,18 +584,21 @@ fn calculate_ani_stats(input_path: &str, method: AniMethod, quiet: bool) -> Resu
 
     if genome_pairs.is_empty() {
         eprintln!("[sweepga] WARNING: No inter-genome alignments found for ANI calculation");
-        return Ok(0.0);  // Default to no filtering
+        return Ok(0.0); // Default to no filtering
     }
 
     // Calculate weighted average ANI for each genome pair
     // ANI = total_matches / total_block_length
-    let mut ani_values: Vec<f64> = genome_pairs.iter().map(|((_q, _t), (total_matches, total_length))| {
-        if *total_length > 0.0 {
-            total_matches / total_length
-        } else {
-            0.0
-        }
-    }).collect();
+    let mut ani_values: Vec<f64> = genome_pairs
+        .iter()
+        .map(|((_q, _t), (total_matches, total_length))| {
+            if *total_length > 0.0 {
+                total_matches / total_length
+            } else {
+                0.0
+            }
+        })
+        .collect();
 
     ani_values.sort_by(|a, b| a.partial_cmp(b).unwrap());
 
@@ -584,22 +610,38 @@ fn calculate_ani_stats(input_path: &str, method: AniMethod, quiet: bool) -> Resu
         ani_values[median_idx]
     };
 
-    eprintln!("[sweepga] ANI statistics from {} genome pairs:", genome_pairs.len());
-    eprintln!("[sweepga]   Min: {:.1}%, Median: {:.1}%, Max: {:.1}%",
-             ani_values.first().unwrap_or(&0.0) * 100.0,
-             ani50 * 100.0,
-             ani_values.last().unwrap_or(&0.0) * 100.0);
+    eprintln!(
+        "[sweepga] ANI statistics from {} genome pairs:",
+        genome_pairs.len()
+    );
+    eprintln!(
+        "[sweepga]   Min: {:.1}%, Median: {:.1}%, Max: {:.1}%",
+        ani_values.first().unwrap_or(&0.0) * 100.0,
+        ani50 * 100.0,
+        ani_values.last().unwrap_or(&0.0) * 100.0
+    );
 
     Ok(ani50)
 }
 
 /// Calculate ANI using N-percentile method - use best alignments covering N% of genome pairs
-fn calculate_ani_n_percentile(input_path: &str, percentile: f64, sort_method: NSort, quiet: bool) -> Result<f64> {
+fn calculate_ani_n_percentile(
+    input_path: &str,
+    percentile: f64,
+    sort_method: NSort,
+    quiet: bool,
+) -> Result<f64> {
     if !quiet {
         let method_name = match sort_method {
             NSort::Length => format!("longest alignments (N{} by length)", percentile as i32),
-            NSort::Identity => format!("highest identity alignments (N{} by identity)", percentile as i32),
-            NSort::Score => format!("best scoring alignments (N{} by identity × log(length))", percentile as i32),
+            NSort::Identity => format!(
+                "highest identity alignments (N{} by identity)",
+                percentile as i32
+            ),
+            NSort::Score => format!(
+                "best scoring alignments (N{} by identity × log(length))",
+                percentile as i32
+            ),
         };
         eprintln!("[sweepga] Calculating ANI from {method_name}");
     }
@@ -655,8 +697,16 @@ fn calculate_ani_n_percentile(input_path: &str, percentile: f64, sort_method: NS
         let target_length = fields[6].parse::<u64>().unwrap_or(0);
 
         // Track genome+chromosome sizes to avoid double counting
-        let query_key = format!("{}{}", query_genome, fields[0].rsplit('#').next().unwrap_or(""));
-        let target_key = format!("{}{}", target_genome, fields[5].rsplit('#').next().unwrap_or(""));
+        let query_key = format!(
+            "{}{}",
+            query_genome,
+            fields[0].rsplit('#').next().unwrap_or("")
+        );
+        let target_key = format!(
+            "{}{}",
+            target_genome,
+            fields[5].rsplit('#').next().unwrap_or("")
+        );
         genome_sizes.entry(query_key).or_insert(query_length);
         genome_sizes.entry(target_key).or_insert(target_length);
 
@@ -720,8 +770,12 @@ fn calculate_ani_n_percentile(input_path: &str, percentile: f64, sort_method: NS
     let n_threshold = total_genome_size * (percentile / 100.0);
 
     if !quiet {
-        eprintln!("[sweepga] Total genome size: {:.1} Mb, N{} threshold: {:.1} Mb",
-                 total_genome_size / 1_000_000.0, percentile as i32, n_threshold / 1_000_000.0);
+        eprintln!(
+            "[sweepga] Total genome size: {:.1} Mb, N{} threshold: {:.1} Mb",
+            total_genome_size / 1_000_000.0,
+            percentile as i32,
+            n_threshold / 1_000_000.0
+        );
     }
 
     // Take alignments until we reach N-percentile threshold
@@ -747,13 +801,16 @@ fn calculate_ani_n_percentile(input_path: &str, percentile: f64, sort_method: NS
     }
 
     // Calculate weighted ANI for each genome pair
-    let mut ani_values: Vec<f64> = genome_pairs.iter().map(|((_q, _t), (total_matches, total_length))| {
-        if *total_length > 0.0 {
-            total_matches / total_length
-        } else {
-            0.0
-        }
-    }).collect();
+    let mut ani_values: Vec<f64> = genome_pairs
+        .iter()
+        .map(|((_q, _t), (total_matches, total_length))| {
+            if *total_length > 0.0 {
+                total_matches / total_length
+            } else {
+                0.0
+            }
+        })
+        .collect();
 
     ani_values.sort_by(|a, b| a.partial_cmp(b).unwrap());
 
@@ -774,13 +831,23 @@ fn calculate_ani_n_percentile(input_path: &str, percentile: f64, sort_method: NS
         NSort::Identity => format!("N{} by identity", percentile as i32),
         NSort::Score => format!("N{} by score", percentile as i32),
     };
-    eprintln!("[sweepga] ANI statistics from {} genome pairs ({}):", genome_pairs.len(), method_str);
-    eprintln!("[sweepga]   Coverage: {:.1}% of genomes ({:.1} Mb aligned / {:.1} Mb sum of genome sizes)",
-             coverage_pct, total_included / 1_000_000.0, total_genome_size / 1_000_000.0);
-    eprintln!("[sweepga]   Min: {:.1}%, Median: {:.1}%, Max: {:.1}%",
-             ani_values.first().unwrap_or(&0.0) * 100.0,
-             ani50 * 100.0,
-             ani_values.last().unwrap_or(&0.0) * 100.0);
+    eprintln!(
+        "[sweepga] ANI statistics from {} genome pairs ({}):",
+        genome_pairs.len(),
+        method_str
+    );
+    eprintln!(
+        "[sweepga]   Coverage: {:.1}% of genomes ({:.1} Mb aligned / {:.1} Mb sum of genome sizes)",
+        coverage_pct,
+        total_included / 1_000_000.0,
+        total_genome_size / 1_000_000.0
+    );
+    eprintln!(
+        "[sweepga]   Min: {:.1}%, Median: {:.1}%, Max: {:.1}%",
+        ani_values.first().unwrap_or(&0.0) * 100.0,
+        ani50 * 100.0,
+        ani_values.last().unwrap_or(&0.0) * 100.0
+    );
 
     Ok(ani50)
 }
@@ -791,8 +858,11 @@ fn find_gdb_files_for_aln(_aln_path: &str, input_files: &[String]) -> Result<Vec
 
     // Strategy 1: Check if input files are FASTAs - their .1gdb files were created
     for input_file in input_files {
-        if input_file.ends_with(".fa") || input_file.ends_with(".fasta") ||
-           input_file.ends_with(".fa.gz") || input_file.ends_with(".fasta.gz") {
+        if input_file.ends_with(".fa")
+            || input_file.ends_with(".fasta")
+            || input_file.ends_with(".fa.gz")
+            || input_file.ends_with(".fasta.gz")
+        {
             // Derive .1gdb path from FASTA - need to handle .gz correctly
             let base = if input_file.ends_with(".gz") {
                 input_file.strip_suffix(".gz").unwrap()
@@ -815,7 +885,11 @@ fn find_gdb_files_for_aln(_aln_path: &str, input_files: &[String]) -> Result<Vec
             }
         } else if input_file.ends_with(".1aln") {
             // Input was .1aln - look for matching .1gdb
-            let gdb_path = input_file.strip_suffix(".1aln").unwrap_or(input_file).to_string() + ".1gdb";
+            let gdb_path = input_file
+                .strip_suffix(".1aln")
+                .unwrap_or(input_file)
+                .to_string()
+                + ".1gdb";
             if std::path::Path::new(&gdb_path).exists() {
                 gdb_files.push(gdb_path);
             }
@@ -826,7 +900,10 @@ fn find_gdb_files_for_aln(_aln_path: &str, input_files: &[String]) -> Result<Vec
     // Could extract '<' lines from ONEcode format if needed
 
     if gdb_files.is_empty() {
-        anyhow::bail!("Could not find .1gdb files for .1aln output. Input files: {:?}", input_files);
+        anyhow::bail!(
+            "Could not find .1gdb files for .1aln output. Input files: {:?}",
+            input_files
+        );
     }
 
     Ok(gdb_files)
@@ -887,18 +964,31 @@ fn aln_to_paf(aln_path: &str, threads: usize) -> Result<tempfile::NamedTempFile>
     }
 
     // Fallback to ALNtoPAF
-    let alnto_paf_bin = std::env::current_exe().ok()
+    let alnto_paf_bin = std::env::current_exe()
+        .ok()
         .and_then(|exe| exe.parent().map(|p| p.join("ALNtoPAF")))
         .filter(|p| p.exists())
         .or_else(|| {
             let local = std::path::PathBuf::from("./ALNtoPAF");
-            if local.exists() { Some(local) } else { None }
+            if local.exists() {
+                Some(local)
+            } else {
+                None
+            }
         })
         .or_else(|| {
             let deps = std::path::PathBuf::from("deps/fastga/ALNtoPAF");
-            if deps.exists() { Some(deps) } else { None }
+            if deps.exists() {
+                Some(deps)
+            } else {
+                None
+            }
         })
-        .ok_or_else(|| anyhow::anyhow!("ALNtoPAF tool not found and native reader failed. Cannot convert .1aln to PAF."))?;
+        .ok_or_else(|| {
+            anyhow::anyhow!(
+                "ALNtoPAF tool not found and native reader failed. Cannot convert .1aln to PAF."
+            )
+        })?;
 
     // Create temp file for PAF output
     let temp_paf = tempfile::NamedTempFile::with_suffix(".paf")?;
@@ -908,14 +998,16 @@ fn aln_to_paf(aln_path: &str, threads: usize) -> Result<tempfile::NamedTempFile>
     // -x: output CIGAR with X's (required if we want to convert back to .1aln later)
     // It writes PAF to stdout
     let output = std::process::Command::new(&alnto_paf_bin)
-        .arg("-x")  // Generate CIGAR with X's
+        .arg("-x") // Generate CIGAR with X's
         .arg(format!("-T{threads}"))
         .arg(aln_path)
         .output()?;
 
     if !output.status.success() {
-        anyhow::bail!("ALNtoPAF conversion failed: {}",
-                     String::from_utf8_lossy(&output.stderr));
+        anyhow::bail!(
+            "ALNtoPAF conversion failed: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
     }
 
     // Write stdout to temp file
@@ -929,7 +1021,10 @@ fn aln_to_paf(aln_path: &str, threads: usize) -> Result<tempfile::NamedTempFile>
 // Future: implement direct PAF → .1aln conversion using AlnWriter
 
 /// Create FastGA integration with optional frequency parameter
-fn create_fastga_integration(frequency: Option<usize>, num_threads: usize) -> Result<fastga_integration::FastGAIntegration> {
+fn create_fastga_integration(
+    frequency: Option<usize>,
+    num_threads: usize,
+) -> Result<fastga_integration::FastGAIntegration> {
     use crate::fastga_integration::FastGAIntegration;
     Ok(FastGAIntegration::new(frequency, num_threads))
 }
@@ -951,9 +1046,8 @@ fn main() -> Result<()> {
 
     // Detect file types early so we can use them for output conversion
     let input_file_types: Vec<FileType> = if !args.files.is_empty() {
-        let file_types: Result<Vec<FileType>> = args.files.iter()
-            .map(|f| detect_file_type(f))
-            .collect();
+        let file_types: Result<Vec<FileType>> =
+            args.files.iter().map(|f| detect_file_type(f)).collect();
         file_types?
     } else {
         vec![]
@@ -965,7 +1059,10 @@ fn main() -> Result<()> {
 
         if !args.quiet {
             for (i, (file, ftype)) in args.files.iter().zip(file_types.iter()).enumerate() {
-                timing.log("detect", &format!("Input {}: {} ({:?})", i + 1, file, ftype));
+                timing.log(
+                    "detect",
+                    &format!("Input {}: {} ({:?})", i + 1, file, ftype),
+                );
             }
         }
 
@@ -975,7 +1072,13 @@ fn main() -> Result<()> {
                 let alignment_start = Instant::now();
 
                 if !args.quiet {
-                    timing.log("align", &format!("Running {} self-alignment on {}", args.aligner, args.files[0]));
+                    timing.log(
+                        "align",
+                        &format!(
+                            "Running {} self-alignment on {}",
+                            args.aligner, args.files[0]
+                        ),
+                    );
                 }
 
                 let path = Path::new(&args.files[0]);
@@ -984,7 +1087,14 @@ fn main() -> Result<()> {
 
                 alignment_time = Some(alignment_start.elapsed().as_secs_f64());
                 if !args.quiet {
-                    timing.log("align", &format!("{} alignment complete ({:.1}s)", args.aligner, alignment_time.unwrap()));
+                    timing.log(
+                        "align",
+                        &format!(
+                            "{} alignment complete ({:.1}s)",
+                            args.aligner,
+                            alignment_time.unwrap()
+                        ),
+                    );
                 }
 
                 let paf_path = temp_paf.path().to_string_lossy().into_owned();
@@ -995,8 +1105,13 @@ fn main() -> Result<()> {
                 let alignment_start = Instant::now();
 
                 if !args.quiet {
-                    timing.log("align", &format!("Running {} alignment: {} -> {}",
-                             args.aligner, args.files[0], args.files[1]));
+                    timing.log(
+                        "align",
+                        &format!(
+                            "Running {} alignment: {} -> {}",
+                            args.aligner, args.files[0], args.files[1]
+                        ),
+                    );
                 }
 
                 let target = Path::new(&args.files[0]);
@@ -1006,7 +1121,14 @@ fn main() -> Result<()> {
 
                 alignment_time = Some(alignment_start.elapsed().as_secs_f64());
                 if !args.quiet {
-                    timing.log("align", &format!("{} alignment complete ({:.1}s)", args.aligner, alignment_time.unwrap()));
+                    timing.log(
+                        "align",
+                        &format!(
+                            "{} alignment complete ({:.1}s)",
+                            args.aligner,
+                            alignment_time.unwrap()
+                        ),
+                    );
                 }
 
                 let paf_path = temp_paf.path().to_string_lossy().into_owned();
@@ -1019,7 +1141,10 @@ fn main() -> Result<()> {
             (1, [FileType::Aln]) => {
                 // Convert .1aln to PAF for filtering
                 if !args.quiet {
-                    timing.log("convert", &format!("Converting .1aln to PAF: {}", args.files[0]));
+                    timing.log(
+                        "convert",
+                        &format!("Converting .1aln to PAF: {}", args.files[0]),
+                    );
                 }
 
                 let temp_paf = aln_to_paf(&args.files[0], args.threads)?;
@@ -1072,7 +1197,10 @@ fn main() -> Result<()> {
                 let alignment_start = Instant::now();
 
                 if !args.quiet {
-                    timing.log("align", &format!("Running {} self-alignment on stdin", args.aligner));
+                    timing.log(
+                        "align",
+                        &format!("Running {} self-alignment on stdin", args.aligner),
+                    );
                 }
 
                 let path = Path::new(&temp_path);
@@ -1081,7 +1209,14 @@ fn main() -> Result<()> {
 
                 alignment_time = Some(alignment_start.elapsed().as_secs_f64());
                 if !args.quiet {
-                    timing.log("align", &format!("{} alignment complete ({:.1}s)", args.aligner, alignment_time.unwrap()));
+                    timing.log(
+                        "align",
+                        &format!(
+                            "{} alignment complete ({:.1}s)",
+                            args.aligner,
+                            alignment_time.unwrap()
+                        ),
+                    );
                 }
 
                 let paf_path = temp_paf.path().to_string_lossy().into_owned();
@@ -1151,7 +1286,6 @@ fn main() -> Result<()> {
         _ => ScoringFunction::LogLengthIdentity,
     };
 
-
     // Placeholder for identity values - will be calculated after we have input path
     let temp_config = FilterConfig {
         chain_gap: args.scaffold_jump,
@@ -1173,20 +1307,24 @@ fn main() -> Result<()> {
         prefix_delimiter: '#',
         skip_prefix: false,
         scoring_function,
-        min_identity: 0.0,  // Will be set later
-        min_scaffold_identity: 0.0,  // Will be set later
+        min_identity: 0.0,          // Will be set later
+        min_scaffold_identity: 0.0, // Will be set later
     };
 
     // Parse ANI calculation method
     let ani_method = parse_ani_method(&args.ani_method);
     if ani_method.is_none() {
-        eprintln!("[sweepga] WARNING: Unknown ANI method '{}', using 'n50-identity'", args.ani_method);
+        eprintln!(
+            "[sweepga] WARNING: Unknown ANI method '{}', using 'n50-identity'",
+            args.ani_method
+        );
     }
     let ani_method = ani_method.unwrap_or(AniMethod::NPercentile(50.0, NSort::Identity));
 
     // Now calculate ANI if needed for identity thresholds
-    let ani_percentile = if args.min_identity.to_lowercase().contains("ani") ||
-                            args.min_scaffold_identity.to_lowercase().contains("ani") {
+    let ani_percentile = if args.min_identity.to_lowercase().contains("ani")
+        || args.min_scaffold_identity.to_lowercase().contains("ani")
+    {
         Some(calculate_ani_stats(&input_path, ani_method, args.quiet)?)
     } else {
         None
@@ -1195,7 +1333,7 @@ fn main() -> Result<()> {
     // Parse identity thresholds
     let min_identity = parse_identity_value(&args.min_identity, ani_percentile)?;
     let min_scaffold_identity = if args.min_scaffold_identity.is_empty() {
-        min_identity  // If empty string, use min_identity
+        min_identity // If empty string, use min_identity
     } else {
         parse_identity_value(&args.min_scaffold_identity, ani_percentile)?
     };
@@ -1203,10 +1341,19 @@ fn main() -> Result<()> {
     // Only report thresholds if they're non-zero
     if !args.quiet && (min_identity > 0.0 || min_scaffold_identity > 0.0) {
         if min_identity > 0.0 {
-            timing.log("config", &format!("Mapping identity threshold: {:.1}%", min_identity * 100.0));
+            timing.log(
+                "config",
+                &format!("Mapping identity threshold: {:.1}%", min_identity * 100.0),
+            );
         }
         if min_scaffold_identity > 0.0 && min_scaffold_identity != min_identity {
-            timing.log("config", &format!("Scaffold identity threshold: {:.1}%", min_scaffold_identity * 100.0));
+            timing.log(
+                "config",
+                &format!(
+                    "Scaffold identity threshold: {:.1}%",
+                    min_scaffold_identity * 100.0
+                ),
+            );
         }
     }
 
@@ -1223,7 +1370,7 @@ fn main() -> Result<()> {
     let output_temp = tempfile::NamedTempFile::with_suffix(".paf")?;
     let (output_file, output_path_buf) = output_temp.keep()?;
     let output_path = output_path_buf.to_str().unwrap().to_string();
-    drop(output_file);  // Close the file handle so filter_paf can open it
+    drop(output_file); // Close the file handle so filter_paf can open it
 
     // Note: -f (no_filter) implies --self (keep self-mappings)
     let filter = PafFilter::new(config)
@@ -1234,7 +1381,10 @@ fn main() -> Result<()> {
     // Convert output format if requested
     // Note: PAFtoALN automatically appends .paf to the input filename, so we need to strip it
     let paftoaln_input_path = if args.output_format == "1aln" {
-        output_path.strip_suffix(".paf").unwrap_or(&output_path).to_string()
+        output_path
+            .strip_suffix(".paf")
+            .unwrap_or(&output_path)
+            .to_string()
     } else {
         output_path.clone()
     };
@@ -1252,19 +1402,30 @@ fn main() -> Result<()> {
         }
 
         // Look for PAFtoALN in same directory as sweepga binary, or in current directory
-        let paftoaln_bin = std::env::current_exe().ok()
+        let paftoaln_bin = std::env::current_exe()
+            .ok()
             .and_then(|exe| exe.parent().map(|p| p.join("PAFtoALN")))
             .filter(|p| p.exists())
             .or_else(|| {
                 let local = std::path::PathBuf::from("./PAFtoALN");
-                if local.exists() { Some(local) } else { None }
+                if local.exists() {
+                    Some(local)
+                } else {
+                    None
+                }
             })
             .or_else(|| {
                 // Try project root (for development)
                 let root = std::path::PathBuf::from("PAFtoALN");
-                if root.exists() { Some(root) } else { None }
+                if root.exists() {
+                    Some(root)
+                } else {
+                    None
+                }
             })
-            .ok_or_else(|| anyhow::anyhow!("PAFtoALN tool not found. Cannot convert to 1aln format."))?;
+            .ok_or_else(|| {
+                anyhow::anyhow!("PAFtoALN tool not found. Cannot convert to 1aln format.")
+            })?;
 
         // PAFtoALN usage: PAFtoALN [-T<int>] <alignments> <source1.fa|source1.1gdb> [<source2.fa|source2.1gdb>]
         // Note: PAFtoALN automatically appends .paf to the alignments filename for input
@@ -1278,7 +1439,11 @@ fn main() -> Result<()> {
         for input_file in &args.files {
             if input_file.ends_with(".1aln") {
                 // Input is .1aln - pass matching .1gdb
-                let gdb_path = input_file.strip_suffix(".1aln").unwrap_or(input_file).to_string() + ".1gdb";
+                let gdb_path = input_file
+                    .strip_suffix(".1aln")
+                    .unwrap_or(input_file)
+                    .to_string()
+                    + ".1gdb";
                 cmd.arg(&gdb_path);
             } else {
                 // Input is FASTA - pass it directly
@@ -1289,7 +1454,7 @@ fn main() -> Result<()> {
         // Suppress PAFtoALN's normal output unless in verbose mode
         if args.quiet {
             cmd.stdout(std::process::Stdio::null())
-               .stderr(std::process::Stdio::null());
+                .stderr(std::process::Stdio::null());
         }
 
         let status = cmd.status()?;
@@ -1311,7 +1476,9 @@ fn main() -> Result<()> {
     if args.output_format == "1aln" {
         // For .1aln output, we need an output file to create matching .1gdb
         let output_file = args.output.as_ref().ok_or_else(|| {
-            anyhow::anyhow!(".1aln format requires -o/--output <file.1aln> to create matching .1gdb file")
+            anyhow::anyhow!(
+                ".1aln format requires -o/--output <file.1aln> to create matching .1gdb file"
+            )
         })?;
 
         // Copy .1aln to output file
@@ -1322,26 +1489,32 @@ fn main() -> Result<()> {
         let gdb_paths = find_gdb_files_for_aln(&final_output_path, &args.files)?;
 
         // Copy .1gdb to match output basename
-        let output_gdb = output_file.strip_suffix(".1aln")
+        let output_gdb = output_file
+            .strip_suffix(".1aln")
             .unwrap_or(output_file)
-            .to_string() + ".1gdb";
+            .to_string()
+            + ".1gdb";
 
         if let Some(source_gdb) = gdb_paths.first() {
             std::fs::copy(source_gdb, &output_gdb)?;
 
             // Also copy the hidden .bps file (required by GDB format)
             // .bps is in same directory with a dot prefix
-            let source_dir = std::path::Path::new(source_gdb).parent()
+            let source_dir = std::path::Path::new(source_gdb)
+                .parent()
                 .unwrap_or(std::path::Path::new("."));
-            let source_basename = std::path::Path::new(source_gdb).file_stem()
+            let source_basename = std::path::Path::new(source_gdb)
+                .file_stem()
                 .and_then(|s| s.to_str())
                 .unwrap_or("unknown");
             let source_bps = source_dir.join(format!(".{source_basename}.bps"));
 
             if source_bps.exists() {
-                let output_dir = std::path::Path::new(&output_gdb).parent()
+                let output_dir = std::path::Path::new(&output_gdb)
+                    .parent()
                     .unwrap_or(std::path::Path::new("."));
-                let output_basename = std::path::Path::new(&output_gdb).file_stem()
+                let output_basename = std::path::Path::new(&output_gdb)
+                    .file_stem()
                     .and_then(|s| s.to_str())
                     .unwrap_or("output");
                 let output_bps = output_dir.join(format!(".{output_basename}.bps"));

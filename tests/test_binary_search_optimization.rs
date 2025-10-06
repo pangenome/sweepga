@@ -24,9 +24,13 @@ fn merge_mappings_quadratic(mappings: &[TestMapping], max_gap: u32) -> Vec<Vec<u
                 break; // Early termination
             }
 
-            let q_gap = mappings[j].query_start.saturating_sub(mappings[i].query_end);
+            let q_gap = mappings[j]
+                .query_start
+                .saturating_sub(mappings[i].query_end);
 
-            let t_gap = mappings[j].target_start.saturating_sub(mappings[i].target_end);
+            let t_gap = mappings[j]
+                .target_start
+                .saturating_sub(mappings[i].target_end);
 
             if q_gap <= max_gap && t_gap <= max_gap {
                 uf.union(i, j);
@@ -53,9 +57,13 @@ fn merge_mappings_binary_search(mappings: &[TestMapping], max_gap: u32) -> Vec<V
 
         // Only check mappings in the valid range
         for j in (i + 1)..j_end {
-            let q_gap = mappings[j].query_start.saturating_sub(mappings[i].query_end);
+            let q_gap = mappings[j]
+                .query_start
+                .saturating_sub(mappings[i].query_end);
 
-            let t_gap = mappings[j].target_start.saturating_sub(mappings[i].target_end);
+            let t_gap = mappings[j]
+                .target_start
+                .saturating_sub(mappings[i].target_end);
 
             if q_gap <= max_gap && t_gap <= max_gap {
                 uf.union(i, j);
@@ -69,7 +77,8 @@ fn merge_mappings_binary_search(mappings: &[TestMapping], max_gap: u32) -> Vec<V
 #[test]
 fn test_binary_search_finds_correct_range() {
     // Test that binary search finds exactly the right range of candidates
-    let mappings = [TestMapping {
+    let mappings = [
+        TestMapping {
             idx: 0,
             query_start: 100,
             query_end: 200,
@@ -103,7 +112,8 @@ fn test_binary_search_finds_correct_range() {
             query_end: 1100,
             target_start: 1000,
             target_end: 1100,
-        }];
+        },
+    ];
 
     let max_gap = 100;
 

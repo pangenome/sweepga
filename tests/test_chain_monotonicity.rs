@@ -66,8 +66,12 @@ fn create_fragmented_paf() -> NamedTempFile {
         let matches = 950 + (i % 3) * 10; // 95-97% identity
         let nm = 1000 - matches;
 
-        writeln!(file, "query\t100000\t{}\t{}\t+\ttarget\t100000\t{}\t{}\t{}\t1000\t60\tNM:i:{}\tcg:Z:{}={}X",
-                qstart, qend, tstart, tend, matches, nm, matches, nm).unwrap();
+        writeln!(
+            file,
+            "query\t100000\t{}\t{}\t+\ttarget\t100000\t{}\t{}\t{}\t1000\t60\tNM:i:{}\tcg:Z:{}={}X",
+            qstart, qend, tstart, tend, matches, nm, matches, nm
+        )
+        .unwrap();
     }
 
     file.flush().unwrap();
@@ -129,14 +133,20 @@ fn test_simple_collinear_chaining() {
             .expect("Failed to run sweepga");
 
         let stdout = String::from_utf8_lossy(&output.stdout);
-        let num_output = stdout.lines().filter(|l| !l.starts_with('[') && !l.is_empty()).count();
+        let num_output = stdout
+            .lines()
+            .filter(|l| !l.starts_with('[') && !l.is_empty())
+            .count();
 
         eprintln!("-j {} produced {} output mappings", gap, num_output);
 
         // All 5 input mappings should be in the output regardless of gap size
         // because they're all high-identity
-        assert_eq!(num_output, 5,
-                  "-j {} should keep all 5 mappings (95% identity)", gap);
+        assert_eq!(
+            num_output, 5,
+            "-j {} should keep all 5 mappings (95% identity)",
+            gap
+        );
     }
 }
 
@@ -147,7 +157,7 @@ fn test_mixed_identity_chaining() {
 
     // Test with different gap and identity thresholds
     let test_cases = vec![
-        (10_000, "0.95", 5),  // Gap 10k: chains 1-5 (98%) and 6-10 (90%) separate, only high-ID passes
+        (10_000, "0.95", 5), // Gap 10k: chains 1-5 (98%) and 6-10 (90%) separate, only high-ID passes
         (100_000, "0.95", 0), // Gap 100k: all chain together (94% avg), fails 95% threshold
         (10_000, "0.85", 10), // Gap 10k: both chains pass 85% threshold
         (100_000, "0.85", 10), // Gap 100k: single chain (94%) passes 85% threshold
@@ -166,13 +176,21 @@ fn test_mixed_identity_chaining() {
             .expect("Failed to run sweepga");
 
         let stdout = String::from_utf8_lossy(&output.stdout);
-        let num_output = stdout.lines().filter(|l| !l.starts_with('[') && !l.is_empty()).count();
+        let num_output = stdout
+            .lines()
+            .filter(|l| !l.starts_with('[') && !l.is_empty())
+            .count();
 
-        eprintln!("-j {}, -Y {} produced {} mappings (expected {})",
-                 gap, threshold, num_output, expected);
+        eprintln!(
+            "-j {}, -Y {} produced {} mappings (expected {})",
+            gap, threshold, num_output, expected
+        );
 
-        assert_eq!(num_output, expected,
-                  "-j {}, -Y {} should keep {} mappings", gap, threshold, expected);
+        assert_eq!(
+            num_output, expected,
+            "-j {}, -Y {} should keep {} mappings",
+            gap, threshold, expected
+        );
     }
 }
 
@@ -198,14 +216,19 @@ fn test_fragmented_chaining_coverage() {
             .expect("Failed to run sweepga");
 
         let stdout = String::from_utf8_lossy(&output.stdout);
-        let num_output = stdout.lines().filter(|l| !l.starts_with('[') && !l.is_empty()).count();
+        let num_output = stdout
+            .lines()
+            .filter(|l| !l.starts_with('[') && !l.is_empty())
+            .count();
 
-        eprintln!("-j {} produced {} mappings out of 20 input", gap, num_output);
+        eprintln!(
+            "-j {} produced {} mappings out of 20 input",
+            gap, num_output
+        );
 
         // Key test: coverage should NOT decrease with larger gap values
         // All 20 fragments have 95-97% identity, so they should all pass the 90% threshold
-        assert_eq!(num_output, 20,
-                  "-j {} should keep all 20 fragments", gap);
+        assert_eq!(num_output, 20, "-j {} should keep all 20 fragments", gap);
     }
 }
 
@@ -217,7 +240,7 @@ fn test_centromere_inversion_filtering() {
 
     // Create a synthetic centromere-like inversion with 76% identity
     let mut paf = NamedTempFile::new().unwrap();
-    
+
     // Simulate multiple alignments that would chain together
     // Each has ~76% identity (like the real centromere data)
     let alignments = vec![
@@ -225,12 +248,12 @@ fn test_centromere_inversion_filtering() {
         "query\t200000000\t130000000\t131000000\t-\ttarget\t200000000\t133000000\t134000000\t760000\t1000000\t60\tNM:i:240000\tcg:Z:760000=240000X",
         "query\t200000000\t131000000\t132000000\t-\ttarget\t200000000\t134000000\t135000000\t760000\t1000000\t60\tNM:i:240000\tcg:Z:760000=240000X",
     ];
-    
+
     for aln in alignments {
         writeln!(paf, "{}", aln).unwrap();
     }
     paf.flush().unwrap();
-    
+
     // Test 1: With Y=0.80 (80%), chain should be filtered (76% < 80%)
     let output_80 = std::process::Command::new("./target/release/sweepga")
         .arg(paf.path())
@@ -242,15 +265,21 @@ fn test_centromere_inversion_filtering() {
         .arg("0")
         .output()
         .expect("Failed to run sweepga");
-    
+
     let stdout_80 = String::from_utf8_lossy(&output_80.stdout);
     let stderr_80 = String::from_utf8_lossy(&output_80.stderr);
     eprintln!("Y=0.80 output:\n{}", stderr_80);
-    
+
     // Should output 0 mappings (chain filtered due to 76% identity)
-    let count_80 = stdout_80.lines().filter(|l| !l.starts_with('[') && !l.is_empty()).count();
-    assert_eq!(count_80, 0, "Chain with 76% identity should be filtered with Y=0.80");
-    
+    let count_80 = stdout_80
+        .lines()
+        .filter(|l| !l.starts_with('[') && !l.is_empty())
+        .count();
+    assert_eq!(
+        count_80, 0,
+        "Chain with 76% identity should be filtered with Y=0.80"
+    );
+
     // Test 2: With Y=0.75 (75%), chain should pass (76% >= 75%)
     let output_75 = std::process::Command::new("./target/release/sweepga")
         .arg(paf.path())
@@ -262,15 +291,21 @@ fn test_centromere_inversion_filtering() {
         .arg("0")
         .output()
         .expect("Failed to run sweepga");
-    
+
     let stdout_75 = String::from_utf8_lossy(&output_75.stdout);
     let stderr_75 = String::from_utf8_lossy(&output_75.stderr);
     eprintln!("Y=0.75 output:\n{}", stderr_75);
-    
+
     // Should output 3 mappings (chain kept)
-    let count_75 = stdout_75.lines().filter(|l| !l.starts_with('[') && !l.is_empty()).count();
-    assert!(count_75 > 0, "Chain with 76% identity should pass with Y=0.75");
-    
+    let count_75 = stdout_75
+        .lines()
+        .filter(|l| !l.starts_with('[') && !l.is_empty())
+        .count();
+    assert!(
+        count_75 > 0,
+        "Chain with 76% identity should pass with Y=0.75"
+    );
+
     // Test 3: With Y=0 (no filter), chain should definitely pass
     let output_0 = std::process::Command::new("./target/release/sweepga")
         .arg(paf.path())
@@ -282,8 +317,14 @@ fn test_centromere_inversion_filtering() {
         .arg("0")
         .output()
         .expect("Failed to run sweepga");
-    
+
     let stdout_0 = String::from_utf8_lossy(&output_0.stdout);
-    assert!(stdout_0.lines().filter(|l| !l.starts_with('[') && !l.is_empty()).count() > 0,
-            "Chain should pass with Y=0 (no filter)");
+    assert!(
+        stdout_0
+            .lines()
+            .filter(|l| !l.starts_with('[') && !l.is_empty())
+            .count()
+            > 0,
+        "Chain should pass with Y=0 (no filter)"
+    );
 }

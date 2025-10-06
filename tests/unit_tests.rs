@@ -18,16 +18,46 @@ fn test_paf_format_validation() {
     assert!(fields.len() >= 12, "PAF requires at least 12 fields");
 
     // Validate field types
-    assert!(fields[1].parse::<u32>().is_ok(), "Query length must be numeric");
-    assert!(fields[2].parse::<u32>().is_ok(), "Query start must be numeric");
-    assert!(fields[3].parse::<u32>().is_ok(), "Query end must be numeric");
-    assert!(fields[4] == "+" || fields[4] == "-", "Strand must be + or -");
-    assert!(fields[6].parse::<u32>().is_ok(), "Target length must be numeric");
-    assert!(fields[7].parse::<u32>().is_ok(), "Target start must be numeric");
-    assert!(fields[8].parse::<u32>().is_ok(), "Target end must be numeric");
-    assert!(fields[9].parse::<u32>().is_ok(), "Match count must be numeric");
-    assert!(fields[10].parse::<u32>().is_ok(), "Alignment length must be numeric");
-    assert!(fields[11].parse::<u32>().is_ok(), "Mapping quality must be numeric");
+    assert!(
+        fields[1].parse::<u32>().is_ok(),
+        "Query length must be numeric"
+    );
+    assert!(
+        fields[2].parse::<u32>().is_ok(),
+        "Query start must be numeric"
+    );
+    assert!(
+        fields[3].parse::<u32>().is_ok(),
+        "Query end must be numeric"
+    );
+    assert!(
+        fields[4] == "+" || fields[4] == "-",
+        "Strand must be + or -"
+    );
+    assert!(
+        fields[6].parse::<u32>().is_ok(),
+        "Target length must be numeric"
+    );
+    assert!(
+        fields[7].parse::<u32>().is_ok(),
+        "Target start must be numeric"
+    );
+    assert!(
+        fields[8].parse::<u32>().is_ok(),
+        "Target end must be numeric"
+    );
+    assert!(
+        fields[9].parse::<u32>().is_ok(),
+        "Match count must be numeric"
+    );
+    assert!(
+        fields[10].parse::<u32>().is_ok(),
+        "Alignment length must be numeric"
+    );
+    assert!(
+        fields[11].parse::<u32>().is_ok(),
+        "Mapping quality must be numeric"
+    );
 }
 
 #[test]
@@ -53,7 +83,6 @@ fn test_filter_modes() {
 #[test]
 fn test_temp_file_cleanup() {
     use std::process::Command;
-    
 
     // Create test FASTA
     let test_fa = "/tmp/test_cleanup.fa";
@@ -63,7 +92,9 @@ fn test_temp_file_cleanup() {
     let temp_before = std::fs::read_dir("/tmp")
         .unwrap()
         .filter(|entry| {
-            entry.as_ref().unwrap()
+            entry
+                .as_ref()
+                .unwrap()
                 .file_name()
                 .to_string_lossy()
                 .starts_with(".tmp")
@@ -72,8 +103,7 @@ fn test_temp_file_cleanup() {
 
     // Run sweepga
     let _output = Command::new("cargo")
-        .args(["run", "--release", "--quiet", "--",
-                test_fa, "-t", "1"])
+        .args(["run", "--release", "--quiet", "--", test_fa, "-t", "1"])
         .output()
         .expect("Failed to run");
 
@@ -84,7 +114,9 @@ fn test_temp_file_cleanup() {
     let temp_after = std::fs::read_dir("/tmp")
         .unwrap()
         .filter(|entry| {
-            entry.as_ref().unwrap()
+            entry
+                .as_ref()
+                .unwrap()
                 .file_name()
                 .to_string_lossy()
                 .starts_with(".tmp")
@@ -92,8 +124,10 @@ fn test_temp_file_cleanup() {
         .count();
 
     // Should not leave temp files behind
-    assert!(temp_after <= temp_before + 1,  // Allow for race conditions
-            "Temp files not cleaned up properly");
+    assert!(
+        temp_after <= temp_before + 1, // Allow for race conditions
+        "Temp files not cleaned up properly"
+    );
 
     // Cleanup
     let _ = fs::remove_file(test_fa);
@@ -125,8 +159,13 @@ fn test_cigar_extended_format() {
             if pos < bytes.len() {
                 let op = bytes[pos] as char;
                 assert!(
-                    op == '=' || op == 'X' || op == 'I' || op == 'D' ||
-                    op == 'M' || op == 'S' || op == 'H',
+                    op == '='
+                        || op == 'X'
+                        || op == 'I'
+                        || op == 'D'
+                        || op == 'M'
+                        || op == 'S'
+                        || op == 'H',
                     "Invalid CIGAR operation: {op}"
                 );
                 pos += 1;
@@ -158,7 +197,6 @@ fn test_scaffold_annotations() {
 
 #[cfg(test)]
 mod fastga_config_tests {
-    
 
     #[test]
     fn test_config_builder() {

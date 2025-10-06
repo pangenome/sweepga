@@ -8,9 +8,7 @@ pub fn generate_dna_sequence(length: usize) -> String {
     let bases = ['A', 'C', 'G', 'T'];
     let mut rng = thread_rng();
 
-    (0..length)
-        .map(|_| bases[rng.gen_range(0..4)])
-        .collect()
+    (0..length).map(|_| bases[rng.gen_range(0..4)]).collect()
 }
 
 /// Generate a FASTA file with specified sequences
@@ -70,10 +68,10 @@ pub fn create_homologous_genomes(dir: &Path) -> (PathBuf, PathBuf) {
     let base_seq = generate_dna_sequence(10000);
 
     // Genome 1: original
-    create_fasta_file(&genome1, &[
-        ("chr1", &base_seq),
-        ("chr2", &generate_dna_sequence(8000)),
-    ]);
+    create_fasta_file(
+        &genome1,
+        &[("chr1", &base_seq), ("chr2", &generate_dna_sequence(8000))],
+    );
 
     // Genome 2: with variations
     let variant_seq = base_seq.clone();
@@ -109,11 +107,14 @@ pub fn create_homologous_genomes(dir: &Path) -> (PathBuf, PathBuf) {
         .rev()
         .collect::<String>();
 
-    create_fasta_file(&genome2, &[
-        ("chr1_variant", &variant_seq),
-        ("chr2_inverted", &inverted),
-        ("chr3_novel", &generate_dna_sequence(5000)),
-    ]);
+    create_fasta_file(
+        &genome2,
+        &[
+            ("chr1_variant", &variant_seq),
+            ("chr2_inverted", &inverted),
+            ("chr3_novel", &generate_dna_sequence(5000)),
+        ],
+    );
 
     (genome1, genome2)
 }
@@ -150,7 +151,9 @@ pub fn analyze_paf(path: &Path) -> PafStats {
                 total_bases += bases;
             }
 
-            if let (Ok(matches), Ok(aligned)) = (fields[9].parse::<f64>(), fields[10].parse::<f64>()) {
+            if let (Ok(matches), Ok(aligned)) =
+                (fields[9].parse::<f64>(), fields[10].parse::<f64>())
+            {
                 if aligned > 0.0 {
                     total_identity += matches / aligned;
                 }
@@ -173,7 +176,11 @@ pub fn analyze_paf(path: &Path) -> PafStats {
         has_extended_cigar: has_cigar,
         has_scaffolds,
         total_aligned_bases: total_bases,
-        average_identity: if lines.is_empty() { 0.0 } else { total_identity / lines.len() as f64 },
+        average_identity: if lines.is_empty() {
+            0.0
+        } else {
+            total_identity / lines.len() as f64
+        },
     }
 }
 

@@ -12,8 +12,8 @@
 #[test]
 fn test_plane_sweep_preserves_genome_pairs() {
     use std::fs;
-    use tempfile::TempDir;
     use std::io::Write;
+    use tempfile::TempDir;
 
     let temp_dir = TempDir::new().unwrap();
     let input_paf = temp_dir.path().join("input.paf");
@@ -102,13 +102,16 @@ A#1#chr2\t1000\t0\t500\t+\tB#1#chr1\t1000\t0\t500\t350\t500\t60\tcg:Z:500M
     );
 
     // Should keep the alignment that's best on both axes
-    assert!(output.contains("A#1#chr1\t1000\t0\t500\t+\tB#1#chr1"), "Missing A#1#chr1->B#1#chr1");
+    assert!(
+        output.contains("A#1#chr1\t1000\t0\t500\t+\tB#1#chr1"),
+        "Missing A#1#chr1->B#1#chr1"
+    );
 }
 
 #[test]
 fn test_yeast_genome_pairs_preserved() {
-    use std::fs;
     use std::collections::HashSet;
+    use std::fs;
 
     // Read the unfiltered z.paf
     let input_content = fs::read_to_string("z.paf").expect("z.paf not found");

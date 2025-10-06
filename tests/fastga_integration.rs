@@ -51,10 +51,13 @@ fn test_fastga_self_alignment() {
     // Run self-alignment on yeast data (minimal filtering to keep more alignments)
     let result = run_sweepga(&[
         "data/scerevisiae8.fa",
-        "-t", "2",
-        "--self",  // Include self-mappings
-        "-n", "N",  // No mapping filter
-        "-j", "0",  // No scaffolding
+        "-t",
+        "2",
+        "--self", // Include self-mappings
+        "-n",
+        "N", // No mapping filter
+        "-j",
+        "0", // No scaffolding
     ]);
 
     assert!(result.is_ok(), "FastGA self-alignment failed: {result:?}");
@@ -67,9 +70,15 @@ fn test_fastga_self_alignment() {
     assert!(line_count > 0, "No alignments produced");
     // With 8 yeast genomes, we expect at least the self-mappings for each chromosome
     // There are ~17 chromosomes per genome, so 8 * 17 = ~136 minimum
-    assert!(line_count > 100, "Too few alignments for yeast self-alignment (got {line_count})");
+    assert!(
+        line_count > 100,
+        "Too few alignments for yeast self-alignment (got {line_count})"
+    );
 
-    assert!(has_extended_cigar(&output_path), "Missing extended CIGAR format");
+    assert!(
+        has_extended_cigar(&output_path),
+        "Missing extended CIGAR format"
+    );
 }
 
 #[test]
@@ -92,19 +101,31 @@ fn test_fastga_pairwise_alignment() {
     fs::write(&fasta2, format!(">seq2\n{seq2}\n")).unwrap();
 
     // Debug: Check if files were created correctly
-    assert!(fasta1.exists() && fasta2.exists(), "Input files not created");
+    assert!(
+        fasta1.exists() && fasta2.exists(),
+        "Input files not created"
+    );
     let seq1_size = fs::metadata(&fasta1).unwrap().len();
     let seq2_size = fs::metadata(&fasta2).unwrap().len();
     // Sequences should be around 10kb (with header, at least 9.5kb)
-    assert!(seq1_size > 9500 && seq2_size > 9500, "Input files too small: {seq1_size} and {seq2_size}");
+    assert!(
+        seq1_size > 9500 && seq2_size > 9500,
+        "Input files too small: {seq1_size} and {seq2_size}"
+    );
 
     // Run pairwise alignment
-    eprintln!("Running alignment: {} vs {}", fasta1.display(), fasta2.display());
+    eprintln!(
+        "Running alignment: {} vs {}",
+        fasta1.display(),
+        fasta2.display()
+    );
     let result = run_sweepga(&[
         fasta1.to_str().unwrap(),
         fasta2.to_str().unwrap(),
-        "-t", "1",
-        "-Y", "0",  // Disable identity threshold to avoid filtering test alignment
+        "-t",
+        "1",
+        "-Y",
+        "0", // Disable identity threshold to avoid filtering test alignment
     ]);
 
     if let Err(ref e) = result {
@@ -122,7 +143,11 @@ fn test_fastga_pairwise_alignment() {
     assert!(output.exists(), "Output not created");
 
     // Should produce at least one alignment between similar sequences
-    assert!(!content.is_empty(), "No alignments produced (file has {} bytes)", content.len());
+    assert!(
+        !content.is_empty(),
+        "No alignments produced (file has {} bytes)",
+        content.len()
+    );
     assert!(content.contains("seq1"), "Missing query sequence name");
     assert!(content.contains("seq2"), "Missing target sequence name");
 }
@@ -140,15 +165,17 @@ fn test_thread_parameter() {
     // Run with 1 thread
     let result1 = run_sweepga(&[
         test_fa.to_str().unwrap(),
-        "-t", "1",
-        "--self",  // Include self-mappings for consistency
+        "-t",
+        "1",
+        "--self", // Include self-mappings for consistency
     ]);
 
     // Run with 4 threads
     let result4 = run_sweepga(&[
         test_fa.to_str().unwrap(),
-        "-t", "4",
-        "--self",  // Include self-mappings for consistency
+        "-t",
+        "4",
+        "--self", // Include self-mappings for consistency
     ]);
 
     assert!(result1.is_ok() && result4.is_ok(), "Thread tests failed");
@@ -163,7 +190,10 @@ fn test_thread_parameter() {
     // Results should be deterministic (same number of alignments)
     let lines1 = count_lines(&output1);
     let lines4 = count_lines(&output4);
-    assert_eq!(lines1, lines4, "Thread count affected output ({lines1} vs {lines4})");
+    assert_eq!(
+        lines1, lines4,
+        "Thread count affected output ({lines1} vs {lines4})"
+    );
 }
 
 #[test]
@@ -175,19 +205,26 @@ fn test_filtering_with_fastga() {
     // Test with different block length filters
     let result_loose = run_sweepga(&[
         "data/scerevisiae8.fa",
-        "-b", "0",  // No minimum block length
-        "-t", "2",
+        "-b",
+        "0", // No minimum block length
+        "-t",
+        "2",
         "--self",
     ]);
 
     let result_strict = run_sweepga(&[
         "data/scerevisiae8.fa",
-        "-b", "10k",  // 10kb minimum
-        "-t", "2",
+        "-b",
+        "10k", // 10kb minimum
+        "-t",
+        "2",
         "--self",
     ]);
 
-    assert!(result_loose.is_ok() && result_strict.is_ok(), "Filtering tests failed");
+    assert!(
+        result_loose.is_ok() && result_strict.is_ok(),
+        "Filtering tests failed"
+    );
 
     // Write outputs to files
     fs::write(&loose, result_loose.unwrap()).unwrap();
@@ -196,8 +233,10 @@ fn test_filtering_with_fastga() {
     let loose_count = count_lines(&loose);
     let strict_count = count_lines(&strict);
 
-    assert!(strict_count < loose_count,
-            "Strict filter should produce fewer alignments ({strict_count} >= {loose_count})");
+    assert!(
+        strict_count < loose_count,
+        "Strict filter should produce fewer alignments ({strict_count} >= {loose_count})"
+    );
     assert!(strict_count > 0, "Strict filter removed all alignments");
 }
 
@@ -210,17 +249,22 @@ fn test_scaffold_filtering() {
     // With scaffolding
     let result1 = run_sweepga(&[
         "data/scerevisiae8.fa",
-        "-j", "100k",  // Enable scaffolding with 100kb jump
-        "-s", "50k",   // Minimum scaffold mass
-        "-t", "2",
+        "-j",
+        "100k", // Enable scaffolding with 100kb jump
+        "-s",
+        "50k", // Minimum scaffold mass
+        "-t",
+        "2",
         "--self",
     ]);
 
     // Without scaffolding
     let result2 = run_sweepga(&[
         "data/scerevisiae8.fa",
-        "-j", "0",  // Disable scaffolding
-        "-t", "2",
+        "-j",
+        "0", // Disable scaffolding
+        "-t",
+        "2",
         "--self",
     ]);
 
@@ -232,10 +276,14 @@ fn test_scaffold_filtering() {
 
     // Check for scaffold annotations
     let scaffold_content = fs::read_to_string(&with_scaffold).unwrap();
-    assert!(scaffold_content.contains("st:Z:scaffold"),
-            "Missing scaffold annotations");
-    assert!(scaffold_content.contains("ch:Z:chain"),
-            "Missing chain annotations");
+    assert!(
+        scaffold_content.contains("st:Z:scaffold"),
+        "Missing scaffold annotations"
+    );
+    assert!(
+        scaffold_content.contains("ch:Z:chain"),
+        "Missing chain annotations"
+    );
 }
 
 #[test]
@@ -248,10 +296,7 @@ fn test_empty_input_handling() {
     fs::write(&empty_fa, "").unwrap();
 
     // This should handle gracefully
-    let result = run_sweepga(&[
-        empty_fa.to_str().unwrap(),
-        "-t", "1",
-    ]);
+    let result = run_sweepga(&[empty_fa.to_str().unwrap(), "-t", "1"]);
 
     // Should either succeed with no output or fail gracefully
     // Not asserting success as behavior may vary, but shouldn't panic
@@ -259,8 +304,10 @@ fn test_empty_input_handling() {
         fs::write(&output, result.unwrap()).unwrap();
         if output.exists() {
             let content = fs::read_to_string(&output).unwrap();
-            assert!(content.is_empty() || content.lines().count() == 0,
-                    "Empty input produced alignments");
+            assert!(
+                content.is_empty() || content.lines().count() == 0,
+                "Empty input produced alignments"
+            );
         }
     }
 }
@@ -284,8 +331,9 @@ fn test_large_sequence_handling() {
     // Should handle without hanging or crashing
     let result = run_sweepga(&[
         large_fa.to_str().unwrap(),
-        "-t", "2",
-        "--self",  // Include self-mappings
+        "-t",
+        "2",
+        "--self", // Include self-mappings
     ]);
 
     assert!(result.is_ok(), "Failed on large sequence");
@@ -295,8 +343,14 @@ fn test_large_sequence_handling() {
     if output.exists() {
         // Should find self-alignments in the duplicated regions
         let content = fs::read_to_string(&output).unwrap();
-        assert!(!content.is_empty(), "Should find alignments in duplicated regions");
-        assert!(has_extended_cigar(&output), "Invalid output for large sequence");
+        assert!(
+            !content.is_empty(),
+            "Should find alignments in duplicated regions"
+        );
+        assert!(
+            has_extended_cigar(&output),
+            "Invalid output for large sequence"
+        );
     }
 }
 
@@ -314,17 +368,20 @@ fn test_multisequence_fasta() {
     // Use 20kb sequences based on what works for pairwise alignment
     let base = generate_base_sequence(20000, 123);
     let seq1 = base.clone();
-    let seq2 = mutate_sequence(&base, 200, 124);  // 1% divergence (200/20000)
+    let seq2 = mutate_sequence(&base, 200, 124); // 1% divergence (200/20000)
     let seq3 = mutate_sequence(&base, 400, 125); // 2% divergence (400/20000)
 
-    fs::write(&multi_fa, format!(
-        ">seq1\n{seq1}\n>seq2\n{seq2}\n>seq3\n{seq3}\n"
-    )).unwrap();
+    fs::write(
+        &multi_fa,
+        format!(">seq1\n{seq1}\n>seq2\n{seq2}\n>seq3\n{seq3}\n"),
+    )
+    .unwrap();
 
     let result = run_sweepga(&[
         multi_fa.to_str().unwrap(),
-        "-t", "1",
-        "--self",  // Include self-mappings
+        "-t",
+        "1",
+        "--self", // Include self-mappings
     ]);
 
     assert!(result.is_ok(), "Failed on multi-sequence FASTA");
@@ -343,7 +400,7 @@ fn test_multisequence_fasta() {
 }
 
 #[test]
-#[ignore]  // This test requires significant time
+#[ignore] // This test requires significant time
 fn test_performance_regression() {
     use std::time::Instant;
 
@@ -352,11 +409,7 @@ fn test_performance_regression() {
 
     let start = Instant::now();
 
-    let result = run_sweepga(&[
-        "data/scerevisiae8.fa",
-        "-t", "4",
-        "--self",
-    ]);
+    let result = run_sweepga(&["data/scerevisiae8.fa", "-t", "4", "--self"]);
 
     let duration = start.elapsed();
 
@@ -366,11 +419,15 @@ fn test_performance_regression() {
     fs::write(&output, result.unwrap()).unwrap();
 
     // Yeast self-alignment should complete in reasonable time
-    assert!(duration.as_secs() < 60,
-            "Alignment took too long: {duration:?}");
+    assert!(
+        duration.as_secs() < 60,
+        "Alignment took too long: {duration:?}"
+    );
 
     // Should produce expected number of alignments
     let line_count = count_lines(&output);
-    assert!(line_count > 1000 && line_count < 5000,
-            "Unexpected alignment count: {line_count}");
+    assert!(
+        line_count > 1000 && line_count < 5000,
+        "Unexpected alignment count: {line_count}"
+    );
 }
