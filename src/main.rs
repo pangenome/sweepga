@@ -188,12 +188,12 @@ fn parse_metric_number(s: &str) -> Result<u64, String> {
 #[derive(Parser, Debug)]
 #[clap(author, version, about, long_about = None)]
 struct Args {
-    /// PAF (filter) or FASTA (align & filter). Optional 2nd FASTA for pairwise alignment
-    #[clap(value_name = "FILE", num_args = 0..=2,
-           long_help = "Input files: FASTA (1 or 2) or PAF (1 only), auto-detected\n\
+    /// PAF (filter) or FASTA (align & filter). Multiple FASTAs for all-pairs alignment
+    #[clap(value_name = "FILE", num_args = 0..,
+           long_help = "Input files: FASTA (1+) or PAF (1 only), auto-detected\n\
                         \n  \
                         1 FASTA: align to self and filter\n  \
-                        2 FASTA: align first to second (target to query) and filter\n  \
+                        2+ FASTA: align all pairs and filter\n  \
                         1 PAF: filter alignments\n  \
                         stdin: auto-detect and process")]
     files: Vec<String>,
@@ -301,6 +301,10 @@ struct Args {
     /// Output file path (.1aln path if -1 is used, otherwise optional for PAF)
     #[clap(short = 'o', long = "output-file")]
     output_file: Option<String>,
+
+    /// Temporary directory for intermediate files (defaults to TMPDIR env var, then /tmp)
+    #[clap(long = "tempdir")]
+    tempdir: Option<String>,
 }
 
 fn parse_filter_mode(mode: &str, filter_type: &str) -> (FilterMode, Option<usize>, Option<usize>) {
@@ -1020,6 +1024,241 @@ fn aln_to_paf(aln_path: &str, threads: usize) -> Result<tempfile::NamedTempFile>
 // For PAF → .1aln conversion in sweepga, we still use PAFtoALN for compatibility
 // Future: implement direct PAF → .1aln conversion using AlnWriter
 
+/// Extract PanSN genome prefix from a sequence name
+/// Example: "SGDref#1#chrI" -> Some("SGDref#1#")
+fn extract_genome_prefix(seq_name: &str) -> Option<String> {
+    // Look for PanSN format: genome#haplotype#chromosome
+    // We want to keep genome#haplotype# as the group
+    let parts: Vec<&str> = seq_name.split('#').collect();
+    if parts.len() >= 2 {
+        // Keep first two parts plus trailing #
+        Some(format!("{}#{}#", parts[0], parts[1]))
+    } else {
+        None
+    }
+}
+
+/// Detect genome groups from a FASTA file by reading headers
+fn detect_genome_groups(fasta_path: &Path) -> Result<Vec<String>> {
+    use std::collections::BTreeSet;
+    use std::io::{BufRead, BufReader};
+
+    let file = File::open(fasta_path)?;
+    let reader: Box<dyn BufRead> = if fasta_path.to_string_lossy().ends_with(".gz") {
+        Box::new(BufReader::new(noodles::bgzf::io::reader::Reader::new(file)))
+    } else {
+        Box::new(BufReader::new(file))
+    };
+
+    let mut groups = BTreeSet::new();
+
+    for line in reader.lines() {
+        let line = line?;
+        if let Some(stripped) = line.strip_prefix('>') {
+            let seq_name = stripped.split_whitespace().next().unwrap_or("");
+            if let Some(prefix) = extract_genome_prefix(seq_name) {
+                groups.insert(prefix);
+            }
+        }
+    }
+
+    Ok(groups.into_iter().collect())
+}
+
+/// Write sequences belonging to a specific genome group to a new FASTA file
+fn write_genome_fasta(
+    input_path: &Path,
+    output_path: &Path,
+    genome_prefix: &str,
+) -> Result<usize> {
+    use std::io::{BufRead, BufReader, Write};
+
+    let file = File::open(input_path)?;
+    let reader: Box<dyn BufRead> = if input_path.to_string_lossy().ends_with(".gz") {
+        Box::new(BufReader::new(noodles::bgzf::io::reader::Reader::new(file)))
+    } else {
+        Box::new(BufReader::new(file))
+    };
+
+    let mut output = File::create(output_path)?;
+    let mut writing = false;
+    let mut seq_count = 0;
+
+    for line in reader.lines() {
+        let line = line?;
+        if let Some(stripped) = line.strip_prefix('>') {
+            let seq_name = stripped.split_whitespace().next().unwrap_or("");
+            writing = if let Some(prefix) = extract_genome_prefix(seq_name) {
+                prefix == genome_prefix
+            } else {
+                false
+            };
+
+            if writing {
+                seq_count += 1;
+                writeln!(output, "{line}")?;
+            }
+        } else if writing {
+            writeln!(output, "{line}")?;
+        }
+    }
+
+    output.flush()?;
+    Ok(seq_count)
+}
+
+/// Perform all-pairs pairwise alignment for multiple FASTA files
+/// If a single FASTA with multiple genomes, splits by PanSN prefix
+fn align_multiple_fastas(
+    fasta_files: &[String],
+    frequency: Option<usize>,
+    threads: usize,
+    keep_self: bool,
+    tempdir: Option<&str>,
+    timing: &TimingContext,
+    quiet: bool,
+) -> Result<tempfile::NamedTempFile> {
+    use std::io::Write;
+
+    // Determine temp directory
+    let temp_base = if let Some(dir) = tempdir {
+        std::path::PathBuf::from(dir)
+    } else if let Ok(tmpdir) = std::env::var("TMPDIR") {
+        std::path::PathBuf::from(tmpdir)
+    } else {
+        std::path::PathBuf::from("/tmp")
+    };
+
+    // Create temp directory for genome FASTAs
+    let temp_genome_dir = temp_base.join(format!("sweepga_genomes_{}", std::process::id()));
+    std::fs::create_dir_all(&temp_genome_dir)?;
+
+    if !quiet {
+        timing.log("split", &format!("Using temp directory: {}", temp_genome_dir.display()));
+    }
+
+    // Collect all genome groups from all input files
+    let mut all_groups: Vec<(String, String)> = Vec::new(); // (genome_prefix, source_fasta)
+
+    for fasta_file in fasta_files {
+        let path = Path::new(fasta_file);
+        let groups = detect_genome_groups(path)?;
+
+        if !quiet {
+            timing.log("detect", &format!("{}: {} genome groups", fasta_file, groups.len()));
+        }
+
+        for group in groups {
+            all_groups.push((group, fasta_file.clone()));
+        }
+    }
+
+    // Write per-genome FASTA files
+    let mut genome_files: HashMap<String, std::path::PathBuf> = HashMap::new();
+
+    for (genome_prefix, source_file) in &all_groups {
+        if genome_files.contains_key(genome_prefix) {
+            continue; // Already processed
+        }
+
+        let genome_name = genome_prefix.trim_end_matches('#').replace('#', "_");
+        let genome_path = temp_genome_dir.join(format!("{genome_name}.fa"));
+
+        let seq_count = write_genome_fasta(
+            Path::new(source_file),
+            &genome_path,
+            genome_prefix,
+        )?;
+
+        if !quiet {
+            timing.log("split", &format!("Wrote {} sequences for {} to {}",
+                seq_count, genome_prefix, genome_path.display()));
+        }
+
+        genome_files.insert(genome_prefix.clone(), genome_path);
+    }
+
+    // Get unique genome prefixes in deterministic order
+    let mut genome_prefixes: Vec<String> = genome_files.keys().cloned().collect();
+    genome_prefixes.sort();
+
+    if !quiet {
+        timing.log("align", &format!("Aligning {} genomes pairwise", genome_prefixes.len()));
+    }
+
+    // Create merged PAF output file
+    let merged_paf = tempfile::NamedTempFile::with_suffix(".paf")?;
+    let mut merged_output = File::create(merged_paf.path())?;
+
+    // Create FastGA integration
+    let fastga = create_fastga_integration(frequency, threads)?;
+
+    // Align all pairs
+    let mut total_pairs = 0;
+    let mut total_alignments = 0;
+
+    for i in 0..genome_prefixes.len() {
+        for j in (i + 1)..genome_prefixes.len() {
+            let genome_i = &genome_prefixes[i];
+            let genome_j = &genome_prefixes[j];
+
+            let path_i = &genome_files[genome_i];
+            let path_j = &genome_files[genome_j];
+
+            if !quiet {
+                timing.log("align", &format!("Aligning {} vs {}",
+                    genome_i.trim_end_matches('#'),
+                    genome_j.trim_end_matches('#')));
+            }
+
+            // Align genome_i vs genome_j
+            let temp_paf = fastga.align_to_temp_paf(path_i, path_j)?;
+
+            // Append to merged output
+            let paf_content = std::fs::read_to_string(temp_paf.path())?;
+            merged_output.write_all(paf_content.as_bytes())?;
+
+            let alignment_count = paf_content.lines().count();
+            total_alignments += alignment_count;
+            total_pairs += 1;
+        }
+
+        // Handle self-alignments if requested
+        if keep_self {
+            let genome_i = &genome_prefixes[i];
+            let path_i = &genome_files[genome_i];
+
+            if !quiet {
+                timing.log("align", &format!("Self-aligning {}",
+                    genome_i.trim_end_matches('#')));
+            }
+
+            let temp_paf = fastga.align_to_temp_paf(path_i, path_i)?;
+
+            let paf_content = std::fs::read_to_string(temp_paf.path())?;
+            merged_output.write_all(paf_content.as_bytes())?;
+
+            let alignment_count = paf_content.lines().count();
+            total_alignments += alignment_count;
+            total_pairs += 1;
+        }
+    }
+
+    merged_output.flush()?;
+
+    if !quiet {
+        timing.log("align", &format!("Completed {total_pairs} pairwise alignments, {total_alignments} total alignments"));
+    }
+
+    // Cleanup temp genome files
+    for genome_path in genome_files.values() {
+        let _ = std::fs::remove_file(genome_path);
+    }
+    let _ = std::fs::remove_dir(&temp_genome_dir);
+
+    Ok(merged_paf)
+}
+
 /// Create FastGA integration with optional frequency parameter
 fn create_fastga_integration(
     frequency: Option<usize>,
@@ -1066,66 +1305,191 @@ fn main() -> Result<()> {
             }
         }
 
-        match (args.files.len(), file_types.as_slice()) {
-            (1, [FileType::Fasta]) => {
-                // Self-alignment
-                let alignment_start = Instant::now();
+        // Check if all files are FASTA
+        let all_fasta = file_types.iter().all(|ft| *ft == FileType::Fasta);
+        let fasta_count = file_types.iter().filter(|ft| **ft == FileType::Fasta).count();
 
-                if !args.quiet {
-                    timing.log(
-                        "align",
-                        &format!(
-                            "Running {} self-alignment on {}",
-                            args.aligner, args.files[0]
-                        ),
-                    );
-                }
-
+        match (args.files.len(), all_fasta) {
+            (1, true) => {
+                // Single FASTA - check if it has multiple genomes
                 let path = Path::new(&args.files[0]);
-                let fastga = create_fastga_integration(args.frequency, args.threads)?;
-                let temp_paf = fastga.align_to_temp_paf(path, path)?;
+                let groups = detect_genome_groups(path)?;
 
-                alignment_time = Some(alignment_start.elapsed().as_secs_f64());
+                if groups.len() > 1 {
+                    // Multiple genomes in single FASTA - use pairwise alignment
+                    if !args.quiet {
+                        timing.log(
+                            "detect",
+                            &format!(
+                                "Detected {} genomes in {}, using pairwise alignment",
+                                groups.len(),
+                                args.files[0]
+                            ),
+                        );
+                    }
+
+                    let alignment_start = Instant::now();
+                    let temp_paf = align_multiple_fastas(
+                        &args.files,
+                        args.frequency,
+                        args.threads,
+                        args.keep_self,
+                        args.tempdir.as_deref(),
+                        &timing,
+                        args.quiet,
+                    )?;
+
+                    alignment_time = Some(alignment_start.elapsed().as_secs_f64());
+                    if !args.quiet {
+                        timing.log(
+                            "align",
+                            &format!(
+                                "All pairwise alignments complete ({:.1}s)",
+                                alignment_time.unwrap()
+                            ),
+                        );
+                    }
+
+                    let paf_path = temp_paf.path().to_string_lossy().into_owned();
+                    (Some(temp_paf), paf_path)
+                } else {
+                    // Single genome - self-alignment
+                    let alignment_start = Instant::now();
+
+                    if !args.quiet {
+                        timing.log(
+                            "align",
+                            &format!(
+                                "Running {} self-alignment on {}",
+                                args.aligner, args.files[0]
+                            ),
+                        );
+                    }
+
+                    let fastga = create_fastga_integration(args.frequency, args.threads)?;
+                    let temp_paf = fastga.align_to_temp_paf(path, path)?;
+
+                    alignment_time = Some(alignment_start.elapsed().as_secs_f64());
+                    if !args.quiet {
+                        timing.log(
+                            "align",
+                            &format!(
+                                "{} alignment complete ({:.1}s)",
+                                args.aligner,
+                                alignment_time.unwrap()
+                            ),
+                        );
+                    }
+
+                    let paf_path = temp_paf.path().to_string_lossy().into_owned();
+                    (Some(temp_paf), paf_path)
+                }
+            }
+            (2, true) => {
+                // Two FASTAs - check if they're the same or different
+                let groups1 = detect_genome_groups(Path::new(&args.files[0]))?;
+                let groups2 = detect_genome_groups(Path::new(&args.files[1]))?;
+
+                if groups1.len() > 1 || groups2.len() > 1 {
+                    // Multiple genomes across files - use pairwise alignment
+                    if !args.quiet {
+                        timing.log(
+                            "detect",
+                            &format!(
+                                "Detected {} + {} genomes, using pairwise alignment",
+                                groups1.len(),
+                                groups2.len()
+                            ),
+                        );
+                    }
+
+                    let alignment_start = Instant::now();
+                    let temp_paf = align_multiple_fastas(
+                        &args.files,
+                        args.frequency,
+                        args.threads,
+                        args.keep_self,
+                        args.tempdir.as_deref(),
+                        &timing,
+                        args.quiet,
+                    )?;
+
+                    alignment_time = Some(alignment_start.elapsed().as_secs_f64());
+                    if !args.quiet {
+                        timing.log(
+                            "align",
+                            &format!(
+                                "All pairwise alignments complete ({:.1}s)",
+                                alignment_time.unwrap()
+                            ),
+                        );
+                    }
+
+                    let paf_path = temp_paf.path().to_string_lossy().into_owned();
+                    (Some(temp_paf), paf_path)
+                } else {
+                    // Simple pairwise alignment (legacy behavior)
+                    let alignment_start = Instant::now();
+
+                    if !args.quiet {
+                        timing.log(
+                            "align",
+                            &format!(
+                                "Running {} alignment: {} -> {}",
+                                args.aligner, args.files[0], args.files[1]
+                            ),
+                        );
+                    }
+
+                    let target = Path::new(&args.files[0]);
+                    let query = Path::new(&args.files[1]);
+                    let fastga = create_fastga_integration(args.frequency, args.threads)?;
+                    let temp_paf = fastga.align_to_temp_paf(target, query)?;
+
+                    alignment_time = Some(alignment_start.elapsed().as_secs_f64());
+                    if !args.quiet {
+                        timing.log(
+                            "align",
+                            &format!(
+                                "{} alignment complete ({:.1}s)",
+                                args.aligner,
+                                alignment_time.unwrap()
+                            ),
+                        );
+                    }
+
+                    let paf_path = temp_paf.path().to_string_lossy().into_owned();
+                    (Some(temp_paf), paf_path)
+                }
+            }
+            (n, true) if n > 2 => {
+                // Multiple FASTAs - always use pairwise alignment
                 if !args.quiet {
                     timing.log(
-                        "align",
+                        "detect",
                         &format!(
-                            "{} alignment complete ({:.1}s)",
-                            args.aligner,
-                            alignment_time.unwrap()
+                            "{fasta_count} FASTA files provided, using all-pairs pairwise alignment"
                         ),
                     );
                 }
 
-                let paf_path = temp_paf.path().to_string_lossy().into_owned();
-                (Some(temp_paf), paf_path)
-            }
-            (2, [FileType::Fasta, FileType::Fasta]) => {
-                // Pairwise alignment
                 let alignment_start = Instant::now();
-
-                if !args.quiet {
-                    timing.log(
-                        "align",
-                        &format!(
-                            "Running {} alignment: {} -> {}",
-                            args.aligner, args.files[0], args.files[1]
-                        ),
-                    );
-                }
-
-                let target = Path::new(&args.files[0]);
-                let query = Path::new(&args.files[1]);
-                let fastga = create_fastga_integration(args.frequency, args.threads)?;
-                let temp_paf = fastga.align_to_temp_paf(target, query)?;
+                let temp_paf = align_multiple_fastas(
+                    &args.files,
+                    args.frequency,
+                    args.threads,
+                    args.keep_self,
+                    args.tempdir.as_deref(),
+                    &timing,
+                    args.quiet,
+                )?;
 
                 alignment_time = Some(alignment_start.elapsed().as_secs_f64());
                 if !args.quiet {
                     timing.log(
                         "align",
                         &format!(
-                            "{} alignment complete ({:.1}s)",
-                            args.aligner,
+                            "All pairwise alignments complete ({:.1}s)",
                             alignment_time.unwrap()
                         ),
                     );
@@ -1134,11 +1498,11 @@ fn main() -> Result<()> {
                 let paf_path = temp_paf.path().to_string_lossy().into_owned();
                 (Some(temp_paf), paf_path)
             }
-            (1, [FileType::Paf]) => {
+            (1, false) if file_types[0] == FileType::Paf => {
                 // Filter existing PAF
                 (None, args.files[0].clone())
             }
-            (1, [FileType::Aln]) => {
+            (1, false) if file_types[0] == FileType::Aln => {
                 // Convert .1aln to PAF for filtering
                 if !args.quiet {
                     timing.log(
@@ -1157,7 +1521,7 @@ fn main() -> Result<()> {
                 (Some(temp_paf), paf_path)
             }
             _ => {
-                anyhow::bail!("Invalid file combination: expected 1 FASTA (self-align), 2 FASTA (pairwise), 1 PAF (filter), or 1 .1aln (filter)");
+                anyhow::bail!("Invalid file combination: expected FASTA file(s) for alignment, 1 PAF for filtering, or 1 .1aln for filtering");
             }
         }
     } else {
