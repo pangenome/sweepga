@@ -181,19 +181,20 @@ impl FastGAIntegration {
     }
 
     /// Run FastGA alignment and write output to a temporary PAF file
+    /// Assumes GDB/GIX indices already exist for the input files
     /// Returns the temporary file handle (which auto-deletes when dropped)
     pub fn align_to_temp_paf(&self, queries: &Path, targets: &Path) -> Result<NamedTempFile> {
         // Create orchestrator to run FastGA binary directly
         let orchestrator = fastga_rs::orchestrator::FastGAOrchestrator {
             num_threads: self.config.num_threads as i32,
             min_length: self.config.min_alignment_length as i32,
-            min_identity: self.config.min_identity.unwrap_or(0.7),
+            min_identity: self.config.min_identity.unwrap_or(0.0), // 0.0 means use FastGA default
             kmer_freq: self.config.adaptive_seed_cutoff.unwrap_or(10) as i32,
             temp_dir: std::env::var("TMPDIR").unwrap_or_else(|_| ".".to_string()),
         };
 
-        // Run alignment (returns PAF bytes directly)
-        let paf_output = orchestrator.align(queries, targets)
+        // Run alignment with existing indices (returns PAF bytes directly)
+        let paf_output = orchestrator.align_with_existing_indices(queries, targets)
             .map_err(|e| anyhow::anyhow!("Failed to run FastGA alignment: {}", e))?;
 
         eprintln!(
