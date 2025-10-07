@@ -170,11 +170,16 @@ impl FastGAIntegration {
         };
 
         // Prepare GDB
-        let gdb_base = orchestrator.prepare_gdb(fasta_path)
+        let gdb_base = orchestrator
+            .prepare_gdb(fasta_path)
             .map_err(|e| anyhow::anyhow!("Failed to prepare GDB: {}", e))?;
 
         // Create index
-        orchestrator.create_index(&gdb_base, self.config.adaptive_seed_cutoff.unwrap_or(10) as i32)
+        orchestrator
+            .create_index(
+                &gdb_base,
+                self.config.adaptive_seed_cutoff.unwrap_or(10) as i32,
+            )
             .map_err(|e| anyhow::anyhow!("Failed to create index: {}", e))?;
 
         Ok(gdb_base)
@@ -194,7 +199,8 @@ impl FastGAIntegration {
         };
 
         // Run alignment with existing indices (returns PAF bytes directly)
-        let paf_output = orchestrator.align_with_existing_indices(queries, targets)
+        let paf_output = orchestrator
+            .align_with_existing_indices(queries, targets)
             .map_err(|e| anyhow::anyhow!("Failed to run FastGA alignment: {}", e))?;
 
         eprintln!(

@@ -1070,11 +1070,7 @@ fn detect_genome_groups(fasta_path: &Path) -> Result<Vec<String>> {
 }
 
 /// Write sequences belonging to a specific genome group to a new FASTA file
-fn write_genome_fasta(
-    input_path: &Path,
-    output_path: &Path,
-    genome_prefix: &str,
-) -> Result<usize> {
+fn write_genome_fasta(input_path: &Path, output_path: &Path, genome_prefix: &str) -> Result<usize> {
     use std::io::{BufRead, BufReader, Write};
 
     let file = File::open(input_path)?;
@@ -1130,7 +1126,10 @@ fn align_multiple_fastas(
         let groups = detect_genome_groups(path)?;
         num_genomes += groups.len();
         if !quiet {
-            timing.log("detect", &format!("{}: {} genome groups", fasta_file, groups.len()));
+            timing.log(
+                "detect",
+                &format!("{}: {} genome groups", fasta_file, groups.len()),
+            );
         }
     }
 
@@ -1152,14 +1151,23 @@ fn align_multiple_fastas(
     let effective_frequency = if let Some(f) = frequency {
         // User specified -f, use it as-is
         if !quiet {
-            timing.log("align", &format!("Using user-specified frequency threshold: {}", f));
+            timing.log(
+                "align",
+                &format!("Using user-specified frequency threshold: {}", f),
+            );
         }
         Some(f)
     } else if num_genomes > 1 {
         // Auto-set frequency to at least num_genomes to avoid filtering out valid k-mers
         let auto_freq = num_genomes;
         if !quiet {
-            timing.log("align", &format!("Setting frequency threshold to {} (number of genome groups)", auto_freq));
+            timing.log(
+                "align",
+                &format!(
+                    "Setting frequency threshold to {} (number of genome groups)",
+                    auto_freq
+                ),
+            );
         }
         Some(auto_freq)
     } else {
@@ -1168,7 +1176,10 @@ fn align_multiple_fastas(
     };
 
     if !quiet {
-        timing.log("align", &format!("Aligning {} genomes in single FastGA run", num_genomes));
+        timing.log(
+            "align",
+            &format!("Aligning {} genomes in single FastGA run", num_genomes),
+        );
     }
 
     // Create FastGA integration with effective frequency
@@ -1181,7 +1192,10 @@ fn align_multiple_fastas(
 
     if !quiet {
         let alignment_count = std::fs::read_to_string(temp_paf.path())?.lines().count();
-        timing.log("align", &format!("FastGA produced {} alignments", alignment_count));
+        timing.log(
+            "align",
+            &format!("FastGA produced {} alignments", alignment_count),
+        );
     }
 
     Ok(temp_paf)
@@ -1213,7 +1227,10 @@ fn align_all_pairs_mode(
     std::fs::create_dir_all(&temp_genome_dir)?;
 
     if !quiet {
-        timing.log("split", &format!("Using temp directory: {}", temp_genome_dir.display()));
+        timing.log(
+            "split",
+            &format!("Using temp directory: {}", temp_genome_dir.display()),
+        );
     }
 
     // Collect all genome groups from all input files
@@ -1239,15 +1256,18 @@ fn align_all_pairs_mode(
         let genome_name = genome_prefix.trim_end_matches('#').replace('#', "_");
         let genome_path = temp_genome_dir.join(format!("{genome_name}.fa"));
 
-        let seq_count = write_genome_fasta(
-            Path::new(source_file),
-            &genome_path,
-            genome_prefix,
-        )?;
+        let seq_count = write_genome_fasta(Path::new(source_file), &genome_path, genome_prefix)?;
 
         if !quiet {
-            timing.log("split", &format!("Wrote {} sequences for {} to {}",
-                seq_count, genome_prefix, genome_path.display()));
+            timing.log(
+                "split",
+                &format!(
+                    "Wrote {} sequences for {} to {}",
+                    seq_count,
+                    genome_prefix,
+                    genome_path.display()
+                ),
+            );
         }
 
         genome_files.insert(genome_prefix.clone(), genome_path);
@@ -1258,7 +1278,10 @@ fn align_all_pairs_mode(
     genome_prefixes.sort();
 
     if !quiet {
-        timing.log("index", &format!("Building indices for {} genomes", genome_prefixes.len()));
+        timing.log(
+            "index",
+            &format!("Building indices for {} genomes", genome_prefixes.len()),
+        );
     }
 
     // Create FastGA integration
@@ -1269,8 +1292,10 @@ fn align_all_pairs_mode(
         let fasta_path = &genome_files[genome_prefix];
 
         if !quiet {
-            timing.log("index", &format!("Building index for {}",
-                genome_prefix.trim_end_matches('#')));
+            timing.log(
+                "index",
+                &format!("Building index for {}", genome_prefix.trim_end_matches('#')),
+            );
         }
 
         // Create .gdb and .gix files
@@ -1279,7 +1304,10 @@ fn align_all_pairs_mode(
     }
 
     if !quiet {
-        timing.log("align", &format!("Aligning {} genomes pairwise", genome_prefixes.len()));
+        timing.log(
+            "align",
+            &format!("Aligning {} genomes pairwise", genome_prefixes.len()),
+        );
     }
 
     // Create merged PAF output file
@@ -1304,9 +1332,14 @@ fn align_all_pairs_mode(
             let fasta_j = &genome_files[genome_j];
 
             if !quiet {
-                timing.log("align", &format!("Aligning {} vs {}",
-                    genome_i.trim_end_matches('#'),
-                    genome_j.trim_end_matches('#')));
+                timing.log(
+                    "align",
+                    &format!(
+                        "Aligning {} vs {}",
+                        genome_i.trim_end_matches('#'),
+                        genome_j.trim_end_matches('#')
+                    ),
+                );
             }
 
             // Align using pre-built GDB/GIX indices (FastGA auto-detects them)
@@ -1328,8 +1361,10 @@ fn align_all_pairs_mode(
             let fasta_i = &genome_files[genome_i];
 
             if !quiet {
-                timing.log("align", &format!("Self-aligning {}",
-                    genome_i.trim_end_matches('#')));
+                timing.log(
+                    "align",
+                    &format!("Self-aligning {}", genome_i.trim_end_matches('#')),
+                );
             }
 
             let temp_paf = fastga.align_to_temp_paf(fasta_i, fasta_i)?;
@@ -1348,7 +1383,12 @@ fn align_all_pairs_mode(
     merged_output.flush()?;
 
     if !quiet {
-        timing.log("align", &format!("Completed {total_pairs} pairwise alignments, {total_alignments} total alignments"));
+        timing.log(
+            "align",
+            &format!(
+                "Completed {total_pairs} pairwise alignments, {total_alignments} total alignments"
+            ),
+        );
     }
 
     // Cleanup temp genome files and indices
@@ -1425,7 +1465,10 @@ fn main() -> Result<()> {
 
         // Check if all files are FASTA
         let all_fasta = file_types.iter().all(|ft| *ft == FileType::Fasta);
-        let fasta_count = file_types.iter().filter(|ft| **ft == FileType::Fasta).count();
+        let fasta_count = file_types
+            .iter()
+            .filter(|ft| **ft == FileType::Fasta)
+            .count();
 
         match (args.files.len(), all_fasta) {
             (1, true) => {

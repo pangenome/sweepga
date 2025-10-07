@@ -111,5 +111,8 @@ fn test_reverse_vs_forward_scaffold_scoring() {
 
     // In an ideal world, only the reverse would be kept
     // But at minimum, the reverse MUST be present
-    eprintln!("Has forward: {}, Has reverse: {}", _has_forward, _has_reverse);
+    eprintln!(
+        "Has forward: {}, Has reverse: {}",
+        _has_forward, _has_reverse
+    );
 }
