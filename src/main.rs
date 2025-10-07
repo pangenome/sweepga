@@ -1211,12 +1211,17 @@ fn align_multiple_fastas(
     let merged_paf = tempfile::NamedTempFile::with_suffix(".paf")?;
     let mut merged_output = File::create(merged_paf.path())?;
 
-    // Align all pairs
+    // Align all pairs in both directions (complete matrix)
     let mut total_pairs = 0;
     let mut total_alignments = 0;
 
     for i in 0..genome_prefixes.len() {
-        for j in (i + 1)..genome_prefixes.len() {
+        for j in 0..genome_prefixes.len() {
+            // Skip self-alignments
+            if i == j {
+                continue;
+            }
+
             let genome_i = &genome_prefixes[i];
             let genome_j = &genome_prefixes[j];
 
