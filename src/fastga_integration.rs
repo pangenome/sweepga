@@ -157,36 +157,56 @@ impl FastGAIntegration {
         FastGAIntegration { config }
     }
 
+    /// Convert FASTA to GDB format (creates .gdb and .gix files)
+    /// Returns the path to the .gdb file (without extension)
+    pub fn prepare_gdb(&self, fasta_path: &Path) -> Result<String> {
+        // Create a temporary FastGA instance to access orchestrator methods
+        let orchestrator = fastga_rs::orchestrator::FastGAOrchestrator {
+            num_threads: self.config.num_threads as i32,
+            min_length: self.config.min_alignment_length as i32,
+            min_identity: self.config.min_identity.unwrap_or(0.7),
+            kmer_freq: self.config.adaptive_seed_cutoff.unwrap_or(10) as i32,
+            temp_dir: std::env::var("TMPDIR").unwrap_or_else(|_| ".".to_string()),
+        };
+
+        // Prepare GDB
+        let gdb_base = orchestrator.prepare_gdb(fasta_path)
+            .map_err(|e| anyhow::anyhow!("Failed to prepare GDB: {}", e))?;
+
+        // Create index
+        orchestrator.create_index(&gdb_base, self.config.adaptive_seed_cutoff.unwrap_or(10) as i32)
+            .map_err(|e| anyhow::anyhow!("Failed to create index: {}", e))?;
+
+        Ok(gdb_base)
+    }
+
     /// Run FastGA alignment and write output to a temporary PAF file
     /// Returns the temporary file handle (which auto-deletes when dropped)
     pub fn align_to_temp_paf(&self, queries: &Path, targets: &Path) -> Result<NamedTempFile> {
-        // Create FastGA aligner
-        let aligner =
-            FastGA::new(self.config.clone()).context("Failed to create FastGA aligner")?;
+        // Create orchestrator to run FastGA binary directly
+        let orchestrator = fastga_rs::orchestrator::FastGAOrchestrator {
+            num_threads: self.config.num_threads as i32,
+            min_length: self.config.min_alignment_length as i32,
+            min_identity: self.config.min_identity.unwrap_or(0.7),
+            kmer_freq: self.config.adaptive_seed_cutoff.unwrap_or(10) as i32,
+            temp_dir: std::env::var("TMPDIR").unwrap_or_else(|_| ".".to_string()),
+        };
 
-        // Run alignment
-        let alignments = aligner
-            .align_files(queries, targets)
-            .context("Failed to run FastGA alignment")?;
-
-        eprintln!("[sweepga] Got {} alignments", alignments.len());
-
-        // Convert to PAF format with extended CIGAR
-        let paf_output = alignments
-            .to_paf()
-            .context("Failed to convert alignments to PAF format")?;
+        // Run alignment (returns PAF bytes directly)
+        let paf_output = orchestrator.align(queries, targets)
+            .map_err(|e| anyhow::anyhow!("Failed to run FastGA alignment: {}", e))?;
 
         eprintln!(
             "[sweepga] PAF output: {} bytes, {} lines",
             paf_output.len(),
-            paf_output.lines().count()
+            String::from_utf8_lossy(&paf_output).lines().count()
         );
 
         // Write to temporary file
         let mut temp_file = NamedTempFile::new().context("Failed to create temporary PAF file")?;
 
         temp_file
-            .write_all(paf_output.as_bytes())
+            .write_all(&paf_output)
             .context("Failed to write PAF output to temporary file")?;
 
         temp_file

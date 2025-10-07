@@ -1183,15 +1183,33 @@ fn align_multiple_fastas(
     genome_prefixes.sort();
 
     if !quiet {
+        timing.log("index", &format!("Building indices for {} genomes", genome_prefixes.len()));
+    }
+
+    // Create FastGA integration
+    let fastga = create_fastga_integration(frequency, threads)?;
+
+    // Step 1: Build GDB and GIX indices for all genomes (once each)
+    for genome_prefix in &genome_prefixes {
+        let fasta_path = &genome_files[genome_prefix];
+
+        if !quiet {
+            timing.log("index", &format!("Building index for {}",
+                genome_prefix.trim_end_matches('#')));
+        }
+
+        // Create .gdb and .gix files
+        // We don't need to store the result - FastGA will auto-detect them by the FASTA path
+        let _gdb_base = fastga.prepare_gdb(fasta_path)?;
+    }
+
+    if !quiet {
         timing.log("align", &format!("Aligning {} genomes pairwise", genome_prefixes.len()));
     }
 
     // Create merged PAF output file
     let merged_paf = tempfile::NamedTempFile::with_suffix(".paf")?;
     let mut merged_output = File::create(merged_paf.path())?;
-
-    // Create FastGA integration
-    let fastga = create_fastga_integration(frequency, threads)?;
 
     // Align all pairs
     let mut total_pairs = 0;
@@ -1202,8 +1220,8 @@ fn align_multiple_fastas(
             let genome_i = &genome_prefixes[i];
             let genome_j = &genome_prefixes[j];
 
-            let path_i = &genome_files[genome_i];
-            let path_j = &genome_files[genome_j];
+            let fasta_i = &genome_files[genome_i];
+            let fasta_j = &genome_files[genome_j];
 
             if !quiet {
                 timing.log("align", &format!("Aligning {} vs {}",
@@ -1211,8 +1229,8 @@ fn align_multiple_fastas(
                     genome_j.trim_end_matches('#')));
             }
 
-            // Align genome_i vs genome_j
-            let temp_paf = fastga.align_to_temp_paf(path_i, path_j)?;
+            // Align using pre-built GDB/GIX indices (FastGA auto-detects them)
+            let temp_paf = fastga.align_to_temp_paf(fasta_i, fasta_j)?;
 
             // Append to merged output
             let paf_content = std::fs::read_to_string(temp_paf.path())?;
@@ -1227,14 +1245,14 @@ fn align_multiple_fastas(
         // Handle self-alignments if requested
         if keep_self {
             let genome_i = &genome_prefixes[i];
-            let path_i = &genome_files[genome_i];
+            let fasta_i = &genome_files[genome_i];
 
             if !quiet {
                 timing.log("align", &format!("Self-aligning {}",
                     genome_i.trim_end_matches('#')));
             }
 
-            let temp_paf = fastga.align_to_temp_paf(path_i, path_i)?;
+            let temp_paf = fastga.align_to_temp_paf(fasta_i, fasta_i)?;
 
             let paf_content = std::fs::read_to_string(temp_paf.path())?;
             merged_output.write_all(paf_content.as_bytes())?;
@@ -1253,10 +1271,27 @@ fn align_multiple_fastas(
         timing.log("align", &format!("Completed {total_pairs} pairwise alignments, {total_alignments} total alignments"));
     }
 
-    // Cleanup temp genome files
+    // Cleanup temp genome files and indices
     for genome_path in genome_files.values() {
+        // Remove FASTA file
         let _ = std::fs::remove_file(genome_path);
+
+        // Remove GDB and GIX files based on FASTA path
+        let gdb_base = genome_path.with_extension("");
+        let _ = std::fs::remove_file(format!("{}.gdb", gdb_base.display()));
+        let _ = std::fs::remove_file(format!("{}.1gdb", gdb_base.display()));
+        let _ = std::fs::remove_file(format!("{}.gix", gdb_base.display()));
+        let _ = std::fs::remove_file(format!("{}.ktab", gdb_base.display()));
+
+        // Also try removing hidden .bps file
+        if let Some(dir) = gdb_base.parent() {
+            if let Some(filename) = gdb_base.file_name() {
+                let hidden_bps = dir.join(format!(".{}.bps", filename.to_string_lossy()));
+                let _ = std::fs::remove_file(hidden_bps);
+            }
+        }
     }
+
     let _ = std::fs::remove_dir(&temp_genome_dir);
 
     Ok(merged_paf)
