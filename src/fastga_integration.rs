@@ -1,5 +1,5 @@
 use anyhow::{Context, Result};
-use fastga_rs::{Config, FastGA};
+use fastga_rs::Config;
 use std::io::Write;
 use std::path::Path;
 use std::str::FromStr;

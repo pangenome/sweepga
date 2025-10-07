@@ -1109,6 +1109,7 @@ fn write_genome_fasta(input_path: &Path, output_path: &Path, genome_prefix: &str
 
 /// Perform all-pairs pairwise alignment for multiple FASTA files
 /// If a single FASTA with multiple genomes, splits by PanSN prefix
+#[allow(clippy::too_many_arguments)]
 fn align_multiple_fastas(
     fasta_files: &[String],
     frequency: Option<usize>,
@@ -1202,6 +1203,7 @@ fn align_multiple_fastas(
 }
 
 /// Align all genome pairs separately in both directions (for --all-pairs mode)
+#[allow(clippy::too_many_arguments)]
 fn align_all_pairs_mode(
     fasta_files: &[String],
     frequency: Option<usize>,
