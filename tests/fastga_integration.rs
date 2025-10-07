@@ -246,7 +246,7 @@ fn test_filtering_with_fastga() {
 }
 
 #[test]
-#[ignore] // Requires FastGA binaries which may not handle .gz directly in all environments  
+#[ignore] // Requires FastGA binaries which may not handle .gz directly in all environments
 fn test_scaffold_filtering() {
     let temp_dir = TempDir::new().unwrap();
     let with_scaffold = temp_dir.path().join("scaffold.paf");
