@@ -206,6 +206,10 @@ struct Args {
     #[clap(short = 'f', long = "frequency")]
     frequency: Option<usize>,
 
+    /// Align all genome pairs separately (slower, uses more memory, but handles many genomes)
+    #[clap(long = "all-pairs")]
+    all_pairs: bool,
+
     /// Minimum block length
     #[clap(short = 'b', long = "block-length", default_value = "0", value_parser = parse_metric_number)]
     block_length: u64,
@@ -1112,6 +1116,81 @@ fn write_genome_fasta(
 fn align_multiple_fastas(
     fasta_files: &[String],
     frequency: Option<usize>,
+    all_pairs: bool,
+    threads: usize,
+    keep_self: bool,
+    tempdir: Option<&str>,
+    timing: &TimingContext,
+    quiet: bool,
+) -> Result<tempfile::NamedTempFile> {
+    // Detect genome groups from input files
+    let mut num_genomes = 0;
+    for fasta_file in fasta_files {
+        let path = Path::new(fasta_file);
+        let groups = detect_genome_groups(path)?;
+        num_genomes += groups.len();
+        if !quiet {
+            timing.log("detect", &format!("{}: {} genome groups", fasta_file, groups.len()));
+        }
+    }
+
+    // Decide on alignment mode
+    if all_pairs {
+        // --all-pairs mode: split genomes and align each pair separately (bidirectional)
+        return align_all_pairs_mode(
+            fasta_files,
+            frequency,
+            threads,
+            keep_self,
+            tempdir,
+            timing,
+            quiet,
+        );
+    }
+
+    // Default mode: single FastGA run with adaptive frequency
+    let effective_frequency = if let Some(f) = frequency {
+        // User specified -f, use it as-is
+        if !quiet {
+            timing.log("align", &format!("Using user-specified frequency threshold: {}", f));
+        }
+        Some(f)
+    } else if num_genomes > 1 {
+        // Auto-set frequency to at least num_genomes to avoid filtering out valid k-mers
+        let auto_freq = num_genomes;
+        if !quiet {
+            timing.log("align", &format!("Setting frequency threshold to {} (number of genome groups)", auto_freq));
+        }
+        Some(auto_freq)
+    } else {
+        // Single genome, use FastGA default
+        frequency
+    };
+
+    if !quiet {
+        timing.log("align", &format!("Aligning {} genomes in single FastGA run", num_genomes));
+    }
+
+    // Create FastGA integration with effective frequency
+    let fastga = create_fastga_integration(effective_frequency, threads)?;
+
+    // Run single FastGA alignment on the original input (all genomes together)
+    // Use first file as both query and target for self-alignment
+    let input_file = &fasta_files[0];
+    let temp_paf = fastga.align_to_temp_paf(Path::new(input_file), Path::new(input_file))?;
+
+    if !quiet {
+        let alignment_count = std::fs::read_to_string(temp_paf.path())?.lines().count();
+        timing.log("align", &format!("FastGA produced {} alignments", alignment_count));
+    }
+
+    Ok(temp_paf)
+}
+
+/// Align all genome pairs separately in both directions (for --all-pairs mode)
+fn align_all_pairs_mode(
+    fasta_files: &[String],
+    frequency: Option<usize>,
     threads: usize,
     keep_self: bool,
     tempdir: Option<&str>,
@@ -1143,10 +1222,6 @@ fn align_multiple_fastas(
     for fasta_file in fasta_files {
         let path = Path::new(fasta_file);
         let groups = detect_genome_groups(path)?;
-
-        if !quiet {
-            timing.log("detect", &format!("{}: {} genome groups", fasta_file, groups.len()));
-        }
 
         for group in groups {
             all_groups.push((group, fasta_file.clone()));
@@ -1375,6 +1450,7 @@ fn main() -> Result<()> {
                     let temp_paf = align_multiple_fastas(
                         &args.files,
                         args.frequency,
+                        args.all_pairs,
                         args.threads,
                         args.keep_self,
                         args.tempdir.as_deref(),
@@ -1450,6 +1526,7 @@ fn main() -> Result<()> {
                     let temp_paf = align_multiple_fastas(
                         &args.files,
                         args.frequency,
+                        args.all_pairs,
                         args.threads,
                         args.keep_self,
                         args.tempdir.as_deref(),
@@ -1520,6 +1597,7 @@ fn main() -> Result<()> {
                 let temp_paf = align_multiple_fastas(
                     &args.files,
                     args.frequency,
+                    args.all_pairs,
                     args.threads,
                     args.keep_self,
                     args.tempdir.as_deref(),
