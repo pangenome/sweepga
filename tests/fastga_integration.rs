@@ -54,7 +54,7 @@ fn test_fastga_self_alignment() {
 
     // Run self-alignment on yeast data (minimal filtering to keep more alignments)
     let result = run_sweepga(&[
-        "data/scerevisiae8.fa",
+        "data/scerevisiae8.fa.gz",
         "-t",
         "2",
         "--self", // Include self-mappings
@@ -206,7 +206,7 @@ fn test_filtering_with_fastga() {
 
     // Test with different block length filters
     let result_loose = run_sweepga(&[
-        "data/scerevisiae8.fa",
+        "data/scerevisiae8.fa.gz",
         "-b",
         "0", // No minimum block length
         "-t",
@@ -215,7 +215,7 @@ fn test_filtering_with_fastga() {
     ]);
 
     let result_strict = run_sweepga(&[
-        "data/scerevisiae8.fa",
+        "data/scerevisiae8.fa.gz",
         "-b",
         "10k", // 10kb minimum
         "-t",
@@ -250,7 +250,7 @@ fn test_scaffold_filtering() {
 
     // With scaffolding
     let result1 = run_sweepga(&[
-        "data/scerevisiae8.fa",
+        "data/scerevisiae8.fa.gz",
         "-j",
         "100k", // Enable scaffolding with 100kb jump
         "-s",
@@ -262,7 +262,7 @@ fn test_scaffold_filtering() {
 
     // Without scaffolding
     let result2 = run_sweepga(&[
-        "data/scerevisiae8.fa",
+        "data/scerevisiae8.fa.gz",
         "-j",
         "0", // Disable scaffolding
         "-t",
@@ -407,7 +407,7 @@ fn test_performance_regression() {
 
     let start = Instant::now();
 
-    let result = run_sweepga(&["data/scerevisiae8.fa", "-t", "4", "--self"]);
+    let result = run_sweepga(&["data/scerevisiae8.fa.gz", "-t", "4", "--self"]);
 
     let duration = start.elapsed();
 
