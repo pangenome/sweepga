@@ -215,7 +215,7 @@ struct Args {
     block_length: u64,
 
     /// Maximum overlap ratio for plane sweep filtering
-    #[clap(long = "overlap", default_value = "0.95")]
+    #[clap(short = 'o', long = "overlap", default_value = "0.95")]
     overlap: f64,
 
     /// Keep this fraction of mappings
@@ -303,7 +303,7 @@ struct Args {
     one_aln: bool,
 
     /// Output file path (.1aln path if -1 is used, otherwise optional for PAF)
-    #[clap(short = 'o', long = "output-file")]
+    #[clap(long = "output-file")]
     output_file: Option<String>,
 
     /// Temporary directory for intermediate files (defaults to TMPDIR env var, then /tmp)
@@ -860,62 +860,6 @@ fn calculate_ani_n_percentile(
     Ok(ani50)
 }
 
-/// Find .1gdb files referenced by a .1aln file or from input FASTAs
-fn find_gdb_files_for_aln(_aln_path: &str, input_files: &[String]) -> Result<Vec<String>> {
-    let mut gdb_files = Vec::new();
-
-    // Strategy 1: Check if input files are FASTAs - their .1gdb files were created
-    for input_file in input_files {
-        if input_file.ends_with(".fa")
-            || input_file.ends_with(".fasta")
-            || input_file.ends_with(".fa.gz")
-            || input_file.ends_with(".fasta.gz")
-        {
-            // Derive .1gdb path from FASTA - need to handle .gz correctly
-            let base = if input_file.ends_with(".gz") {
-                input_file.strip_suffix(".gz").unwrap()
-            } else {
-                input_file
-            };
-
-            let base = if base.ends_with(".fasta") {
-                base.strip_suffix(".fasta").unwrap()
-            } else if base.ends_with(".fa") {
-                base.strip_suffix(".fa").unwrap()
-            } else {
-                base
-            };
-
-            let gdb_path = base.to_string() + ".1gdb";
-
-            if std::path::Path::new(&gdb_path).exists() {
-                gdb_files.push(gdb_path);
-            }
-        } else if input_file.ends_with(".1aln") {
-            // Input was .1aln - look for matching .1gdb
-            let gdb_path = input_file
-                .strip_suffix(".1aln")
-                .unwrap_or(input_file)
-                .to_string()
-                + ".1gdb";
-            if std::path::Path::new(&gdb_path).exists() {
-                gdb_files.push(gdb_path);
-            }
-        }
-    }
-
-    // Strategy 2: Parse .1aln file for references (more complex, skip for now)
-    // Could extract '<' lines from ONEcode format if needed
-
-    if gdb_files.is_empty() {
-        anyhow::bail!(
-            "Could not find .1gdb files for .1aln output. Input files: {:?}",
-            input_files
-        );
-    }
-
-    Ok(gdb_files)
-}
 
 /// Convert .1aln file to PAF using native reader (fast path)
 fn aln_to_paf_native(aln_path: &str) -> Result<tempfile::NamedTempFile> {
@@ -1398,20 +1342,10 @@ fn align_all_pairs_mode(
         // Remove FASTA file
         let _ = std::fs::remove_file(genome_path);
 
-        // Remove GDB and GIX files based on FASTA path
+        // Remove GIX files based on FASTA path (GDB is now embedded in .1aln)
         let gdb_base = genome_path.with_extension("");
-        let _ = std::fs::remove_file(format!("{}.gdb", gdb_base.display()));
-        let _ = std::fs::remove_file(format!("{}.1gdb", gdb_base.display()));
         let _ = std::fs::remove_file(format!("{}.gix", gdb_base.display()));
         let _ = std::fs::remove_file(format!("{}.ktab", gdb_base.display()));
-
-        // Also try removing hidden .bps file
-        if let Some(dir) = gdb_base.parent() {
-            if let Some(filename) = gdb_base.file_name() {
-                let hidden_bps = dir.join(format!(".{}.bps", filename.to_string_lossy()));
-                let _ = std::fs::remove_file(hidden_bps);
-            }
-        }
     }
 
     let _ = std::fs::remove_dir(&temp_genome_dir);
@@ -2007,55 +1941,12 @@ fn main() -> Result<()> {
         // For .1aln output, we need an output file to create matching .1gdb
         let output_file = args.output_file.as_ref().ok_or_else(|| {
             anyhow::anyhow!(
-                ".1aln format requires -O/--output-file <file.1aln> to create matching .1gdb file"
+                ".1aln format requires --output-file <file.1aln>"
             )
         })?;
 
-        // Copy .1aln to output file
+        // Copy .1aln to output file (GDB data is now embedded in .1aln)
         std::fs::copy(&final_output_path, output_file)?;
-
-        // Find and copy the .1gdb file(s) referenced in the .1aln
-        // Extract GDB paths from the original input
-        let gdb_paths = find_gdb_files_for_aln(&final_output_path, &args.files)?;
-
-        // Copy .1gdb to match output basename
-        let output_gdb = output_file
-            .strip_suffix(".1aln")
-            .unwrap_or(output_file)
-            .to_string()
-            + ".1gdb";
-
-        if let Some(source_gdb) = gdb_paths.first() {
-            std::fs::copy(source_gdb, &output_gdb)?;
-
-            // Also copy the hidden .bps file (required by GDB format)
-            // .bps is in same directory with a dot prefix
-            let source_dir = std::path::Path::new(source_gdb)
-                .parent()
-                .unwrap_or(std::path::Path::new("."));
-            let source_basename = std::path::Path::new(source_gdb)
-                .file_stem()
-                .and_then(|s| s.to_str())
-                .unwrap_or("unknown");
-            let source_bps = source_dir.join(format!(".{source_basename}.bps"));
-
-            if source_bps.exists() {
-                let output_dir = std::path::Path::new(&output_gdb)
-                    .parent()
-                    .unwrap_or(std::path::Path::new("."));
-                let output_basename = std::path::Path::new(&output_gdb)
-                    .file_stem()
-                    .and_then(|s| s.to_str())
-                    .unwrap_or("output");
-                let output_bps = output_dir.join(format!(".{output_basename}.bps"));
-
-                std::fs::copy(&source_bps, &output_bps)?;
-            }
-
-            if !args.quiet {
-                eprintln!("[sweepga] Created {output_gdb} alongside {output_file}");
-            }
-        }
     } else {
         // PAF output - write to file or stdout
         if let Some(output_file) = &args.output_file {
