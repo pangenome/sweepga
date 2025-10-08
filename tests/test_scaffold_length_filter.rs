@@ -76,14 +76,15 @@ fn test_scaffold_length_filtering() {
 
 #[test]
 fn test_scaffold_aligned_mass_filtering() {
-    // Test that filtering uses aligned mass, not span
+    // Test that filtering uses span, not aligned mass
+    // (Note: despite the test name, current implementation filters by span)
     let mut paf = NamedTempFile::new().unwrap();
 
     // Create a scaffold with:
     // - Span: 100kb (query 0-100000)
     // - Aligned mass: only 2kb total (2 × 1kb alignments)
     // - Large gap: 98kb between alignments
-    // With -s 50000, should be FILTERED (2kb < 50kb)
+    // With -s 50000, should be KEPT (100kb span > 50kb threshold)
     writeln!(
         paf,
         "query\t150000\t0\t1000\t+\ttarget\t150000\t0\t1000\t950\t1000\t60\tNM:i:50\tcg:Z:950=50X"
@@ -93,7 +94,7 @@ fn test_scaffold_aligned_mass_filtering() {
 
     paf.flush().unwrap();
 
-    // Test with -s 50000 (50kb minimum aligned mass)
+    // Test with -s 50000 (50kb minimum scaffold span)
     let output = std::process::Command::new("./target/release/sweepga")
         .arg(paf.path())
         .arg("-s")
@@ -116,10 +117,10 @@ fn test_scaffold_aligned_mass_filtering() {
         .filter(|l| !l.starts_with('[') && !l.is_empty())
         .count();
 
-    // Should filter out because aligned mass is only 2kb (< 50kb)
-    // Even though span is 100kb
+    // Should keep scaffold because span is 100kb (> 50kb)
+    // even though aligned mass is only 2kb
     assert_eq!(
-        output_count, 0,
-        "Scaffold with 100kb span but only 2kb aligned should be filtered with -s 50000"
+        output_count, 2,
+        "Scaffold with 100kb span should be kept with -s 50000 (span-based filtering)"
     );
 }

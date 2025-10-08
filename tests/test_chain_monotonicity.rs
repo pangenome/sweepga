@@ -170,7 +170,7 @@ fn test_mixed_identity_chaining() {
             .arg(paf_path)
             .arg("-j")
             .arg(gap.to_string())
-            .arg("-i")
+            .arg("-Y")
             .arg(threshold)
             .arg("-s")
             .arg("0")

@@ -26,7 +26,7 @@ fn test_mapping_plane_sweep_across_targets() {
         .arg("0") // No scaffolding
         .arg("-i")
         .arg("0")
-        .arg("-o")
+        .arg("--overlap")
         .arg("0.5") // Lower overlap threshold (default 0.95 is too high)
         .output()
         .expect("Failed to run sweepga");
@@ -74,7 +74,7 @@ fn test_mapping_plane_sweep_target_axis() {
         .arg("0")
         .arg("-i")
         .arg("0")
-        .arg("-o")
+        .arg("--overlap")
         .arg("0.5") // Lower overlap threshold
         .output()
         .expect("Failed to run sweepga");

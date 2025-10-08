@@ -402,7 +402,6 @@ fn test_multisequence_fasta() {
 }
 
 #[test]
-#[ignore] // This test requires significant time
 #[ignore] // Requires FastGA binaries which may not handle .gz directly in all environments
 fn test_performance_regression() {
     use std::time::Instant;

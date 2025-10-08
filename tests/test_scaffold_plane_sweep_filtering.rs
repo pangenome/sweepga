@@ -29,6 +29,8 @@ fn test_overlapping_scaffolds_same_chromosome_pair() {
         .arg("0")
         .arg("-m")
         .arg("1:1")
+        .arg("-d")
+        .arg("0") // Disable rescue to test scaffold filtering only
         .output()
         .expect("Failed to run sweepga");
 
@@ -139,6 +141,8 @@ fn test_contained_scaffold_filtering() {
         .arg("0")
         .arg("-m")
         .arg("1:1")
+        .arg("-d")
+        .arg("0") // Disable rescue
         .output()
         .expect("Failed to run sweepga");
 
