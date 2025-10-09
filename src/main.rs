@@ -1,3 +1,4 @@
+mod aln_filter;
 mod compact_mapping;
 mod fastga_integration;
 mod grouped_mappings;
