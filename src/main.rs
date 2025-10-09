@@ -1937,30 +1937,25 @@ fn main() -> Result<()> {
     // Handle output based on format and destination
     use std::io::{BufRead, BufReader, Write};
 
-    if args.one_aln {
-        // For .1aln output, we need an output file to create matching .1gdb
-        let output_file = args.output_file.as_ref().ok_or_else(|| {
-            anyhow::anyhow!(
-                ".1aln format requires --output-file <file.1aln>"
-            )
-        })?;
-
-        // Copy .1aln to output file (GDB data is now embedded in .1aln)
+    // Write output (PAF or .1aln) to file or stdout
+    if let Some(output_file) = &args.output_file {
         std::fs::copy(&final_output_path, output_file)?;
+    } else if args.one_aln {
+        // .1aln is binary - copy bytes directly to stdout
+        use std::io::copy;
+        let mut file = std::fs::File::open(&final_output_path)?;
+        let stdout = std::io::stdout();
+        let mut handle = stdout.lock();
+        copy(&mut file, &mut handle)?;
     } else {
-        // PAF output - write to file or stdout
-        if let Some(output_file) = &args.output_file {
-            std::fs::copy(&final_output_path, output_file)?;
-        } else {
-            // Write to stdout
-            let file = std::fs::File::open(&final_output_path)?;
-            let reader = BufReader::new(file);
-            let stdout = std::io::stdout();
-            let mut handle = stdout.lock();
+        // PAF is text - write line by line to stdout
+        let file = std::fs::File::open(&final_output_path)?;
+        let reader = BufReader::new(file);
+        let stdout = std::io::stdout();
+        let mut handle = stdout.lock();
 
-            for line in reader.lines() {
-                writeln!(handle, "{}", line?)?;
-            }
+        for line in reader.lines() {
+            writeln!(handle, "{}", line?)?;
         }
     }
 
