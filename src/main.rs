@@ -861,7 +861,6 @@ fn calculate_ani_n_percentile(
     Ok(ani50)
 }
 
-
 /// Convert .1aln file to PAF using native reader (fast path)
 fn aln_to_paf_native(aln_path: &str) -> Result<tempfile::NamedTempFile> {
     use fastga_rs::AlnReader;
@@ -1099,7 +1098,7 @@ fn align_multiple_fastas(
         if !quiet {
             timing.log(
                 "align",
-                &format!("Using user-specified frequency threshold: {}", f),
+                &format!("Using user-specified frequency threshold: {f}"),
             );
         }
         Some(f)
@@ -1109,10 +1108,7 @@ fn align_multiple_fastas(
         if !quiet {
             timing.log(
                 "align",
-                &format!(
-                    "Setting frequency threshold to {} (number of genome groups)",
-                    auto_freq
-                ),
+                &format!("Setting frequency threshold to {auto_freq} (number of genome groups)"),
             );
         }
         Some(auto_freq)
@@ -1124,7 +1120,7 @@ fn align_multiple_fastas(
     if !quiet {
         timing.log(
             "align",
-            &format!("Aligning {} genomes in single FastGA run", num_genomes),
+            &format!("Aligning {num_genomes} genomes in single FastGA run"),
         );
     }
 
@@ -1140,7 +1136,7 @@ fn align_multiple_fastas(
         let alignment_count = std::fs::read_to_string(temp_paf.path())?.lines().count();
         timing.log(
             "align",
-            &format!("FastGA produced {} alignments", alignment_count),
+            &format!("FastGA produced {alignment_count} alignments"),
         );
     }
 

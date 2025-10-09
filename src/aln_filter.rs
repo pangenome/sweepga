@@ -9,7 +9,10 @@
 //! - Applies sweepga filtering logic
 //! - Writes filtered .1aln using fastga-rs AlnWriter
 
-use anyhow::{Result, Context};
+// TODO: Remove this once the module is integrated into the main code path
+#![allow(dead_code)]
+
+use anyhow::{Context, Result};
 use onecode::{OneFile, OneSchema};
 use std::path::Path;
 
@@ -18,9 +21,9 @@ use crate::paf_filter::{FilterConfig, PafFilter};
 /// Contig information from GDB skeleton
 #[derive(Debug, Clone)]
 struct ContigInfo {
-    clen: i64,    // Contig length
-    sbeg: i64,    // Position within scaffold
-    scaf: usize,  // Scaffold ID
+    clen: i64,   // Contig length
+    sbeg: i64,   // Position within scaffold
+    scaf: usize, // Scaffold ID
 }
 
 /// Scaffold information from GDB skeleton
@@ -28,8 +31,8 @@ struct ContigInfo {
 struct ScaffoldInfo {
     name: String,
     slen: i64,
-    fctg: usize,  // First contig index
-    ectg: usize,  // Last contig + 1
+    fctg: usize, // First contig index
+    ectg: usize, // Last contig + 1
 }
 
 /// Alignment record from .1aln with X-field based identity
@@ -48,7 +51,7 @@ pub struct AlnAlignment {
     pub reverse: bool,
     pub matches: i64,
     pub diffs: i64,
-    pub identity: f64,  // Computed from X field
+    pub identity: f64, // Computed from X field
     pub mapping_quality: i64,
     // Store X values for potential re-writing
     pub x_values: Vec<i64>,
@@ -64,8 +67,7 @@ pub struct AlnFilterReader {
 impl AlnFilterReader {
     /// Open a .1aln file for filtering
     pub fn open<P: AsRef<Path>>(path: P) -> Result<Self> {
-        let path_str = path.as_ref().to_str()
-            .context("Invalid path")?;
+        let path_str = path.as_ref().to_str().context("Invalid path")?;
 
         // Create schema for .1aln files (matches FastGA output)
         let schema_text = r#"
@@ -90,11 +92,10 @@ D Q 1 3 INT
 D E 1 3 INT
 D Z 1 6 STRING
 "#;
-        let schema = OneSchema::from_text(schema_text)
-            .context("Failed to create .1aln schema")?;
+        let schema = OneSchema::from_text(schema_text).context("Failed to create .1aln schema")?;
 
         let mut file = OneFile::open_read(path_str, Some(&schema), Some("aln"), 1)
-            .context(format!("Failed to open .1aln file: {}", path_str))?;
+            .context(format!("Failed to open .1aln file: {path_str}"))?;
 
         // Read GDB skeleton to build contig→scaffold mapping
         let (contigs, scaffolds) = Self::read_gdb_skeleton(&mut file)?;
@@ -111,7 +112,7 @@ D Z 1 6 STRING
         let mut contigs: Vec<ContigInfo> = Vec::new();
         let mut scaffolds: Vec<ScaffoldInfo> = Vec::new();
         let mut current_scaffold: Option<usize> = None;
-        let mut spos = 0i64;  // Position within current scaffold
+        let mut spos = 0i64; // Position within current scaffold
         let mut in_gdb_group = false;
 
         // Read through file looking for 'g' group (GDB skeleton)
@@ -147,7 +148,7 @@ D Z 1 6 STRING
                         current_scaffold = Some(scaffolds.len());
                         scaffolds.push(ScaffoldInfo {
                             name: scaffold_name.to_string(),
-                            slen: 0,  // Will be set when we see next 'S' or finish
+                            slen: 0, // Will be set when we see next 'S' or finish
                             fctg: contigs.len(),
                             ectg: contigs.len(),
                         });
@@ -190,8 +191,11 @@ D Z 1 6 STRING
         if scaffolds.is_empty() {
             eprintln!("[AlnFilterReader] WARNING: No GDB skeleton found in .1aln file");
         } else {
-            eprintln!("[AlnFilterReader] Read {} scaffolds and {} contigs from GDB skeleton",
-                      scaffolds.len(), contigs.len());
+            eprintln!(
+                "[AlnFilterReader] Read {} scaffolds and {} contigs from GDB skeleton",
+                scaffolds.len(),
+                contigs.len()
+            );
         }
 
         Ok((contigs, scaffolds))
@@ -288,48 +292,63 @@ D Z 1 6 STRING
                 matches as f64 / (matches + diffs) as f64
             } else {
                 // DEBUG: This shouldn't happen!
-                eprintln!("[AlnReader] WARNING: No X, M, or D values for alignment at {}..{}",
-                          query_start, query_end);
+                eprintln!(
+                    "[AlnReader] WARNING: No X, M, or D values for alignment at {query_start}..{query_end}"
+                );
                 0.0
             };
 
             // Map contig IDs to scaffold IDs and adjust coordinates
             // The 'A' record contains CONTIG IDs, but PAF needs SCAFFOLD IDs
-            let (query_scaffold_id, query_scaffold_name, query_scaffold_len, query_scaffold_start, query_scaffold_end) =
-                if !self.contigs.is_empty() && (query_id as usize) < self.contigs.len() {
-                    let contig = &self.contigs[query_id as usize];
-                    let scaffold = &self.scaffolds[contig.scaf];
-                    (
-                        contig.scaf as i64,
-                        scaffold.name.clone(),
-                        scaffold.slen,
-                        contig.sbeg + query_start,  // Adjust to scaffold coordinates
-                        contig.sbeg + query_end,
-                    )
-                } else {
-                    // Fallback if no GDB skeleton
-                    let name = self.file.get_sequence_name(query_id)
-                        .unwrap_or_else(|| format!("{}", query_id));
-                    (query_id, name, query_len, query_start, query_end)
-                };
+            let (
+                query_scaffold_id,
+                query_scaffold_name,
+                query_scaffold_len,
+                query_scaffold_start,
+                query_scaffold_end,
+            ) = if !self.contigs.is_empty() && (query_id as usize) < self.contigs.len() {
+                let contig = &self.contigs[query_id as usize];
+                let scaffold = &self.scaffolds[contig.scaf];
+                (
+                    contig.scaf as i64,
+                    scaffold.name.clone(),
+                    scaffold.slen,
+                    contig.sbeg + query_start, // Adjust to scaffold coordinates
+                    contig.sbeg + query_end,
+                )
+            } else {
+                // Fallback if no GDB skeleton
+                let name = self
+                    .file
+                    .get_sequence_name(query_id)
+                    .unwrap_or_else(|| format!("{query_id}"));
+                (query_id, name, query_len, query_start, query_end)
+            };
 
-            let (target_scaffold_id, target_scaffold_name, target_scaffold_len, target_scaffold_start, target_scaffold_end) =
-                if !self.contigs.is_empty() && (target_id as usize) < self.contigs.len() {
-                    let contig = &self.contigs[target_id as usize];
-                    let scaffold = &self.scaffolds[contig.scaf];
-                    (
-                        contig.scaf as i64,
-                        scaffold.name.clone(),
-                        scaffold.slen,
-                        contig.sbeg + target_start,  // Adjust to scaffold coordinates
-                        contig.sbeg + target_end,
-                    )
-                } else {
-                    // Fallback if no GDB skeleton
-                    let name = self.file.get_sequence_name(target_id)
-                        .unwrap_or_else(|| format!("{}", target_id));
-                    (target_id, name, target_len, target_start, target_end)
-                };
+            let (
+                target_scaffold_id,
+                target_scaffold_name,
+                target_scaffold_len,
+                target_scaffold_start,
+                target_scaffold_end,
+            ) = if !self.contigs.is_empty() && (target_id as usize) < self.contigs.len() {
+                let contig = &self.contigs[target_id as usize];
+                let scaffold = &self.scaffolds[contig.scaf];
+                (
+                    contig.scaf as i64,
+                    scaffold.name.clone(),
+                    scaffold.slen,
+                    contig.sbeg + target_start, // Adjust to scaffold coordinates
+                    contig.sbeg + target_end,
+                )
+            } else {
+                // Fallback if no GDB skeleton
+                let name = self
+                    .file
+                    .get_sequence_name(target_id)
+                    .unwrap_or_else(|| format!("{target_id}"));
+                (target_id, name, target_len, target_start, target_end)
+            };
 
             let alignment = AlnAlignment {
                 query_id: query_scaffold_id,
@@ -403,14 +422,17 @@ pub fn filter_1aln_file_to_paf<P1: AsRef<Path>, P2: AsRef<Path>>(
     output_path: P2,
     filter_config: &FilterConfig,
 ) -> Result<()> {
-    use tempfile::NamedTempFile;
     use std::io::{BufWriter, Write};
+    use tempfile::NamedTempFile;
 
     // Step 1: Read .1aln and convert to PAF with X-based identity
     let mut reader = AlnFilterReader::open(&input_path)?;
     let alignments = reader.read_all()?;
 
-    eprintln!("[filter_1aln] Read {} alignments from .1aln", alignments.len());
+    eprintln!(
+        "[filter_1aln] Read {} alignments from .1aln",
+        alignments.len()
+    );
 
     // Create temporary PAF file
     let temp_paf = NamedTempFile::new()?;
@@ -423,14 +445,17 @@ pub fn filter_1aln_file_to_paf<P1: AsRef<Path>, P2: AsRef<Path>>(
         for (i, aln) in alignments.iter().enumerate() {
             let paf_line = aln.to_paf_line();
             if i < 3 {
-                eprintln!("[filter_1aln] Sample PAF line: {}", paf_line);
+                eprintln!("[filter_1aln] Sample PAF line: {paf_line}");
             }
-            writeln!(writer, "{}", paf_line)?;
+            writeln!(writer, "{paf_line}")?;
         }
         writer.flush()?;
     }
 
-    eprintln!("[filter_1aln] Converted to PAF: {}", temp_paf_path.display());
+    eprintln!(
+        "[filter_1aln] Converted to PAF: {}",
+        temp_paf_path.display()
+    );
 
     // Step 2: Apply PAF filtering using EXACT same code as PAF input
     let filter = PafFilter::new(filter_config.clone());
@@ -456,20 +481,11 @@ mod tests {
 
         println!("Testing fastga-rs AlnReader...");
         if let Some(aln) = reader.read_alignment().unwrap() {
-            println!("First alignment: query='{}' target='{}'", aln.query_name, aln.target_name);
+            println!(
+                "First alignment: query='{}' target='{}'",
+                aln.query_name, aln.target_name
+            );
             println!("  matches={} block_len={}", aln.matches, aln.block_len);
-        }
-
-        // Try to get sequence names
-        match reader.get_seq_name(0, 0) {
-            Ok(name) => println!("Sequence 0: {}", name),
-            Err(e) => println!("Error getting sequence 0: {}", e),
-        }
-
-        let all_names = reader.get_all_seq_names();
-        println!("Found {} sequence names", all_names.len());
-        for (id, name) in all_names.iter().take(5) {
-            println!("  ID {}: {}", id, name);
         }
     }
 
@@ -480,12 +496,21 @@ mod tests {
 
         let mut count = 0;
         while let Some(aln) = reader.read_alignment().unwrap() {
-            println!("Alignment {}: query='{}' target='{}' identity={:.4} (from {} X values)",
-                     count, aln.query_name, aln.target_name, aln.identity, aln.x_values.len());
+            println!(
+                "Alignment {}: query='{}' target='{}' identity={:.4} (from {} X values)",
+                count,
+                aln.query_name,
+                aln.target_name,
+                aln.identity,
+                aln.x_values.len()
+            );
 
             // Verify identity is in valid range
-            assert!(aln.identity >= 0.0 && aln.identity <= 1.0,
-                    "Invalid identity: {}", aln.identity);
+            assert!(
+                aln.identity >= 0.0 && aln.identity <= 1.0,
+                "Invalid identity: {}",
+                aln.identity
+            );
 
             count += 1;
             if count >= 10 {
@@ -537,10 +562,13 @@ mod tests {
         use std::io::{BufRead, BufReader};
         let file = std::fs::File::open(output_path).unwrap();
         let reader = BufReader::new(file);
-        let count = reader.lines().filter_map(|l| l.ok()).count();
+        let count = reader.lines().map_while(Result::ok).count();
 
-        println!("Filtered to {} alignments from test.1aln", count);
-        assert!(count > 0 && count < 30000, "Should filter to reasonable number");
+        println!("Filtered to {count} alignments from test.1aln");
+        assert!(
+            count > 0 && count < 30000,
+            "Should filter to reasonable number"
+        );
     }
 
     #[test]
@@ -561,9 +589,12 @@ mod tests {
                 };
 
                 // Identity should match what we calculated
-                assert!((aln.identity - expected_identity).abs() < 0.001,
-                        "Identity mismatch: got {}, expected {} (from X field)",
-                        aln.identity, expected_identity);
+                assert!(
+                    (aln.identity - expected_identity).abs() < 0.001,
+                    "Identity mismatch: got {}, expected {} (from X field)",
+                    aln.identity,
+                    expected_identity
+                );
 
                 println!("✓ Alignment {}: identity {:.4} correctly computed from X field (edit_distance={})",
                          count, aln.identity, edit_distance);
@@ -575,6 +606,9 @@ mod tests {
             }
         }
 
-        assert!(count > 0, "Should have read at least one alignment with X values");
+        assert!(
+            count > 0,
+            "Should have read at least one alignment with X values"
+        );
     }
 }
