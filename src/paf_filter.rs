@@ -277,7 +277,7 @@ impl PafFilter {
         Ok(())
     }
 
-    /// Extract metadata from PAF without modifying records
+    /// Extract metadata from PAF without modifying records (private implementation)
     fn extract_metadata<P: AsRef<Path>>(&self, path: P) -> Result<Vec<RecordMeta>> {
         let reader = open_paf_input(path.as_ref())?;
         let mut metadata = Vec::new();
@@ -1648,4 +1648,35 @@ impl PafFilter {
         writer.flush()?;
         Ok(())
     }
+}
+
+/// Public function to extract PAF metadata without filtering (for testing/debugging)
+pub fn extract_metadata<P: AsRef<Path>>(path: P) -> Result<(Vec<RecordMeta>, ())> {
+    let config = FilterConfig {
+        chain_gap: 0,
+        min_block_length: 0,
+        mapping_filter_mode: FilterMode::ManyToMany,
+        mapping_max_per_query: None,
+        mapping_max_per_target: None,
+        plane_sweep_secondaries: 0,
+        scaffold_filter_mode: FilterMode::ManyToMany,
+        scaffold_max_per_query: None,
+        scaffold_max_per_target: None,
+        overlap_threshold: 0.95,
+        sparsity: 1.0,
+        no_merge: true,
+        scaffold_gap: 0,
+        min_scaffold_length: 0,
+        scaffold_overlap_threshold: 0.95,
+        scaffold_max_deviation: 0,
+        prefix_delimiter: '#',
+        skip_prefix: false,
+        scoring_function: ScoringFunction::LogLengthIdentity,
+        min_identity: 0.0,
+        min_scaffold_identity: 0.0,
+    };
+
+    let filter = PafFilter::new(config);
+    let metadata = filter.extract_metadata(path)?;
+    Ok((metadata, ()))
 }

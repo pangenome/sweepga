@@ -44,6 +44,10 @@ pub fn extract_1aln_metadata<P: AsRef<Path>>(
     let mut metadata = Vec::new();
     let mut rank = 0;
 
+    // Note: We need to read X records manually since AlnReader doesn't expose them
+    // For now, use the mismatches field which comes from the 'D' record
+    // TODO: Sum X values if they differ from D
+
     while let Some(aln) = reader.read_alignment()? {
         // Get actual sequence names (not numeric IDs)
         let query_id_num: i64 = aln.query_name.parse().unwrap_or(-1);
@@ -58,9 +62,31 @@ pub fn extract_1aln_metadata<P: AsRef<Path>>(
             .cloned()
             .unwrap_or_else(|| aln.target_name.clone());
 
-        // Calculate identity
-        let block_len = aln.block_len as u64;
-        let matches = aln.matches as u64;
+        // Calculate identity and matches from .1aln data
+        // The .1aln format stores:
+        // - 'D' record: diffs (substitutions + indels) → aln.mismatches
+        // - 'E' record: matches (currently unused by FastGA, so aln.matches = 0)
+        // - 'X' record: per-tracepoint diffs (INT_LIST)
+        //
+        // NOTE: There appears to be a discrepancy between 'D' and the sum of 'X' values.
+        // ALNtoPAF uses 'X' values for its divergence calculation, but AlnReader
+        // currently only exposes 'D'. This causes a systematic difference in identity.
+        //
+        // For now, we use 'D' which gives us internal consistency in .1aln filtering,
+        // but know that it won't exactly match PAF from ALNtoPAF.
+
+        let block_len = aln.block_len as u64; // query_end - query_start
+        let diffs = aln.mismatches as u64;    // from 'D' record (may differ from sum of X)
+
+        let matches = if aln.matches > 0 {
+            // If matches are populated (rare), use them
+            aln.matches as u64
+        } else {
+            // Normal case: matches = query_span - diffs
+            block_len.saturating_sub(diffs)
+        };
+
+        // Identity using the same formula as ALNtoPAF: (query_span - diffs) / query_span
         let identity = if block_len > 0 {
             matches as f64 / block_len as f64
         } else {
