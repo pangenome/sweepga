@@ -155,7 +155,10 @@ pub fn filter_1aln_streaming<P1: AsRef<Path>, P2: AsRef<Path>>(
     // Phase 1: Read .1aln, convert to PAF for filtering (in-memory), get kept IDs
     let mut reader = AlnFilterReader::open(&input_path)?;
     let alignments = reader.read_all()?;
-    eprintln!("[filter_1aln] Read {} alignments from .1aln", alignments.len());
+    eprintln!(
+        "[filter_1aln] Read {} alignments from .1aln",
+        alignments.len()
+    );
 
     // Convert to PAF and filter
     let temp_paf_input = NamedTempFile::new()?;
@@ -174,8 +177,8 @@ pub fn filter_1aln_streaming<P1: AsRef<Path>, P2: AsRef<Path>>(
 
     // Build map: PAF line → original index
     // This lets us figure out which original records to keep
-    use std::io::{BufRead, BufReader};
     use std::collections::HashMap;
+    use std::io::{BufRead, BufReader};
 
     let mut paf_to_index: HashMap<String, usize> = HashMap::new();
     for (i, aln) in alignments.iter().enumerate() {
@@ -199,7 +202,11 @@ pub fn filter_1aln_streaming<P1: AsRef<Path>, P2: AsRef<Path>>(
         }
     }
 
-    eprintln!("[filter_1aln] Kept {} / {} alignments", kept_indices.len(), alignments.len());
+    eprintln!(
+        "[filter_1aln] Kept {} / {} alignments",
+        kept_indices.len(),
+        alignments.len()
+    );
 
     // Phase 2: Emit passing records by index
     eprintln!("[filter_1aln] Phase 2: Emitting passing records to output...");

@@ -1396,41 +1396,47 @@ fn main() -> Result<()> {
         }
 
         // Step 1: Get .1aln input (either from file or from FastGA alignment)
-        let (_temp_1aln, aln_input_path) = if !input_file_types.is_empty() && input_file_types[0] == FileType::Aln {
-            // Input is already .1aln
-            if !args.quiet {
-                timing.log("detect", &format!("Input: {} (.1aln)", args.files[0]));
-            }
-            (None, args.files[0].clone())
-        } else if !input_file_types.is_empty() && input_file_types[0] == FileType::Fasta {
-            // FASTA input - use FastGA to produce .1aln
-            if args.files.len() > 1 {
-                eprintln!("[sweepga] ERROR: Multiple FASTA files not supported in .1aln workflow yet");
-                eprintln!("[sweepga] Use --paf flag to use PAF workflow for multiple files");
+        let (_temp_1aln, aln_input_path) =
+            if !input_file_types.is_empty() && input_file_types[0] == FileType::Aln {
+                // Input is already .1aln
+                if !args.quiet {
+                    timing.log("detect", &format!("Input: {} (.1aln)", args.files[0]));
+                }
+                (None, args.files[0].clone())
+            } else if !input_file_types.is_empty() && input_file_types[0] == FileType::Fasta {
+                // FASTA input - use FastGA to produce .1aln
+                if args.files.len() > 1 {
+                    eprintln!(
+                        "[sweepga] ERROR: Multiple FASTA files not supported in .1aln workflow yet"
+                    );
+                    eprintln!("[sweepga] Use --paf flag to use PAF workflow for multiple files");
+                    std::process::exit(1);
+                }
+
+                let alignment_start = Instant::now();
+                let path = Path::new(&args.files[0]);
+                let fastga = create_fastga_integration(args.frequency, args.threads)?;
+
+                if !args.quiet {
+                    timing.log("align", &format!("Running FastGA on {}", args.files[0]));
+                }
+
+                let temp_1aln = fastga.align_to_temp_1aln(path, path)?;
+                alignment_time = Some(alignment_start.elapsed().as_secs_f64());
+
+                if !args.quiet {
+                    timing.log(
+                        "align",
+                        &format!("FastGA complete ({:.1}s)", alignment_time.unwrap()),
+                    );
+                }
+
+                let aln_path = temp_1aln.path().to_string_lossy().into_owned();
+                (Some(temp_1aln), aln_path)
+            } else {
+                eprintln!("[sweepga] ERROR: No valid input provided");
                 std::process::exit(1);
-            }
-
-            let alignment_start = Instant::now();
-            let path = Path::new(&args.files[0]);
-            let fastga = create_fastga_integration(args.frequency, args.threads)?;
-
-            if !args.quiet {
-                timing.log("align", &format!("Running FastGA on {}", args.files[0]));
-            }
-
-            let temp_1aln = fastga.align_to_temp_1aln(path, path)?;
-            alignment_time = Some(alignment_start.elapsed().as_secs_f64());
-
-            if !args.quiet {
-                timing.log("align", &format!("FastGA complete ({:.1}s)", alignment_time.unwrap()));
-            }
-
-            let aln_path = temp_1aln.path().to_string_lossy().into_owned();
-            (Some(temp_1aln), aln_path)
-        } else {
-            eprintln!("[sweepga] ERROR: No valid input provided");
-            std::process::exit(1);
-        };
+            };
 
         // Step 2: Parse filter config
         let (plane_sweep_mode, plane_sweep_query_limit, plane_sweep_target_limit) =

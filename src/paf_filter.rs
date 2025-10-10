@@ -365,7 +365,10 @@ impl PafFilter {
     }
 
     /// Apply filtering pipeline following wfmash's algorithm
-    pub fn apply_filters(&self, mut metadata: Vec<RecordMeta>) -> Result<HashMap<usize, RecordMeta>> {
+    pub fn apply_filters(
+        &self,
+        mut metadata: Vec<RecordMeta>,
+    ) -> Result<HashMap<usize, RecordMeta>> {
         // 1. Filter by minimum block length, self-mappings, and minimum identity
         metadata.retain(|m| {
             m.block_length >= self.config.min_block_length

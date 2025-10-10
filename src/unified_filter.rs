@@ -14,16 +14,17 @@ use anyhow::{Context, Result};
 use std::collections::HashMap;
 use std::path::Path;
 
-use crate::paf_filter::{FilterConfig, PafFilter, RecordMeta};
 use crate::mapping::ChainStatus;
+use crate::paf_filter::{FilterConfig, PafFilter, RecordMeta};
 
 /// Extract RecordMeta from .1aln file (analogous to PAF extract_metadata)
-pub fn extract_1aln_metadata<P: AsRef<Path>>(path: P) -> Result<(Vec<RecordMeta>, HashMap<String, i64>)> {
+pub fn extract_1aln_metadata<P: AsRef<Path>>(
+    path: P,
+) -> Result<(Vec<RecordMeta>, HashMap<String, i64>)> {
     let path_str = path.as_ref().to_str().context("Invalid path")?;
 
     // Open .1aln reader
-    let mut reader = fastga_rs::AlnReader::open(path_str)
-        .context("Failed to open .1aln file")?;
+    let mut reader = fastga_rs::AlnReader::open(path_str).context("Failed to open .1aln file")?;
 
     // Get all sequence names upfront (efficient bulk lookup)
     let id_to_name = reader.get_all_seq_names();
@@ -34,7 +35,10 @@ pub fn extract_1aln_metadata<P: AsRef<Path>>(path: P) -> Result<(Vec<RecordMeta>
         name_to_id.insert(name.clone(), *id);
     }
 
-    eprintln!("[unified_filter] Loaded {} sequence names from .1aln", id_to_name.len());
+    eprintln!(
+        "[unified_filter] Loaded {} sequence names from .1aln",
+        id_to_name.len()
+    );
 
     // Read all alignments and create RecordMeta
     let mut metadata = Vec::new();
@@ -45,10 +49,12 @@ pub fn extract_1aln_metadata<P: AsRef<Path>>(path: P) -> Result<(Vec<RecordMeta>
         let query_id_num: i64 = aln.query_name.parse().unwrap_or(-1);
         let target_id_num: i64 = aln.target_name.parse().unwrap_or(-1);
 
-        let query_name = id_to_name.get(&query_id_num)
+        let query_name = id_to_name
+            .get(&query_id_num)
             .cloned()
             .unwrap_or_else(|| aln.query_name.clone());
-        let target_name = id_to_name.get(&target_id_num)
+        let target_name = id_to_name
+            .get(&target_id_num)
             .cloned()
             .unwrap_or_else(|| aln.target_name.clone());
 
@@ -84,7 +90,10 @@ pub fn extract_1aln_metadata<P: AsRef<Path>>(path: P) -> Result<(Vec<RecordMeta>
         rank += 1;
     }
 
-    eprintln!("[unified_filter] Read {} alignments from .1aln", metadata.len());
+    eprintln!(
+        "[unified_filter] Read {} alignments from .1aln",
+        metadata.len()
+    );
 
     Ok((metadata, name_to_id))
 }
@@ -144,10 +153,16 @@ pub fn filter_file<P1: AsRef<Path>, P2: AsRef<Path>>(
         let filter = PafFilter::new(config.clone());
         let passing_ranks = filter.apply_filters(metadata)?;
 
-        eprintln!("[unified_filter] {} records passed filtering", passing_ranks.len());
+        eprintln!(
+            "[unified_filter] {} records passed filtering",
+            passing_ranks.len()
+        );
 
         // Determine output format
-        let output_str = output_path.as_ref().to_str().context("Invalid output path")?;
+        let output_str = output_path
+            .as_ref()
+            .to_str()
+            .context("Invalid output path")?;
         let output_1aln = !force_paf_output && !output_str.ends_with(".paf");
 
         if output_1aln {
@@ -206,7 +221,13 @@ mod tests {
             min_scaffold_identity: 0.0,
         };
 
-        filter_file("test_output.1aln", "test_filtered_result.1aln", &config, false).unwrap();
+        filter_file(
+            "test_output.1aln",
+            "test_filtered_result.1aln",
+            &config,
+            false,
+        )
+        .unwrap();
 
         // Verify output exists
         assert!(std::path::Path::new("test_filtered_result.1aln").exists());
