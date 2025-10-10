@@ -118,7 +118,7 @@ pub fn write_1aln_filtered<P1: AsRef<Path>, P2: AsRef<Path>>(
         rank += 1;
     }
 
-    eprintln!("[unified_filter] Wrote {} alignments to .1aln", written);
+    eprintln!("[unified_filter] Wrote {written} alignments to .1aln");
     Ok(())
 }
 
@@ -175,8 +175,13 @@ mod tests {
     use crate::paf_filter::{FilterMode, ScoringFunction};
 
     #[test]
-    #[ignore] // Requires test data
     fn test_unified_1aln_filtering() {
+        // Skip test if test_output.1aln doesn't exist
+        if !std::path::Path::new("test_output.1aln").exists() {
+            eprintln!("Skipping test - test_output.1aln not found");
+            return;
+        }
+
         let config = FilterConfig {
             chain_gap: 0,
             min_block_length: 0,
@@ -201,6 +206,14 @@ mod tests {
             min_scaffold_identity: 0.0,
         };
 
-        filter_file("test.1aln", "test_output.1aln", &config, false).unwrap();
+        filter_file("test_output.1aln", "test_filtered_result.1aln", &config, false).unwrap();
+
+        // Verify output exists
+        assert!(std::path::Path::new("test_filtered_result.1aln").exists());
+
+        eprintln!("✓ Test passed - filtered output created successfully");
+
+        // Clean up
+        let _ = std::fs::remove_file("test_filtered_result.1aln");
     }
 }

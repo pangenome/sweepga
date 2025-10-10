@@ -73,16 +73,16 @@ impl AlnFilterReader {
             };
 
             let alignment = AlnAlignment {
-                query_id: rec.query_id as i64,
+                query_id: rec.query_id,
                 query_name,
-                query_start: rec.query_start as i64,
-                query_end: rec.query_end as i64,
-                query_len: rec.query_len as i64,
-                target_id: rec.target_id as i64,
+                query_start: rec.query_start,
+                query_end: rec.query_end,
+                query_len: rec.query_len,
+                target_id: rec.target_id,
                 target_name,
-                target_start: rec.target_start as i64,
-                target_end: rec.target_end as i64,
-                target_len: rec.target_len as i64,
+                target_start: rec.target_start,
+                target_end: rec.target_end,
+                target_len: rec.target_len,
                 reverse: rec.reverse != 0,
                 matches: matches as i64,
                 diffs: rec.diffs as i64,
@@ -235,7 +235,7 @@ pub fn filter_1aln_streaming<P1: AsRef<Path>, P2: AsRef<Path>>(
         }
     }
 
-    eprintln!("[filter_1aln] Wrote {} alignments to output", written);
+    eprintln!("[filter_1aln] Wrote {written} alignments to output");
     Ok(())
 }
 
