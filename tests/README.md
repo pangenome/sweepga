@@ -2,17 +2,27 @@
 
 ## Test Categories
 
-### Unit Tests
-Fast tests that don't require external dependencies. Run automatically in CI.
+### Unit Tests & Working Integration Tests
+Fast tests that run automatically in CI using the library API:
+
+- **Unit tests** - Test individual modules and functions
+- **Working integration tests** (`test_working_integration.rs`) - Test end-to-end workflows using:
+  - Small test data (`data/B-3106.fa` - 32KB)
+  - Synthetic generated sequences
+  - Library API directly (no binary required)
+
 ```bash
 cargo test
 ```
 
-### Integration Tests (Ignored)
-These tests require:
-- The `sweepga` binary to be compiled
-- FastGA binaries (built automatically by fastga-rs)
-- Test data files (e.g., `data/scerevisiae8.fa.gz`)
+### Binary Integration Tests (Ignored)
+These tests require the compiled binary and are marked `#[ignore]`:
+
+- `tests/fastga_integration.rs` - Tests that invoke sweepga binary with FastGA
+- `tests/test_centromere_plane_sweep.rs` - Centromere inversion tests
+- `tests/test_chaining_stability.rs` - Chaining behavior tests with yeast data
+- `tests/test_chain_monotonicity.rs` - Chain monotonicity tests
+- `tests/test_genome_pair_grouping.rs` - Requires z.paf file (not in repo)
 
 Run these manually after building:
 ```bash
@@ -20,21 +30,21 @@ cargo build --release
 cargo test --release -- --ignored
 ```
 
-### Test Files Marked as Ignored
+## Test Strategy
 
-- `tests/fastga_integration.rs` - Tests that use FastGA binaries (FAtoGDB, etc.)
-- `tests/test_centromere_plane_sweep.rs` - Binary-dependent centromere tests
-- `tests/test_chaining_stability.rs` - Chaining behavior tests with yeast data
-- `tests/test_chain_monotonicity.rs` - Chain monotonicity tests
-- `tests/test_genome_pair_grouping.rs` - Requires z.paf file
+### Working Tests (Not Ignored)
+Use the sweepga library API directly:
+- ✅ Run in CI automatically
+- ✅ Fast execution
+- ✅ Test core functionality
+- ✅ Gracefully skip if FastGA binaries unavailable
 
-## Why Are Tests Ignored?
-
-Integration tests that invoke the compiled `sweepga` binary are marked `#[ignore]` because:
-
-1. **Build Order**: Tests run before binaries are fully built in debug mode
-2. **CI Environment**: Some tests need data files not in the repository  
-3. **Performance**: Some tests are slow and better suited for manual runs
+### Binary Tests (Ignored)
+Invoke the compiled `sweepga` binary:
+- ⚠️ Require binary to be built first
+- ⚠️ May need data files not in repo
+- ⚠️ Slower, better for manual testing
+- Use for regression testing and end-to-end validation
 
 ## Running Tests in CI
 
