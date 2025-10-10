@@ -39,6 +39,7 @@ fn parse_chains(output: &str) -> HashMap<String, Vec<String>> {
 }
 
 #[test]
+#[ignore] // Requires sweepga binary and yeast data
 fn test_chaining_monotonicity() {
     // Test that larger gap values create supersets of chains from smaller gaps
 
@@ -82,6 +83,7 @@ fn test_chaining_monotonicity() {
 }
 
 #[test]
+#[ignore] // Requires sweepga binary and yeast data
 fn test_chain_identity_stability() {
     // Test that chain identities remain reasonable with large gaps
 

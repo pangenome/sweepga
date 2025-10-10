@@ -8,6 +8,7 @@ use std::io::Write;
 use tempfile::NamedTempFile;
 
 #[test]
+#[ignore] // Requires sweepga binary to be built first
 fn test_reverse_strand_scaffold_plane_sweep() {
     // Create synthetic mappings based on real HG002 chr1 centromere data
     // Forward strand: 129-133Mb region, ~3.8Mb, 76% identity
@@ -72,6 +73,7 @@ fn test_reverse_strand_scaffold_plane_sweep() {
 }
 
 #[test]
+#[ignore] // Requires sweepga binary to be built first
 fn test_reverse_vs_forward_scaffold_scoring() {
     // Simpler test: two overlapping scaffolds, reverse is larger
     let mut paf = NamedTempFile::new().unwrap();
