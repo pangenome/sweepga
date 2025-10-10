@@ -1,7 +1,6 @@
 #![allow(clippy::uninlined_format_args)]
 /// Working integration tests that don't require the binary
 /// These tests use the sweepga library API directly
-
 use std::fs;
 use std::path::Path;
 use tempfile::TempDir;
@@ -39,13 +38,16 @@ fn test_fastga_alignment_with_b3106() {
 
     // Should produce some alignment output
     assert!(aln_size > 0, "No alignment output produced");
-    eprintln!("✓ FastGA aligned B-3106.fa self-alignment: {} bytes", aln_size);
+    eprintln!(
+        "✓ FastGA aligned B-3106.fa self-alignment: {} bytes",
+        aln_size
+    );
 }
 
 /// Test filtering API without crashing
 #[test]
 fn test_filtering_api() {
-    use sweepga::paf_filter::{FilterConfig, PafFilter, FilterMode, ScoringFunction};
+    use sweepga::paf_filter::{FilterConfig, FilterMode, PafFilter, ScoringFunction};
 
     let temp_dir = TempDir::new().unwrap();
     let input_paf = temp_dir.path().join("input.paf");
@@ -144,7 +146,9 @@ fn test_1aln_filtering_api() {
     let aln_result = integration.align_to_temp_1aln(&test_fa, &test_fa);
 
     if aln_result.is_err() {
-        eprintln!("Skipping test - FastGA alignment failed (this is expected in some CI environments)");
+        eprintln!(
+            "Skipping test - FastGA alignment failed (this is expected in some CI environments)"
+        );
         return;
     }
 
@@ -176,12 +180,8 @@ fn test_1aln_filtering_api() {
         min_scaffold_identity: 0.0,
     };
 
-    let filter_result = sweepga::unified_filter::filter_file(
-        aln_file.path(),
-        &output,
-        &config,
-        false,
-    );
+    let filter_result =
+        sweepga::unified_filter::filter_file(aln_file.path(), &output, &config, false);
 
     assert!(filter_result.is_ok(), "1aln filtering failed");
     assert!(output.exists(), "Output file should exist");
