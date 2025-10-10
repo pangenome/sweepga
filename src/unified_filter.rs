@@ -18,6 +18,7 @@ use crate::mapping::ChainStatus;
 use crate::paf_filter::{FilterConfig, PafFilter, RecordMeta};
 
 /// Extract RecordMeta from .1aln file (analogous to PAF extract_metadata)
+#[allow(dead_code)] // TODO: Remove once integrated into main workflow
 pub fn extract_1aln_metadata<P: AsRef<Path>>(
     path: P,
 ) -> Result<(Vec<RecordMeta>, HashMap<String, i64>)> {
@@ -99,6 +100,7 @@ pub fn extract_1aln_metadata<P: AsRef<Path>>(
 }
 
 /// Write filtered .1aln using passing ranks
+#[allow(dead_code)] // TODO: Remove once integrated into main workflow
 pub fn write_1aln_filtered<P1: AsRef<Path>, P2: AsRef<Path>>(
     input_path: P1,
     output_path: P2,
@@ -132,6 +134,7 @@ pub fn write_1aln_filtered<P1: AsRef<Path>, P2: AsRef<Path>>(
 }
 
 /// Main unified filtering function - works for both .1aln and PAF
+#[allow(dead_code)] // TODO: Remove once integrated into main workflow
 pub fn filter_file<P1: AsRef<Path>, P2: AsRef<Path>>(
     input_path: P1,
     output_path: P2,

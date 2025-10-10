@@ -19,6 +19,7 @@ use crate::paf_filter::{FilterConfig, PafFilter};
 
 /// Alignment record from .1aln with X-field based identity
 #[derive(Debug, Clone)]
+#[allow(dead_code)] // TODO: Remove once integrated into main workflow
 pub struct AlnAlignment {
     pub query_id: i64,
     pub query_name: String,
@@ -248,6 +249,7 @@ pub fn filter_1aln_streaming<P1: AsRef<Path>, P2: AsRef<Path>>(
 
 /// Convert .1aln to PAF format (with X-based identity), then filter using PAF pipeline
 /// This ensures 100% identical filtering logic
+#[allow(dead_code)] // TODO: Remove once integrated into main workflow
 pub fn filter_1aln_file_to_paf<P1: AsRef<Path>, P2: AsRef<Path>>(
     input_path: P1,
     output_path: P2,
