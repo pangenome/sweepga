@@ -258,3 +258,97 @@ awk -F'\t' '{
 - Scaffold members all share the same `ch:Z:chain_N` tag
 - 1:1 filtering applies to **scaffolds**, not individual alignments
 - Result: Multiple alignments per chromosome pair, organized into non-overlapping scaffold chains
+
+## Format-Agnostic Filtering (Unified Filter Implementation)
+
+### Overview
+The `unified_filter` module implements format-preserving filtering for both .1aln and PAF inputs. The key insight is that **both formats use the same internal RecordMeta structure and filtering logic**.
+
+### Architecture
+- **Input**: .1aln or PAF files
+- **Internal Representation**: `RecordMeta` structure (defined in `paf_filter.rs`)
+- **Filtering**: Reuses `PafFilter::apply_filters()` for both formats
+- **Output**: Same format as input (format-preserving)
+
+### Key Components
+
+#### 1. Metadata Extraction (`extract_1aln_metadata`)
+```rust
+pub fn extract_1aln_metadata<P: AsRef<Path>>(path: P)
+    -> Result<(Vec<RecordMeta>, HashMap<String, i64>)>
+```
+- Opens .1aln file using `fastga_rs::AlnReader`
+- Extracts sequence names using `get_all_seq_names()` (resolves numeric IDs to names)
+- Converts alignments to `RecordMeta` structure
+- Calculates identity from matches/block_len
+- Returns metadata vector and name→ID mapping for writing
+
+#### 2. Filtered Output Writing (`write_1aln_filtered`)
+```rust
+pub fn write_1aln_filtered<P1, P2>(
+    input_path: P1,
+    output_path: P2,
+    passing_ranks: &HashMap<usize, RecordMeta>,
+    _name_to_id: &HashMap<String, i64>
+) -> Result<()>
+```
+- Re-opens input .1aln for reading
+- Iterates through alignments by rank
+- Writes only records that passed filtering
+- Preserves exact .1aln format (no conversion)
+
+#### 3. Main Filter Function (`filter_file`)
+```rust
+pub fn filter_file<P1, P2>(
+    input_path: P1,
+    output_path: P2,
+    config: &FilterConfig,
+    force_paf_output: bool
+) -> Result<()>
+```
+- Detects input format (.1aln vs PAF)
+- For .1aln:
+  1. Extracts metadata to RecordMeta
+  2. Calls `PafFilter::apply_filters()` (same as PAF!)
+  3. Writes filtered .1aln output (or PAF if `--paf` flag set)
+- For PAF: delegates directly to existing `PafFilter::filter_paf()`
+
+### Coordinate Systems
+- .1aln format uses "contig" coordinates (sequences between Ns in FASTA)
+- fastga-rs AlnReader automatically handles coordinate conversion
+- Sequence name extraction from embedded GDB resolves numeric IDs to actual names
+
+### Code Changes
+**src/unified_filter.rs** (NEW)
+- Complete implementation of format-agnostic filtering
+
+**src/paf_filter.rs** (MODIFIED)
+- Made `RecordMeta` struct public (was private)
+- Made `apply_filters()` method public (was private)
+
+**src/lib.rs** (MODIFIED)
+- Added `pub mod unified_filter;`
+
+**src/main.rs** (MODIFIED)
+- Added `mod unified_filter;` (integration pending)
+
+### Usage
+```rust
+use sweepga::unified_filter::filter_file;
+use sweepga::paf_filter::FilterConfig;
+
+// Filter .1aln → .1aln (format-preserving)
+filter_file("input.1aln", "output.1aln", &config, false)?;
+
+// Filter .1aln → PAF (with --paf flag)
+filter_file("input.1aln", "output.paf", &config, true)?;
+
+// Filter PAF → PAF (delegates to existing PAF filter)
+filter_file("input.paf", "output.paf", &config, false)?;
+```
+
+### Benefits
+- **No format conversion** for .1aln → .1aln workflow
+- **Same filtering logic** for both formats (no code duplication)
+- **Format-preserving** output by default
+- **Efficient** sequence name extraction using fastga-rs

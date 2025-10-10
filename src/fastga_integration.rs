@@ -185,6 +185,33 @@ impl FastGAIntegration {
         Ok(gdb_base)
     }
 
+    /// Run FastGA alignment and return .1aln file directly (NO PAF conversion)
+    /// This is the native FastGA output format
+    pub fn align_to_temp_1aln(&self, queries: &Path, targets: &Path) -> Result<NamedTempFile> {
+        // Create orchestrator to run FastGA binary directly
+        let orchestrator = fastga_rs::orchestrator::FastGAOrchestrator {
+            num_threads: self.config.num_threads as i32,
+            min_length: self.config.min_alignment_length as i32,
+            min_identity: self.config.min_identity.unwrap_or(0.0),
+            kmer_freq: self.config.adaptive_seed_cutoff.unwrap_or(10) as i32,
+            temp_dir: std::env::var("TMPDIR").unwrap_or_else(|_| ".".to_string()),
+        };
+
+        // Run alignment - FastGA creates .1aln natively
+        let aln_path = orchestrator
+            .align_to_1aln(queries, targets)
+            .map_err(|e| anyhow::anyhow!("Failed to run FastGA alignment: {}", e))?;
+
+        // Open the .1aln file as a NamedTempFile
+        let temp_file = NamedTempFile::new().context("Failed to create temp file")?;
+        std::fs::copy(&aln_path, temp_file.path())?;
+
+        // Clean up original
+        let _ = std::fs::remove_file(&aln_path);
+
+        Ok(temp_file)
+    }
+
     /// Run FastGA alignment and write output to a temporary PAF file
     /// Assumes GDB/GIX indices already exist for the input files
     /// Returns the temporary file handle (which auto-deletes when dropped)

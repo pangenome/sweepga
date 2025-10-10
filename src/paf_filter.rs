@@ -64,23 +64,23 @@ pub struct FilterConfig {
 /// Record metadata for filtering without modifying records
 #[derive(Debug, Clone)]
 #[allow(dead_code)]
-struct RecordMeta {
-    rank: usize, // 0-based index in original file
-    query_name: String,
-    target_name: String,
-    query_start: u64,
-    query_end: u64,
-    target_start: u64,
-    target_end: u64,
-    block_length: u64,
-    identity: f64,         // Block identity: matches / alignment_length
-    matches: u64,          // Number of matching bases
-    alignment_length: u64, // Total alignment length (including gaps)
-    strand: char,
-    chain_id: Option<String>,
-    chain_status: ChainStatus,
-    discard: bool,
-    overlapped: bool,
+pub struct RecordMeta {
+    pub rank: usize, // 0-based index in original file
+    pub query_name: String,
+    pub target_name: String,
+    pub query_start: u64,
+    pub query_end: u64,
+    pub target_start: u64,
+    pub target_end: u64,
+    pub block_length: u64,
+    pub identity: f64,         // Block identity: matches / alignment_length
+    pub matches: u64,          // Number of matching bases
+    pub alignment_length: u64, // Total alignment length (including gaps)
+    pub strand: char,
+    pub chain_id: Option<String>,
+    pub chain_status: ChainStatus,
+    pub discard: bool,
+    pub overlapped: bool,
 }
 
 /// Compact record metadata using sequence IDs instead of strings
@@ -365,7 +365,7 @@ impl PafFilter {
     }
 
     /// Apply filtering pipeline following wfmash's algorithm
-    fn apply_filters(&self, mut metadata: Vec<RecordMeta>) -> Result<HashMap<usize, RecordMeta>> {
+    pub fn apply_filters(&self, mut metadata: Vec<RecordMeta>) -> Result<HashMap<usize, RecordMeta>> {
         // 1. Filter by minimum block length, self-mappings, and minimum identity
         metadata.retain(|m| {
             m.block_length >= self.config.min_block_length

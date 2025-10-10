@@ -9,6 +9,7 @@ mod plane_sweep;
 mod plane_sweep_core;
 mod plane_sweep_exact;
 mod sequence_index;
+mod unified_filter;
 mod union_find;
 
 use anyhow::Result;
@@ -299,11 +300,11 @@ struct Args {
     #[clap(short = 't', long = "threads", default_value = "8")]
     threads: usize,
 
-    /// Use 1aln format for output (compact binary, requires .1gdb files)
-    #[clap(short = '1', long = "one-aln")]
-    one_aln: bool,
+    /// Output PAF format instead of default .1aln (text instead of binary)
+    #[clap(long = "paf")]
+    output_paf: bool,
 
-    /// Output file path (.1aln path if -1 is used, otherwise optional for PAF)
+    /// Output file path (auto-detects format from extension: .paf or .1aln)
     #[clap(long = "output-file")]
     output_file: Option<String>,
 
@@ -1383,6 +1384,121 @@ fn main() -> Result<()> {
         vec![]
     };
 
+    // TODO: .1aln workflow disabled - fastga-rs::AlnReader hangs when reading .1aln files
+    // Issue: onecode-rs schema parsing fails or hangs
+    // Once fixed upstream, enable with: !input_is_paf && !want_paf_output
+    let use_1aln_workflow = false;
+
+    if use_1aln_workflow {
+        // PURE .1ALN WORKFLOW - FastGA produces .1aln, filter as .1aln, output .1aln
+        if !args.quiet {
+            timing.log("detect", "Using .1aln workflow (FastGA native format)");
+        }
+
+        // Step 1: Get .1aln input (either from file or from FastGA alignment)
+        let (_temp_1aln, aln_input_path) = if !input_file_types.is_empty() && input_file_types[0] == FileType::Aln {
+            // Input is already .1aln
+            if !args.quiet {
+                timing.log("detect", &format!("Input: {} (.1aln)", args.files[0]));
+            }
+            (None, args.files[0].clone())
+        } else if !input_file_types.is_empty() && input_file_types[0] == FileType::Fasta {
+            // FASTA input - use FastGA to produce .1aln
+            if args.files.len() > 1 {
+                eprintln!("[sweepga] ERROR: Multiple FASTA files not supported in .1aln workflow yet");
+                eprintln!("[sweepga] Use --paf flag to use PAF workflow for multiple files");
+                std::process::exit(1);
+            }
+
+            let alignment_start = Instant::now();
+            let path = Path::new(&args.files[0]);
+            let fastga = create_fastga_integration(args.frequency, args.threads)?;
+
+            if !args.quiet {
+                timing.log("align", &format!("Running FastGA on {}", args.files[0]));
+            }
+
+            let temp_1aln = fastga.align_to_temp_1aln(path, path)?;
+            alignment_time = Some(alignment_start.elapsed().as_secs_f64());
+
+            if !args.quiet {
+                timing.log("align", &format!("FastGA complete ({:.1}s)", alignment_time.unwrap()));
+            }
+
+            let aln_path = temp_1aln.path().to_string_lossy().into_owned();
+            (Some(temp_1aln), aln_path)
+        } else {
+            eprintln!("[sweepga] ERROR: No valid input provided");
+            std::process::exit(1);
+        };
+
+        // Step 2: Parse filter config
+        let (plane_sweep_mode, plane_sweep_query_limit, plane_sweep_target_limit) =
+            parse_filter_mode(&args.num_mappings, "plane sweep");
+        let (scaffold_filter_mode, scaffold_max_per_query, scaffold_max_per_target) =
+            parse_filter_mode(&args.scaffold_filter, "scaffold");
+        let scoring_function = match args.scoring.as_str() {
+            "ani" | "identity" => ScoringFunction::Identity,
+            "length" => ScoringFunction::Length,
+            "length-ani" | "length-identity" => ScoringFunction::LengthIdentity,
+            "matches" => ScoringFunction::Matches,
+            "log-length-ani" | "log-length-identity" => ScoringFunction::LogLengthIdentity,
+            _ => ScoringFunction::LogLengthIdentity,
+        };
+
+        let filter_config = FilterConfig {
+            chain_gap: args.scaffold_jump,
+            min_block_length: args.block_length,
+            mapping_filter_mode: plane_sweep_mode,
+            mapping_max_per_query: plane_sweep_query_limit,
+            mapping_max_per_target: plane_sweep_target_limit,
+            plane_sweep_secondaries: 0,
+            scaffold_filter_mode,
+            scaffold_max_per_query,
+            scaffold_max_per_target,
+            overlap_threshold: args.overlap,
+            sparsity: args.sparsify,
+            no_merge: true,
+            scaffold_gap: args.scaffold_jump,
+            min_scaffold_length: args.scaffold_mass,
+            scaffold_overlap_threshold: args.scaffold_overlap,
+            scaffold_max_deviation: args.scaffold_dist,
+            prefix_delimiter: '#',
+            skip_prefix: false,
+            scoring_function,
+            min_identity: 0.0,
+            min_scaffold_identity: 0.0,
+        };
+
+        // Step 3: Filter .1aln directly using streaming approach
+        use crate::aln_filter::filter_1aln_streaming;
+        if let Some(ref output_file) = args.output_file {
+            filter_1aln_streaming(&aln_input_path, output_file, &filter_config)?;
+        } else {
+            // Write to temp file then copy to stdout
+            let temp_output = tempfile::NamedTempFile::with_suffix(".1aln")?;
+            filter_1aln_streaming(&aln_input_path, temp_output.path(), &filter_config)?;
+
+            // Copy binary to stdout
+            use std::io::copy;
+            let mut file = std::fs::File::open(temp_output.path())?;
+            let stdout = std::io::stdout();
+            let mut handle = stdout.lock();
+            copy(&mut file, &mut handle)?;
+        }
+
+        if !args.quiet {
+            let (total_elapsed, _) = timing.stats();
+            if let Some(align_time) = alignment_time {
+                let filtering_time = total_elapsed - align_time;
+                timing.log("done", &format!("Alignment: {align_time:.1}s, Filtering: {filtering_time:.1}s, Total: {total_elapsed:.1}s"));
+            } else {
+                timing.log("done", &format!("Total: {total_elapsed:.1}s"));
+            }
+        }
+        return Ok(());
+    }
+
     // Detect file types and route accordingly
     let (_temp_paf, input_path) = if !args.files.is_empty() {
         let file_types = &input_file_types;
@@ -1823,6 +1939,27 @@ fn main() -> Result<()> {
     config.min_identity = min_identity;
     config.min_scaffold_identity = min_scaffold_identity;
 
+    // Determine output format based on flags and file extensions
+    // Default: .1aln for FASTA/Aln input, PAF for PAF input
+    let output_1aln = if args.output_paf {
+        // User explicitly requested PAF output
+        false
+    } else if let Some(ref outfile) = args.output_file {
+        // Auto-detect from output file extension
+        !outfile.ends_with(".paf")
+    } else if !input_file_types.is_empty() && input_file_types[0] == FileType::Paf {
+        // PAF input → PAF output only
+        false
+    } else if !input_file_types.is_empty()
+        && (input_file_types[0] == FileType::Fasta || input_file_types[0] == FileType::Aln)
+    {
+        // FASTA or .1aln input → default to .1aln output
+        true
+    } else {
+        // Fallback: PAF output
+        false
+    };
+
     // Apply filtering - always to temp file, then copy to stdout
     if !args.quiet {
         timing.log("parse", &format!("Parsing input PAF: {input_path}"));
@@ -1841,7 +1978,7 @@ fn main() -> Result<()> {
 
     // Convert output format if requested
     // Note: PAFtoALN automatically appends .paf to the input filename, so we need to strip it
-    let paftoaln_input_path = if args.one_aln {
+    let paftoaln_input_path = if output_1aln {
         output_path
             .strip_suffix(".paf")
             .unwrap_or(&output_path)
@@ -1850,83 +1987,82 @@ fn main() -> Result<()> {
         output_path.clone()
     };
 
-    let (final_output_path, _aln_temp) = if args.one_aln {
+    let (final_output_path, _aln_temp) = if output_1aln {
         // Convert PAF to 1aln using PAFtoALN
         // Requires the original FASTA or .1aln file(s) for sequence metadata
         if input_file_types.is_empty() {
-            anyhow::bail!("1aln output format requires FASTA or .1aln input (not PAF input)");
-        }
-
-        let first_type = input_file_types[0];
-        if first_type != FileType::Fasta && first_type != FileType::Aln {
-            anyhow::bail!("1aln output format requires FASTA or .1aln input (not PAF input)");
-        }
-
-        // Look for PAFtoALN in same directory as sweepga binary, or in current directory
-        let paftoaln_bin = std::env::current_exe()
-            .ok()
-            .and_then(|exe| exe.parent().map(|p| p.join("PAFtoALN")))
-            .filter(|p| p.exists())
-            .or_else(|| {
-                let local = std::path::PathBuf::from("./PAFtoALN");
-                if local.exists() {
-                    Some(local)
-                } else {
-                    None
+            if !args.quiet {
+                eprintln!(
+                    "[sweepga] WARNING: .1aln output requires FASTA or .1aln input (not PAF), falling back to PAF output"
+                );
+            }
+            (output_path.clone(), None::<tempfile::NamedTempFile>)
+        } else {
+            let first_type = input_file_types[0];
+            if first_type != FileType::Fasta && first_type != FileType::Aln {
+                if !args.quiet {
+                    eprintln!(
+                        "[sweepga] WARNING: .1aln output requires FASTA or .1aln input (not PAF), falling back to PAF output"
+                    );
                 }
-            })
-            .or_else(|| {
-                // Try project root (for development)
-                let root = std::path::PathBuf::from("PAFtoALN");
-                if root.exists() {
-                    Some(root)
-                } else {
-                    None
-                }
-            })
-            .ok_or_else(|| {
-                anyhow::anyhow!("PAFtoALN tool not found. Cannot convert to 1aln format.")
-            })?;
-
-        // PAFtoALN usage: PAFtoALN [-T<int>] <alignments> <source1.fa|source1.1gdb> [<source2.fa|source2.1gdb>]
-        // Note: PAFtoALN automatically appends .paf to the alignments filename for input
-        // and creates <alignments>.1aln for output
-        let mut cmd = std::process::Command::new(&paftoaln_bin);
-        cmd.arg(format!("-T{}", args.threads))
-            .arg(&paftoaln_input_path);
-
-        // Pass FASTA or .1gdb file(s) for sequence metadata
-        // If input is .1aln, pass matching .1gdb; if FASTA, pass FASTA
-        for input_file in &args.files {
-            if input_file.ends_with(".1aln") {
-                // Input is .1aln - pass matching .1gdb
-                let gdb_path = input_file
-                    .strip_suffix(".1aln")
-                    .unwrap_or(input_file)
-                    .to_string()
-                    + ".1gdb";
-                cmd.arg(&gdb_path);
+                (output_path.clone(), None::<tempfile::NamedTempFile>)
             } else {
-                // Input is FASTA - pass it directly
-                cmd.arg(input_file);
+                // Convert filtered PAF to .1aln using PAFtoALN
+                // Find PAFtoALN binary (bundled with fastga-rs)
+                let paftoaln_bin = fastga_rs::embedded::get_binary_path("PAFtoALN")
+                    .ok()
+                    .and_then(|p| if p.exists() { Some(p) } else { None })
+                    .ok_or_else(|| anyhow::anyhow!("PAFtoALN tool not found. Cannot convert PAF to .1aln. Use --paf flag to output PAF format instead."))?;
+
+                if !args.quiet {
+                    timing.log("convert", "Converting filtered PAF to .1aln");
+                }
+
+                // PAFtoALN usage: PAFtoALN [-T<int>] <alignments> <source1.fa|source1.1gdb> [<source2.fa|source2.1gdb>]
+                // Note: PAFtoALN automatically appends .paf to the alignments filename for input
+                // and creates <alignments>.1aln for output
+                let mut cmd = std::process::Command::new(&paftoaln_bin);
+                cmd.arg(format!("-T{}", args.threads))
+                    .arg(&paftoaln_input_path);
+
+                // Pass FASTA or .1gdb file(s) for sequence metadata
+                // If input is .1aln, pass matching .1gdb; if FASTA, pass FASTA
+                for input_file in &args.files {
+                    if input_file.ends_with(".1aln") {
+                        // Input is .1aln - pass matching .1gdb
+                        let gdb_path = input_file
+                            .strip_suffix(".1aln")
+                            .unwrap_or(input_file)
+                            .to_string()
+                            + ".1gdb";
+                        cmd.arg(&gdb_path);
+                    } else {
+                        // Input is FASTA - pass it directly
+                        cmd.arg(input_file);
+                    }
+                }
+
+                // Suppress PAFtoALN's normal output unless in verbose mode
+                if args.quiet {
+                    cmd.stdout(std::process::Stdio::null())
+                        .stderr(std::process::Stdio::null());
+                }
+
+                let status = cmd.status()?;
+                if !status.success() {
+                    anyhow::bail!("PAFtoALN conversion failed");
+                }
+
+                // PAFtoALN creates the output file as <input_path>.1aln
+                let aln_path = format!("{paftoaln_input_path}.1aln");
+
+                if !args.quiet {
+                    timing.log("convert", "PAF to .1aln conversion complete");
+                }
+
+                (aln_path, None::<tempfile::NamedTempFile>)
             }
         }
-
-        // Suppress PAFtoALN's normal output unless in verbose mode
-        if args.quiet {
-            cmd.stdout(std::process::Stdio::null())
-                .stderr(std::process::Stdio::null());
-        }
-
-        let status = cmd.status()?;
-        if !status.success() {
-            anyhow::bail!("PAFtoALN conversion failed");
-        }
-
-        // PAFtoALN creates the output file as <input_path>.1aln
-        let aln_path = format!("{paftoaln_input_path}.1aln");
-
-        (aln_path, None::<tempfile::NamedTempFile>)
     } else {
         (output_path.clone(), None::<tempfile::NamedTempFile>)
     };
@@ -1937,7 +2073,7 @@ fn main() -> Result<()> {
     // Write output (PAF or .1aln) to file or stdout
     if let Some(output_file) = &args.output_file {
         std::fs::copy(&final_output_path, output_file)?;
-    } else if args.one_aln {
+    } else if output_1aln {
         // .1aln is binary - copy bytes directly to stdout
         use std::io::copy;
         let mut file = std::fs::File::open(&final_output_path)?;
@@ -1958,7 +2094,7 @@ fn main() -> Result<()> {
 
     // Clean up temp files
     let _ = std::fs::remove_file(&output_path);
-    if args.one_aln {
+    if output_1aln {
         let _ = std::fs::remove_file(&final_output_path);
     }
 
