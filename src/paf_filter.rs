@@ -1651,6 +1651,7 @@ impl PafFilter {
 }
 
 /// Public function to extract PAF metadata without filtering (for testing/debugging)
+#[allow(dead_code)]
 pub fn extract_metadata<P: AsRef<Path>>(path: P) -> Result<(Vec<RecordMeta>, ())> {
     let config = FilterConfig {
         chain_gap: 0,
