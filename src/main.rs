@@ -1384,10 +1384,14 @@ fn main() -> Result<()> {
         vec![]
     };
 
-    // TODO: .1aln workflow disabled - fastga-rs::AlnReader hangs when reading .1aln files
-    // Issue: onecode-rs schema parsing fails or hangs
-    // Once fixed upstream, enable with: !input_is_paf && !want_paf_output
-    let use_1aln_workflow = false;
+    // Enable .1aln workflow when:
+    // - Input is .1aln or FASTA (not PAF)
+    // - User hasn't explicitly requested PAF output with --paf flag
+    let input_is_paf = !input_file_types.is_empty()
+        && input_file_types.iter().all(|ft| *ft == FileType::Paf);
+    let want_paf_output = args.output_paf
+        || args.output_file.as_ref().map_or(false, |f| f.ends_with(".paf"));
+    let use_1aln_workflow = !input_is_paf && !want_paf_output;
 
     if use_1aln_workflow {
         // PURE .1ALN WORKFLOW - FastGA produces .1aln, filter as .1aln, output .1aln
@@ -1476,14 +1480,14 @@ fn main() -> Result<()> {
             min_scaffold_identity: 0.0,
         };
 
-        // Step 3: Filter .1aln directly using streaming approach
-        use crate::aln_filter::filter_1aln_streaming;
+        // Step 3: Filter .1aln directly using unified_filter (format-preserving)
+        use crate::unified_filter::filter_file;
         if let Some(ref output_file) = args.output_file {
-            filter_1aln_streaming(&aln_input_path, output_file, &filter_config)?;
+            filter_file(&aln_input_path, output_file, &filter_config, false)?;
         } else {
             // Write to temp file then copy to stdout
             let temp_output = tempfile::NamedTempFile::with_suffix(".1aln")?;
-            filter_1aln_streaming(&aln_input_path, temp_output.path(), &filter_config)?;
+            filter_file(&aln_input_path, temp_output.path(), &filter_config, false)?;
 
             // Copy binary to stdout
             use std::io::copy;
