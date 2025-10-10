@@ -1393,7 +1393,7 @@ fn main() -> Result<()> {
         || args
             .output_file
             .as_ref()
-            .map_or(false, |f| f.ends_with(".paf"));
+            .is_some_and(|f| f.ends_with(".paf"));
     let use_1aln_workflow = !input_is_paf && !want_paf_output;
 
     if use_1aln_workflow {

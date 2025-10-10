@@ -142,6 +142,7 @@ impl AlnAlignment {
 
 /// STREAMING FILTER: Read .1aln → filter records → emit passing records from original file
 /// This preserves the exact original format without any conversions!
+#[allow(dead_code)] // Backup implementation, unified_filter is now used
 pub fn filter_1aln_streaming<P1: AsRef<Path>, P2: AsRef<Path>>(
     input_path: P1,
     output_path: P2,
