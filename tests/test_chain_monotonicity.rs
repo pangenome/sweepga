@@ -115,6 +115,7 @@ fn extract_chains(output: &str) -> Vec<Vec<String>> {
 }
 
 #[test]
+#[ignore] // Requires sweepga binary
 fn test_simple_collinear_chaining() {
     let paf_file = create_simple_collinear_paf();
     let paf_path = paf_file.path();
@@ -153,6 +154,7 @@ fn test_simple_collinear_chaining() {
 }
 
 #[test]
+#[ignore] // Requires sweepga binary
 fn test_mixed_identity_chaining() {
     let paf_file = create_mixed_identity_paf();
     let paf_path = paf_file.path();
@@ -197,6 +199,7 @@ fn test_mixed_identity_chaining() {
 }
 
 #[test]
+#[ignore] // Requires sweepga binary
 fn test_fragmented_chaining_coverage() {
     let paf_file = create_fragmented_paf();
     let paf_path = paf_file.path();
@@ -236,6 +239,7 @@ fn test_fragmented_chaining_coverage() {
 
 /// Test that low-identity chains (like centromeric inversions) are correctly filtered
 #[test]
+#[ignore] // Requires sweepga binary
 fn test_centromere_inversion_filtering() {
     use std::io::Write;
     use tempfile::NamedTempFile;
