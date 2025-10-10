@@ -109,6 +109,7 @@ A#1#chr2\t1000\t0\t500\t+\tB#1#chr1\t1000\t0\t500\t350\t500\t60\tcg:Z:500M
 }
 
 #[test]
+#[ignore] // Requires z.paf file which doesn't exist in CI
 fn test_yeast_genome_pairs_preserved() {
     use std::collections::HashSet;
     use std::fs;
