@@ -1387,10 +1387,13 @@ fn main() -> Result<()> {
     // Enable .1aln workflow when:
     // - Input is .1aln or FASTA (not PAF)
     // - User hasn't explicitly requested PAF output with --paf flag
-    let input_is_paf = !input_file_types.is_empty()
-        && input_file_types.iter().all(|ft| *ft == FileType::Paf);
+    let input_is_paf =
+        !input_file_types.is_empty() && input_file_types.iter().all(|ft| *ft == FileType::Paf);
     let want_paf_output = args.output_paf
-        || args.output_file.as_ref().map_or(false, |f| f.ends_with(".paf"));
+        || args
+            .output_file
+            .as_ref()
+            .map_or(false, |f| f.ends_with(".paf"));
     let use_1aln_workflow = !input_is_paf && !want_paf_output;
 
     if use_1aln_workflow {
