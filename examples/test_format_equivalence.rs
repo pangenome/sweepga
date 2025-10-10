@@ -4,7 +4,6 @@
 /// 1. Aligns B-3106.fa in both .1aln and PAF formats
 /// 2. Applies 1:1 filtering to both
 /// 3. Compares results to ensure they're identical
-
 use anyhow::Result;
 use std::collections::{HashMap, HashSet};
 use std::path::Path;
@@ -38,7 +37,10 @@ fn main() -> Result<()> {
         .output()?;
 
     if !alnto_paf_result.status.success() {
-        eprintln!("❌ ALNtoPAF failed: {}", String::from_utf8_lossy(&alnto_paf_result.stderr));
+        eprintln!(
+            "❌ ALNtoPAF failed: {}",
+            String::from_utf8_lossy(&alnto_paf_result.stderr)
+        );
         return Ok(());
     }
 
@@ -46,7 +48,9 @@ fn main() -> Result<()> {
     println!("    ✓ Converted to PAF");
 
     // Count initial alignments
-    let paf_count = String::from_utf8_lossy(&alnto_paf_result.stdout).lines().count();
+    let paf_count = String::from_utf8_lossy(&alnto_paf_result.stdout)
+        .lines()
+        .count();
     println!("\nInitial alignments:");
     println!("  PAF: {} alignments", paf_count);
 
@@ -90,7 +94,12 @@ fn main() -> Result<()> {
     println!("  - Filtering PAF → filtered.paf...");
     let temp_filtered_paf = tempfile::NamedTempFile::with_suffix(".paf")?;
 
-    filter_file(temp_paf_unfiltered.path(), temp_filtered_paf.path(), &config, false)?;
+    filter_file(
+        temp_paf_unfiltered.path(),
+        temp_filtered_paf.path(),
+        &config,
+        false,
+    )?;
     println!("    ✓ PAF filtering succeeded");
 
     println!("\nStep 3: Convert filtered .1aln to PAF for comparison...");
@@ -118,8 +127,14 @@ fn main() -> Result<()> {
     let aln_alignments: Vec<_> = aln_content.lines().filter(|l| !l.is_empty()).collect();
 
     println!("Filtered alignment counts:");
-    println!("  PAF direct:           {} alignments", paf_alignments.len());
-    println!("  .1aln (via ALNtoPAF): {} alignments", aln_alignments.len());
+    println!(
+        "  PAF direct:           {} alignments",
+        paf_alignments.len()
+    );
+    println!(
+        "  .1aln (via ALNtoPAF): {} alignments",
+        aln_alignments.len()
+    );
 
     // Extract alignment keys (query, qstart, qend, target, tstart, tend)
     fn parse_alignment_key(line: &str) -> Option<(String, u64, u64, String, u64, u64)> {
@@ -156,7 +171,11 @@ fn main() -> Result<()> {
         println!("✅ SUCCESS: Filtered results are IDENTICAL!");
         println!("");
         println!("Summary:");
-        println!("  - Both formats filtered from {} to {} alignments", paf_count, paf_alignments.len());
+        println!(
+            "  - Both formats filtered from {} to {} alignments",
+            paf_count,
+            paf_alignments.len()
+        );
         println!("  - All alignment coordinates match exactly");
         println!("  - Format-agnostic filtering is working correctly!");
         println!("  - Identity calculation fix verified!");

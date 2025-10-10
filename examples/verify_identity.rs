@@ -1,5 +1,4 @@
 /// Verify that fastga-rs now calculates identity correctly
-
 use anyhow::Result;
 
 fn main() -> Result<()> {
@@ -62,7 +61,10 @@ fn main() -> Result<()> {
     }
 
     println!("\n{}", "=".repeat(60));
-    println!("Result: {}/{} records match (within 0.0001 tolerance)", matches, total);
+    println!(
+        "Result: {}/{} records match (within 0.0001 tolerance)",
+        matches, total
+    );
     println!("Match rate: {:.1}%", 100.0 * matches as f64 / total as f64);
     println!("Maximum difference: {:.6}", max_diff);
 

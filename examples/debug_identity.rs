@@ -1,7 +1,6 @@
 /// Debug program to understand identity calculation from .1aln format
 ///
 /// Compares values from .1aln file with corresponding PAF file from ALNtoPAF
-
 use anyhow::Result;
 
 fn main() -> Result<()> {
@@ -47,9 +46,10 @@ fn main() -> Result<()> {
             0.0
         };
 
-        println!("{},{},{},{},{},{:.6},{:.6},{}",
-                 count, query_span, target_span, matches, diffs,
-                 naive_id, calc_dv, aln.strand);
+        println!(
+            "{},{},{},{},{},{:.6},{:.6},{}",
+            count, query_span, target_span, matches, diffs, naive_id, calc_dv, aln.strand
+        );
     }
 
     Ok(())

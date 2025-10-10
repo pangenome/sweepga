@@ -1,7 +1,6 @@
 /// Simple equivalence test using existing test files
 ///
 /// Uses test_output.1aln (pre-generated) to verify filtering equivalence
-
 use anyhow::Result;
 use std::collections::HashSet;
 
@@ -95,8 +94,14 @@ fn main() -> Result<()> {
     let aln_alignments: Vec<_> = aln_content.lines().filter(|l| !l.is_empty()).collect();
 
     println!("Filtered alignment counts:");
-    println!("  PAF direct:           {} alignments", paf_alignments.len());
-    println!("  .1aln (via ALNtoPAF): {} alignments", aln_alignments.len());
+    println!(
+        "  PAF direct:           {} alignments",
+        paf_alignments.len()
+    );
+    println!(
+        "  .1aln (via ALNtoPAF): {} alignments",
+        aln_alignments.len()
+    );
 
     // Extract alignment keys
     fn parse_key(line: &str) -> Option<(String, u64, u64, String, u64, u64, char)> {
@@ -129,9 +134,14 @@ fn main() -> Result<()> {
         println!("");
         println!("Summary:");
         println!("  - Input: {} alignments", unfiltered_paf_count);
-        println!("  - After 1:1 filtering: {} alignments", paf_alignments.len());
-        println!("  - Reduction: {:.1}%",
-            100.0 * (1.0 - paf_alignments.len() as f64 / unfiltered_paf_count as f64));
+        println!(
+            "  - After 1:1 filtering: {} alignments",
+            paf_alignments.len()
+        );
+        println!(
+            "  - Reduction: {:.1}%",
+            100.0 * (1.0 - paf_alignments.len() as f64 / unfiltered_paf_count as f64)
+        );
         println!("  - All alignment coordinates match exactly");
         println!("");
         println!("✓ Format-agnostic filtering verified");

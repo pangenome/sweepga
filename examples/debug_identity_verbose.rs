@@ -1,5 +1,4 @@
 /// Verbose debug program to show what records are being read
-
 use anyhow::Result;
 
 fn main() -> Result<()> {
@@ -14,8 +13,14 @@ fn main() -> Result<()> {
     // Read just the first alignment and show details
     if let Some(aln) = reader.read_alignment()? {
         eprintln!("First alignment:");
-        eprintln!("  Query: {} ({}-{})", aln.query_name, aln.query_start, aln.query_end);
-        eprintln!("  Target: {} ({}-{})", aln.target_name, aln.target_start, aln.target_end);
+        eprintln!(
+            "  Query: {} ({}-{})",
+            aln.query_name, aln.query_start, aln.query_end
+        );
+        eprintln!(
+            "  Target: {} ({}-{})",
+            aln.target_name, aln.target_start, aln.target_end
+        );
         eprintln!("  Matches: {}", aln.matches);
         eprintln!("  Mismatches: {}", aln.mismatches);
         eprintln!("  Block len: {}", aln.block_len);

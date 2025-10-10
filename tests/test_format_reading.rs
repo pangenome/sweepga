@@ -5,7 +5,6 @@
 /// 1. Generates alignments from B-3106.fa in both PAF and .1aln formats
 /// 2. Reads them into RecordMeta structures
 /// 3. Sorts and compares to verify they're identical
-
 use std::path::Path;
 use std::process::Command;
 
@@ -52,7 +51,11 @@ fn test_paf_vs_1aln_internal_representation() {
 
     match output {
         Ok(output) if output.status.success() && Path::new(aln_path).exists() => {
-            println!("Generated: {} ({} bytes)", aln_path, std::fs::metadata(aln_path).unwrap().len());
+            println!(
+                "Generated: {} ({} bytes)",
+                aln_path,
+                std::fs::metadata(aln_path).unwrap().len()
+            );
         }
         Ok(output) => {
             eprintln!("FastGA failed:");
@@ -79,8 +82,11 @@ fn test_paf_vs_1aln_internal_representation() {
     match output {
         Ok(output) if output.status.success() => {
             std::fs::write(paf_path, &output.stdout).expect("Failed to write PAF");
-            println!("Generated: {} ({} lines)\n", paf_path,
-                String::from_utf8_lossy(&output.stdout).lines().count());
+            println!(
+                "Generated: {} ({} lines)\n",
+                paf_path,
+                String::from_utf8_lossy(&output.stdout).lines().count()
+            );
         }
         Ok(output) => {
             eprintln!("ALNtoPAF failed:");
@@ -151,19 +157,35 @@ fn test_paf_vs_1aln_internal_representation() {
         let aln = &aln_sorted[i];
 
         println!("--- Record {} ---", i + 1);
-        println!("PAF: {} → {} {} {}-{} → {}-{}",
-            paf.query_name, paf.target_name, paf.strand,
-            paf.query_start, paf.query_end,
-            paf.target_start, paf.target_end);
-        println!("     matches={}, block_len={}, identity={:.4}",
-            paf.matches, paf.block_length, paf.identity);
+        println!(
+            "PAF: {} → {} {} {}-{} → {}-{}",
+            paf.query_name,
+            paf.target_name,
+            paf.strand,
+            paf.query_start,
+            paf.query_end,
+            paf.target_start,
+            paf.target_end
+        );
+        println!(
+            "     matches={}, block_len={}, identity={:.4}",
+            paf.matches, paf.block_length, paf.identity
+        );
 
-        println!(".1aln: {} → {} {} {}-{} → {}-{}",
-            aln.query_name, aln.target_name, aln.strand,
-            aln.query_start, aln.query_end,
-            aln.target_start, aln.target_end);
-        println!("       matches={}, block_len={}, identity={:.4}",
-            aln.matches, aln.block_length, aln.identity);
+        println!(
+            ".1aln: {} → {} {} {}-{} → {}-{}",
+            aln.query_name,
+            aln.target_name,
+            aln.strand,
+            aln.query_start,
+            aln.query_end,
+            aln.target_start,
+            aln.target_end
+        );
+        println!(
+            "       matches={}, block_len={}, identity={:.4}",
+            aln.matches, aln.block_length, aln.identity
+        );
 
         // Check if identical
         let matches = compare_records(paf, aln, i);
@@ -187,12 +209,21 @@ fn test_paf_vs_1aln_internal_representation() {
     }
 
     if mismatch_count == 0 {
-        println!("\n✅ SUCCESS: All {} records are IDENTICAL!", paf_sorted.len());
+        println!(
+            "\n✅ SUCCESS: All {} records are IDENTICAL!",
+            paf_sorted.len()
+        );
         println!("   PAF and .1aln produce the same internal representation");
     } else {
-        println!("\n❌ FAILURE: {} / {} records differ", mismatch_count, paf_sorted.len());
-        println!("   Percentage matching: {:.2}%",
-            (paf_sorted.len() - mismatch_count) as f64 / paf_sorted.len() as f64 * 100.0);
+        println!(
+            "\n❌ FAILURE: {} / {} records differ",
+            mismatch_count,
+            paf_sorted.len()
+        );
+        println!(
+            "   Percentage matching: {:.2}%",
+            (paf_sorted.len() - mismatch_count) as f64 / paf_sorted.len() as f64 * 100.0
+        );
         panic!("PAF and .1aln internal representations differ!");
     }
 }
@@ -218,8 +249,8 @@ fn compare_records(
 /// Read PAF file into RecordMeta structures (using existing PAF filter logic)
 fn read_paf_to_records(paf_path: &Path) -> Vec<sweepga::paf_filter::RecordMeta> {
     // Use the public extract_metadata function
-    let (metadata, _) = sweepga::paf_filter::extract_metadata(paf_path)
-        .expect("Failed to read PAF");
+    let (metadata, _) =
+        sweepga::paf_filter::extract_metadata(paf_path).expect("Failed to read PAF");
     metadata
 }
 
@@ -233,8 +264,8 @@ fn read_1aln_to_records(aln_path: &Path) -> Vec<sweepga::paf_filter::RecordMeta>
 
 /// Find a binary in target/debug or target/release build directories
 fn find_binary(name: &str) -> Option<String> {
-    use std::fs;
     use std::env;
+    use std::fs;
 
     // Get absolute path to project root
     let project_root = env::current_dir().ok()?;
