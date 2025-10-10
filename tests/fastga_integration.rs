@@ -184,7 +184,14 @@ fn test_thread_parameter() {
         "--paf",  // Request PAF output for test comparison
     ]);
 
-    assert!(result1.is_ok() && result4.is_ok(), "Thread tests failed");
+    if let Err(ref e) = result1 {
+        eprintln!("result1 error: {e}");
+    }
+    if let Err(ref e) = result4 {
+        eprintln!("result4 error: {e}");
+    }
+
+    assert!(result1.is_ok() && result4.is_ok(), "Thread tests failed: result1={result1:?}, result4={result4:?}");
 
     // Write outputs to files
     fs::write(&output1, result1.unwrap()).unwrap();
@@ -343,7 +350,11 @@ fn test_large_sequence_handling() {
         "--paf",  // Request PAF output for test
     ]);
 
-    assert!(result.is_ok(), "Failed on large sequence");
+    if let Err(ref e) = result {
+        eprintln!("Large sequence test error: {e}");
+    }
+
+    assert!(result.is_ok(), "Failed on large sequence: {result:?}");
 
     // Write stdout to output file
     fs::write(&output, result.unwrap()).unwrap();
@@ -390,7 +401,11 @@ fn test_multisequence_fasta() {
         "--paf",  // Request PAF output for test
     ]);
 
-    assert!(result.is_ok(), "Failed on multi-sequence FASTA");
+    if let Err(ref e) = result {
+        eprintln!("Multi-sequence test error: {e}");
+    }
+
+    assert!(result.is_ok(), "Failed on multi-sequence FASTA: {result:?}");
 
     // Write stdout to output file
     fs::write(&output, result.unwrap()).unwrap();
