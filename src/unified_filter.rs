@@ -53,42 +53,56 @@ pub fn extract_1aln_metadata<P: AsRef<Path>>(
         let query_id_num: i64 = aln.query_name.parse().unwrap_or(-1);
         let target_id_num: i64 = aln.target_name.parse().unwrap_or(-1);
 
-        let query_name = id_to_name
+        let query_name_full = id_to_name
             .get(&query_id_num)
             .cloned()
             .unwrap_or_else(|| aln.query_name.clone());
-        let target_name = id_to_name
+        let target_name_full = id_to_name
             .get(&target_id_num)
             .cloned()
             .unwrap_or_else(|| aln.target_name.clone());
 
+        // Truncate to first word (before first space) to match PAF format
+        // FASTA headers can contain descriptions after the ID, but PAF only uses the ID
+        let query_name = query_name_full
+            .split_whitespace()
+            .next()
+            .unwrap_or(&query_name_full)
+            .to_string();
+        let target_name = target_name_full
+            .split_whitespace()
+            .next()
+            .unwrap_or(&target_name_full)
+            .to_string();
+
         // Calculate identity and matches from .1aln data
-        // The .1aln format stores:
-        // - 'D' record: diffs (substitutions + indels) → aln.mismatches
-        // - 'E' record: matches (currently unused by FastGA, so aln.matches = 0)
-        // - 'X' record: per-tracepoint diffs (INT_LIST)
+        // The .1aln format (via fastga-rs AlnReader) provides:
+        // - aln.matches: Number of matching bases (calculated from X records)
+        //   matches = identity * query_span, where identity uses ALNtoPAF formula
+        // - aln.mismatches: Total diffs from X records (or D as fallback)
+        // - aln.block_len: Query span (query_end - query_start)
         //
-        // NOTE: There appears to be a discrepancy between 'D' and the sum of 'X' values.
-        // ALNtoPAF uses 'X' values for its divergence calculation, but AlnReader
-        // currently only exposes 'D'. This causes a systematic difference in identity.
+        // Note: fastga-rs now correctly reads X records and calculates matches
+        // using the same formula as ALNtoPAF: (sum(X) - del) / query_span / 2.0
         //
-        // For now, we use 'D' which gives us internal consistency in .1aln filtering,
-        // but know that it won't exactly match PAF from ALNtoPAF.
+        // IMPORTANT: Do NOT use aln.identity() method! It recalculates identity
+        // as matches/(matches+mismatches+gaps) which is NOT compatible with
+        // the ALNtoPAF formula. Instead, derive identity from matches field.
 
-        let block_len = aln.block_len as u64; // query_end - query_start
-        let diffs = aln.mismatches as u64;    // from 'D' record (may differ from sum of X)
+        let query_span = (aln.query_end - aln.query_start) as u64;
+        let target_span = (aln.target_end - aln.target_start) as u64;
 
-        let matches = if aln.matches > 0 {
-            // If matches are populated (rare), use them
-            aln.matches as u64
-        } else {
-            // Normal case: matches = query_span - diffs
-            block_len.saturating_sub(diffs)
-        };
+        // PAF format column 10: alignment block length (query_span + target_span)
+        // This matches ALNtoPAF output format
+        let block_length = query_span + target_span;
 
-        // Identity using the same formula as ALNtoPAF: (query_span - diffs) / query_span
-        let identity = if block_len > 0 {
-            matches as f64 / block_len as f64
+        // Use matches from fastga-rs (calculated using X records)
+        let matches = aln.matches as u64;
+
+        // Derive identity from matches: identity = matches / query_span
+        // This preserves the ALNtoPAF-compatible identity calculation
+        let identity = if query_span > 0 {
+            matches as f64 / query_span as f64
         } else {
             0.0
         };
@@ -102,10 +116,10 @@ pub fn extract_1aln_metadata<P: AsRef<Path>>(
             query_end: aln.query_end as u64,
             target_start: aln.target_start as u64,
             target_end: aln.target_end as u64,
-            block_length: block_len,
+            block_length,
             identity,
             matches,
-            alignment_length: block_len, // For .1aln, block_len = alignment_length
+            alignment_length: block_length, // Total alignment length including gaps
             strand: aln.strand,
             chain_id: None,
             chain_status: ChainStatus::Unassigned,
@@ -166,8 +180,24 @@ pub fn filter_file<P1: AsRef<Path>, P2: AsRef<Path>>(
 ) -> Result<()> {
     let input_str = input_path.as_ref().to_str().context("Invalid input path")?;
 
-    // Determine input format
-    let is_1aln = input_str.ends_with(".1aln");
+    // Determine input format by checking file content
+    // .1aln files are binary OneCode format starting with specific magic bytes
+    let is_1aln = {
+        use std::io::Read;
+        let mut file = std::fs::File::open(&input_path)?;
+        let mut header = [0u8; 16];
+        match file.read(&mut header) {
+            Ok(n) if n >= 2 => {
+                // OneCode format starts with '1' followed by version (ASCII '3')
+                // or has specific binary signatures
+                header[0] == b'1' && header[1] == b' '
+            }
+            _ => {
+                // If we can't read header, fall back to extension check
+                input_str.ends_with(".1aln")
+            }
+        }
+    };
 
     if is_1aln {
         // .1aln input workflow
