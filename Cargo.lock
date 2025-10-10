@@ -301,7 +301,6 @@ dependencies = [
 [[package]]
 name = "fastga-rs"
 version = "0.1.0"
-source = "git+https://github.com/pangenome/fastga-rs.git?rev=5bee475#5bee4751fa32f2432c7bb3e245a212b1ea78451f"
 dependencies = [
  "anyhow",
  "cc",
@@ -576,7 +575,6 @@ checksum = "a4895175b425cb1f87721b59f0f286c2092bd4af812243672510e1ac53e2e0ad"
 [[package]]
 name = "onecode"
 version = "0.1.0"
-source = "git+https://github.com/pangenome/onecode-rs#d0b29fd8d1fa34a50f714e4d519269619a66f9a9"
 dependencies = [
  "bindgen",
  "cc",
