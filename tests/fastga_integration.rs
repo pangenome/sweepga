@@ -191,7 +191,10 @@ fn test_thread_parameter() {
         eprintln!("result4 error: {e}");
     }
 
-    assert!(result1.is_ok() && result4.is_ok(), "Thread tests failed: result1={result1:?}, result4={result4:?}");
+    assert!(
+        result1.is_ok() && result4.is_ok(),
+        "Thread tests failed: result1={result1:?}, result4={result4:?}"
+    );
 
     // Write outputs to files
     fs::write(&output1, result1.unwrap()).unwrap();
