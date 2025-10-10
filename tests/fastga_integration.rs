@@ -172,6 +172,7 @@ fn test_thread_parameter() {
         "-t",
         "1",
         "--self", // Include self-mappings for consistency
+        "--paf",  // Request PAF output for test comparison
     ]);
 
     // Run with 4 threads
@@ -180,6 +181,7 @@ fn test_thread_parameter() {
         "-t",
         "4",
         "--self", // Include self-mappings for consistency
+        "--paf",  // Request PAF output for test comparison
     ]);
 
     assert!(result1.is_ok() && result4.is_ok(), "Thread tests failed");
@@ -338,6 +340,7 @@ fn test_large_sequence_handling() {
         "-t",
         "2",
         "--self", // Include self-mappings
+        "--paf",  // Request PAF output for test
     ]);
 
     assert!(result.is_ok(), "Failed on large sequence");
@@ -384,6 +387,7 @@ fn test_multisequence_fasta() {
         "-t",
         "1",
         "--self", // Include self-mappings
+        "--paf",  // Request PAF output for test
     ]);
 
     assert!(result.is_ok(), "Failed on multi-sequence FASTA");
