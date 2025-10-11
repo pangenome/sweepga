@@ -41,13 +41,14 @@ jobs:
 
       - name: Set FastGA binary path
         run: |
-          # Find the FastGA binaries built by fastga-rs and add to PATH
-          FASTGA_DIR=$(find target/debug/build -name "fastga-rs-*" -type d | head -1)/out
-          if [ -d "$FASTGA_DIR" ] && [ -f "$FASTGA_DIR/FastGA" ]; then
+          # Find the FastGA binary (not just the first fastga-rs directory)
+          FASTGA_BIN=$(find target/debug/build -name "FastGA" -type f | head -1)
+          if [ -f "$FASTGA_BIN" ]; then
+            FASTGA_DIR=$(dirname "$FASTGA_BIN")
             echo "Found FastGA binaries in: $FASTGA_DIR"
             echo "$FASTGA_DIR" >> $GITHUB_PATH
           else
-            echo "ERROR: FastGA binaries not found!"
+            echo "ERROR: FastGA binary not found!"
             find target/debug/build -name "fastga-rs-*" -type d || true
             exit 1
           fi
@@ -57,16 +58,18 @@ jobs:
 
       - name: Set FastGA binary path (release)
         run: |
-          # Find the FastGA binaries in release build directory
-          FASTGA_DIR=$(find target/release/build -name "fastga-rs-*" -type d | head -1)/out
-          if [ -d "$FASTGA_DIR" ] && [ -f "$FASTGA_DIR/FastGA" ]; then
+          # Find the FastGA binary in release build directory
+          FASTGA_BIN=$(find target/release/build -name "FastGA" -type f | head -1)
+          if [ -f "$FASTGA_BIN" ]; then
+            FASTGA_DIR=$(dirname "$FASTGA_BIN")
             echo "Found FastGA release binaries in: $FASTGA_DIR"
             echo "$FASTGA_DIR" >> $GITHUB_PATH
           else
             echo "Warning: FastGA release binaries not found, trying to build..."
             cargo build --release
-            FASTGA_DIR=$(find target/release/build -name "fastga-rs-*" -type d | head -1)/out
-            if [ -d "$FASTGA_DIR" ]; then
+            FASTGA_BIN=$(find target/release/build -name "FastGA" -type f | head -1)
+            if [ -f "$FASTGA_BIN" ]; then
+              FASTGA_DIR=$(dirname "$FASTGA_BIN")
               echo "$FASTGA_DIR" >> $GITHUB_PATH
             fi
           fi
