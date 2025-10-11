@@ -36,6 +36,9 @@ jobs:
       - name: Build
         run: cargo build --verbose --all-targets
 
+      - name: Build tests (ensures fastga-rs is compiled)
+        run: cargo test --no-run --verbose
+
       - name: Set FastGA binary path
         run: |
           # Find the FastGA binaries built by fastga-rs and add to PATH
@@ -44,7 +47,9 @@ jobs:
             echo "Found FastGA binaries in: $FASTGA_DIR"
             echo "$FASTGA_DIR" >> $GITHUB_PATH
           else
-            echo "Warning: FastGA binaries not found in expected location"
+            echo "ERROR: FastGA binaries not found!"
+            find target/debug/build -name "fastga-rs-*" -type d || true
+            exit 1
           fi
 
       - name: Run tests
