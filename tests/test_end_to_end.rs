@@ -129,6 +129,7 @@ struct CoverageStats {
 
 /// Test end-to-end pipeline with yeast genomes
 #[test]
+#[cfg_attr(target_os = "macos", ignore = "FastGA ARM64 compatibility issue on macOS CI")]
 fn test_end_to_end_yeast_coverage() -> Result<()> {
     let input = Path::new("data/scerevisiae8.fa.gz");
     assert!(
