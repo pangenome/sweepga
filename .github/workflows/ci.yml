@@ -68,9 +68,12 @@ jobs:
       - name: Run tests
         run: |
           # Set PATH to include FastGA binaries (needed for FastGA's system() calls)
+          # MUST use absolute paths because FastGA runs from different working directories
           FASTGA_DEBUG=$(find target/debug/build -name "FastGA" -type f | head -1)
           FASTGA_RELEASE=$(find target/release/build -name "FastGA" -type f | head -1)
-          export PATH="$(dirname $FASTGA_DEBUG):$(dirname $FASTGA_RELEASE):$PATH"
+          FASTGA_DEBUG_ABS=$(cd $(dirname $FASTGA_DEBUG) && pwd)
+          FASTGA_RELEASE_ABS=$(cd $(dirname $FASTGA_RELEASE) && pwd)
+          export PATH="$FASTGA_DEBUG_ABS:$FASTGA_RELEASE_ABS:$PATH"
           echo "PATH for tests: $PATH"
           cargo test --verbose
 
