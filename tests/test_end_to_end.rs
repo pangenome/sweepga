@@ -3,7 +3,7 @@
 /// Tests the complete workflow from FASTA input to filtered output,
 /// validating that coverage expectations are met for real genomic data.
 use anyhow::Result;
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::fs;
 use std::path::Path;
 use std::process::Command;
