@@ -5,8 +5,7 @@
 /// These benchmarks track performance over time to detect regressions.
 /// Note: These are skeleton benchmarks - the actual filtering API doesn't
 /// expose enough public methods for detailed internal benchmarking yet.
-
-use criterion::{black_box, criterion_group, criterion_main, Criterion, BenchmarkId, Throughput};
+use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion, Throughput};
 use std::fs;
 use std::process::Command;
 use tempfile::TempDir;
@@ -122,6 +121,10 @@ fn bench_one_to_one_filtering(c: &mut Criterion) {
     group.finish();
 }
 
-criterion_group!(benches, bench_paf_filtering_pipeline, bench_one_to_one_filtering);
+criterion_group!(
+    benches,
+    bench_paf_filtering_pipeline,
+    bench_one_to_one_filtering
+);
 
 criterion_main!(benches);

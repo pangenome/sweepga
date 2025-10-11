@@ -2,7 +2,6 @@
 ///
 /// Tests the complete workflow from FASTA input to filtered output,
 /// validating that coverage expectations are met for real genomic data.
-
 use anyhow::Result;
 use std::collections::{HashMap, HashSet};
 use std::fs;
@@ -51,10 +50,12 @@ fn calculate_coverage_stats(paf_path: &Path) -> Result<CoverageStats> {
                 (target_genome, query_genome)
             };
 
-            genome_pairs
-                .entry(key)
-                .or_default()
-                .push((query_start, query_end, target_start, target_end));
+            genome_pairs.entry(key).or_default().push((
+                query_start,
+                query_end,
+                target_start,
+                target_end,
+            ));
         }
     }
 
@@ -180,8 +181,10 @@ fn test_end_to_end_yeast_coverage() -> Result<()> {
 
     // Check that we have coverage for pairs
     for (pair_name, aln_count, q_cov, t_cov) in &stats.pair_stats {
-        eprintln!("  {}: {} alns, {}bp q_cov, {}bp t_cov",
-            pair_name, aln_count, q_cov, t_cov);
+        eprintln!(
+            "  {}: {} alns, {}bp q_cov, {}bp t_cov",
+            pair_name, aln_count, q_cov, t_cov
+        );
 
         assert!(
             *aln_count > 0,
@@ -248,8 +251,7 @@ fn test_one_to_one_preserves_pairs() -> Result<()> {
 
     // 1:1 filtering should preserve all genome pairs (but reduce alignment count)
     assert_eq!(
-        unfiltered_stats.genome_pairs,
-        filtered_stats.genome_pairs,
+        unfiltered_stats.genome_pairs, filtered_stats.genome_pairs,
         "1:1 filtering should not lose genome pairs"
     );
 
@@ -323,8 +325,7 @@ fn test_filtering_mode_comparison() -> Result<()> {
 
     // Both should cover all genome pairs
     assert_eq!(
-        nn_stats.genome_pairs,
-        one_to_one_stats.genome_pairs,
+        nn_stats.genome_pairs, one_to_one_stats.genome_pairs,
         "Both modes should cover the same genome pairs"
     );
 

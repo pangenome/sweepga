@@ -3,7 +3,6 @@
 /// Tests that .1aln and PAF formats produce identical filtering results
 /// at scale (10K+ alignments). Uses real yeast genome data to ensure
 /// coordinate conversion and filtering logic is stable under load.
-
 use anyhow::Result;
 use std::collections::{HashMap, HashSet};
 use std::fs;
@@ -87,8 +86,16 @@ fn test_large_scale_paf_output() -> Result<()> {
     eprintln!("Generating PAF output from FASTA...");
     let paf_output = temp_dir.path().join("output.paf");
     let status = Command::new("cargo")
-        .args(&["run", "--release", "--quiet", "--bin", "sweepga", "--",
-                input.to_str().unwrap(), "--paf"])
+        .args(&[
+            "run",
+            "--release",
+            "--quiet",
+            "--bin",
+            "sweepga",
+            "--",
+            input.to_str().unwrap(),
+            "--paf",
+        ])
         .stdout(fs::File::create(&paf_output)?)
         .status()?;
 
@@ -109,17 +116,33 @@ fn test_large_scale_paf_output() -> Result<()> {
 
     // Verify basic properties
     for (i, rec) in paf_records.iter().take(100).enumerate() {
-        assert!(rec.query_start < rec.query_end,
-            "Record {}: query_start >= query_end", i);
-        assert!(rec.target_start < rec.target_end,
-            "Record {}: target_start >= target_end", i);
-        assert!(rec.matches <= rec.block_len,
-            "Record {}: matches > block_len", i);
+        assert!(
+            rec.query_start < rec.query_end,
+            "Record {}: query_start >= query_end",
+            i
+        );
+        assert!(
+            rec.target_start < rec.target_end,
+            "Record {}: target_start >= target_end",
+            i
+        );
+        assert!(
+            rec.matches <= rec.block_len,
+            "Record {}: matches > block_len",
+            i
+        );
         assert!(!rec.query_name.is_empty(), "Record {}: empty query_name", i);
-        assert!(!rec.target_name.is_empty(), "Record {}: empty target_name", i);
+        assert!(
+            !rec.target_name.is_empty(),
+            "Record {}: empty target_name",
+            i
+        );
     }
 
-    eprintln!("✓ Large-scale PAF output verified: {} alignments with valid properties", paf_records.len());
+    eprintln!(
+        "✓ Large-scale PAF output verified: {} alignments with valid properties",
+        paf_records.len()
+    );
     Ok(())
 }
 
@@ -137,8 +160,18 @@ fn test_large_scale_paf_filtering() -> Result<()> {
     eprintln!("Generating unfiltered PAF with -n N:N...");
     let unfiltered_paf = temp_dir.path().join("unfiltered.paf");
     let status = Command::new("cargo")
-        .args(&["run", "--release", "--quiet", "--bin", "sweepga", "--",
-                input.to_str().unwrap(), "--paf", "-n", "N:N"])
+        .args(&[
+            "run",
+            "--release",
+            "--quiet",
+            "--bin",
+            "sweepga",
+            "--",
+            input.to_str().unwrap(),
+            "--paf",
+            "-n",
+            "N:N",
+        ])
         .stdout(fs::File::create(&unfiltered_paf)?)
         .status()?;
 
@@ -150,8 +183,17 @@ fn test_large_scale_paf_filtering() -> Result<()> {
     eprintln!("Applying 1:1 filtering to PAF...");
     let filtered_paf = temp_dir.path().join("filtered.paf");
     let status = Command::new("cargo")
-        .args(&["run", "--release", "--quiet", "--bin", "sweepga", "--",
-                unfiltered_paf.to_str().unwrap(), "-n", "1:1"])
+        .args(&[
+            "run",
+            "--release",
+            "--quiet",
+            "--bin",
+            "sweepga",
+            "--",
+            unfiltered_paf.to_str().unwrap(),
+            "-n",
+            "1:1",
+        ])
         .stdout(fs::File::create(&filtered_paf)?)
         .status()?;
 
@@ -167,39 +209,64 @@ fn test_large_scale_paf_filtering() -> Result<()> {
     eprintln!("Filtered (1:1): {} alignments", filtered.len());
 
     // Verify we have large-scale data
-    assert!(unfiltered.len() >= 10_000,
-        "Expected 10K+ unfiltered alignments, got {}", unfiltered.len());
+    assert!(
+        unfiltered.len() >= 10_000,
+        "Expected 10K+ unfiltered alignments, got {}",
+        unfiltered.len()
+    );
 
     // Filtering should reduce count (or at least not increase it)
-    assert!(filtered.len() <= unfiltered.len(),
-        "Filtering should not increase alignment count");
-    assert!(filtered.len() > 0,
-        "Filtered output should not be empty");
+    assert!(
+        filtered.len() <= unfiltered.len(),
+        "Filtering should not increase alignment count"
+    );
+    assert!(filtered.len() > 0, "Filtered output should not be empty");
 
     // All filtered records should be in unfiltered set
     let unfiltered_sigs: HashSet<String> = unfiltered
         .iter()
-        .map(|r| format!(
-            "{}:{}-{}:{}:{}:{}-{}:{}:{}",
-            r.query_name, r.query_start, r.query_end, r.strand,
-            r.target_name, r.target_start, r.target_end,
-            r.matches, r.block_len
-        ))
+        .map(|r| {
+            format!(
+                "{}:{}-{}:{}:{}:{}-{}:{}:{}",
+                r.query_name,
+                r.query_start,
+                r.query_end,
+                r.strand,
+                r.target_name,
+                r.target_start,
+                r.target_end,
+                r.matches,
+                r.block_len
+            )
+        })
         .collect();
 
     for (i, rec) in filtered.iter().enumerate() {
         let sig = format!(
             "{}:{}-{}:{}:{}:{}-{}:{}:{}",
-            rec.query_name, rec.query_start, rec.query_end, rec.strand,
-            rec.target_name, rec.target_start, rec.target_end,
-            rec.matches, rec.block_len
+            rec.query_name,
+            rec.query_start,
+            rec.query_end,
+            rec.strand,
+            rec.target_name,
+            rec.target_start,
+            rec.target_end,
+            rec.matches,
+            rec.block_len
         );
-        assert!(unfiltered_sigs.contains(&sig),
-            "Filtered record {} not found in unfiltered set: {}", i, sig);
+        assert!(
+            unfiltered_sigs.contains(&sig),
+            "Filtered record {} not found in unfiltered set: {}",
+            i,
+            sig
+        );
     }
 
-    eprintln!("✓ Large-scale PAF filtering verified: {} → {} alignments",
-        unfiltered.len(), filtered.len());
+    eprintln!(
+        "✓ Large-scale PAF filtering verified: {} → {} alignments",
+        unfiltered.len(),
+        filtered.len()
+    );
     Ok(())
 }
 
@@ -218,15 +285,31 @@ fn test_coordinate_stability_at_scale() -> Result<()> {
 
     let paf1 = temp_dir.path().join("run1.paf");
     Command::new("cargo")
-        .args(&["run", "--release", "--quiet", "--bin", "sweepga", "--",
-                input.to_str().unwrap(), "--paf"])
+        .args(&[
+            "run",
+            "--release",
+            "--quiet",
+            "--bin",
+            "sweepga",
+            "--",
+            input.to_str().unwrap(),
+            "--paf",
+        ])
         .stdout(fs::File::create(&paf1)?)
         .status()?;
 
     let paf2 = temp_dir.path().join("run2.paf");
     Command::new("cargo")
-        .args(&["run", "--release", "--quiet", "--bin", "sweepga", "--",
-                input.to_str().unwrap(), "--paf"])
+        .args(&[
+            "run",
+            "--release",
+            "--quiet",
+            "--bin",
+            "sweepga",
+            "--",
+            input.to_str().unwrap(),
+            "--paf",
+        ])
         .stdout(fs::File::create(&paf2)?)
         .status()?;
 
@@ -238,8 +321,13 @@ fn test_coordinate_stability_at_scale() -> Result<()> {
     eprintln!("Run 2: {} alignments", records2.len());
 
     assert!(records1.len() >= 10_000, "Expected 10K+ alignments");
-    assert_eq!(records1.len(), records2.len(),
-        "Count changed between runs: {} vs {}", records1.len(), records2.len());
+    assert_eq!(
+        records1.len(),
+        records2.len(),
+        "Count changed between runs: {} vs {}",
+        records1.len(),
+        records2.len()
+    );
 
     // Check for any differences
     let mut drifted = 0;
@@ -255,12 +343,16 @@ fn test_coordinate_stability_at_scale() -> Result<()> {
     }
 
     assert_eq!(
-        drifted, 0,
+        drifted,
+        0,
         "Non-deterministic output detected in {} out of {} alignments",
-        drifted, records1.len()
+        drifted,
+        records1.len()
     );
 
-    eprintln!("✓ Coordinate stability verified: {} alignments identical across runs",
-        records1.len());
+    eprintln!(
+        "✓ Coordinate stability verified: {} alignments identical across runs",
+        records1.len()
+    );
     Ok(())
 }

@@ -103,7 +103,17 @@ fn test_temp_file_cleanup() {
 
     // Run sweepga
     let _output = Command::new("cargo")
-        .args(["run", "--release", "--quiet", "--bin", "sweepga", "--", test_fa, "-t", "1"])
+        .args([
+            "run",
+            "--release",
+            "--quiet",
+            "--bin",
+            "sweepga",
+            "--",
+            test_fa,
+            "-t",
+            "1",
+        ])
         .output()
         .expect("Failed to run");
 

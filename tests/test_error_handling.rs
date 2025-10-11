@@ -2,7 +2,6 @@
 ///
 /// Tests that the program fails gracefully with clear error messages
 /// when given invalid or malformed input files.
-
 use anyhow::Result;
 use std::fs;
 use std::process::Command;
@@ -19,8 +18,15 @@ fn test_empty_file_error() -> Result<()> {
 
     // Try to process it
     let output = Command::new("cargo")
-        .args(&["run", "--release", "--quiet", "--bin", "sweepga", "--",
-                empty_file.to_str().unwrap()])
+        .args(&[
+            "run",
+            "--release",
+            "--quiet",
+            "--bin",
+            "sweepga",
+            "--",
+            empty_file.to_str().unwrap(),
+        ])
         .output()?;
 
     // Should fail with error
@@ -29,7 +35,8 @@ fn test_empty_file_error() -> Result<()> {
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(
         stderr.contains("Empty file") || stderr.contains("No alignments"),
-        "Should mention empty file, got: {}", stderr
+        "Should mention empty file, got: {}",
+        stderr
     );
 
     Ok(())
@@ -45,8 +52,15 @@ fn test_malformed_paf_lines() -> Result<()> {
     fs::write(&malformed_paf, "seq1\t100\t200\n")?; // Only 3 fields
 
     let output = Command::new("cargo")
-        .args(&["run", "--release", "--quiet", "--bin", "sweepga", "--",
-                malformed_paf.to_str().unwrap()])
+        .args(&[
+            "run",
+            "--release",
+            "--quiet",
+            "--bin",
+            "sweepga",
+            "--",
+            malformed_paf.to_str().unwrap(),
+        ])
         .output()?;
 
     // Should either skip the line or fail with error
@@ -69,12 +83,21 @@ fn test_invalid_paf_numbers() -> Result<()> {
     let bad_paf = temp_dir.path().join("bad_numbers.paf");
 
     // Write PAF line with invalid number (non-numeric in position field)
-    fs::write(&bad_paf,
-        "seq1\t1000\tNOT_A_NUMBER\t200\t+\tseq2\t2000\t100\t300\t150\t200\t60\n")?;
+    fs::write(
+        &bad_paf,
+        "seq1\t1000\tNOT_A_NUMBER\t200\t+\tseq2\t2000\t100\t300\t150\t200\t60\n",
+    )?;
 
     let output = Command::new("cargo")
-        .args(&["run", "--release", "--quiet", "--bin", "sweepga", "--",
-                bad_paf.to_str().unwrap()])
+        .args(&[
+            "run",
+            "--release",
+            "--quiet",
+            "--bin",
+            "sweepga",
+            "--",
+            bad_paf.to_str().unwrap(),
+        ])
         .output()?;
 
     // Should fail or skip the line
@@ -83,7 +106,8 @@ fn test_invalid_paf_numbers() -> Result<()> {
     // Either it should fail, or produce no output
     assert!(
         !output.status.success() || output.stdout.is_empty(),
-        "Invalid numbers should cause error or be skipped, stderr: {}", stderr
+        "Invalid numbers should cause error or be skipped, stderr: {}",
+        stderr
     );
 
     Ok(())
@@ -95,8 +119,15 @@ fn test_missing_file_error() -> Result<()> {
     let nonexistent = "/tmp/this_file_definitely_does_not_exist_12345.paf";
 
     let output = Command::new("cargo")
-        .args(&["run", "--release", "--quiet", "--bin", "sweepga", "--",
-                nonexistent])
+        .args(&[
+            "run",
+            "--release",
+            "--quiet",
+            "--bin",
+            "sweepga",
+            "--",
+            nonexistent,
+        ])
         .output()?;
 
     // Should fail with error
@@ -104,10 +135,11 @@ fn test_missing_file_error() -> Result<()> {
 
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(
-        stderr.contains("No such file") ||
-        stderr.contains("not found") ||
-        stderr.contains("does not exist"),
-        "Should mention file not found, got: {}", stderr
+        stderr.contains("No such file")
+            || stderr.contains("not found")
+            || stderr.contains("does not exist"),
+        "Should mention file not found, got: {}",
+        stderr
     );
 
     Ok(())
@@ -122,12 +154,21 @@ fn test_invalid_coordinate_ranges() -> Result<()> {
     let bad_coords = temp_dir.path().join("bad_coords.paf");
 
     // Write PAF with start > end (invalid, but currently accepted)
-    fs::write(&bad_coords,
-        "seq1\t1000\t500\t200\t+\tseq2\t2000\t100\t300\t150\t200\t60\n")?;
+    fs::write(
+        &bad_coords,
+        "seq1\t1000\t500\t200\t+\tseq2\t2000\t100\t300\t150\t200\t60\n",
+    )?;
 
     let output = Command::new("cargo")
-        .args(&["run", "--release", "--quiet", "--bin", "sweepga", "--",
-                bad_coords.to_str().unwrap()])
+        .args(&[
+            "run",
+            "--release",
+            "--quiet",
+            "--bin",
+            "sweepga",
+            "--",
+            bad_coords.to_str().unwrap(),
+        ])
         .output()?;
 
     // Currently passes through without validation
@@ -150,8 +191,15 @@ fn test_unsupported_format() -> Result<()> {
     fs::write(&binary_file, &[0xFF, 0xFE, 0xFD, 0xFC, 0x00, 0x01])?;
 
     let output = Command::new("cargo")
-        .args(&["run", "--release", "--quiet", "--bin", "sweepga", "--",
-                binary_file.to_str().unwrap()])
+        .args(&[
+            "run",
+            "--release",
+            "--quiet",
+            "--bin",
+            "sweepga",
+            "--",
+            binary_file.to_str().unwrap(),
+        ])
         .output()?;
 
     // Should fail with format error
@@ -159,12 +207,13 @@ fn test_unsupported_format() -> Result<()> {
 
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(
-        stderr.contains("format") ||
-        stderr.contains("parse") ||
-        stderr.contains("invalid") ||
-        stderr.contains("UTF") ||
-        stderr.contains("Empty file"),
-        "Should mention format/parsing error, got: {}", stderr
+        stderr.contains("format")
+            || stderr.contains("parse")
+            || stderr.contains("invalid")
+            || stderr.contains("UTF")
+            || stderr.contains("Empty file"),
+        "Should mention format/parsing error, got: {}",
+        stderr
     );
 
     Ok(())
@@ -188,8 +237,15 @@ seq5\t500\t0\t150\t+\tseq6\t600\t0\t150\t140\t150\t60
     fs::write(&mixed_paf, content)?;
 
     let output = Command::new("cargo")
-        .args(&["run", "--release", "--quiet", "--bin", "sweepga", "--",
-                mixed_paf.to_str().unwrap()])
+        .args(&[
+            "run",
+            "--release",
+            "--quiet",
+            "--bin",
+            "sweepga",
+            "--",
+            mixed_paf.to_str().unwrap(),
+        ])
         .output()?;
 
     let stdout = String::from_utf8_lossy(&output.stdout);
@@ -201,7 +257,8 @@ seq5\t500\t0\t150\t+\tseq6\t600\t0\t150\t140\t150\t60
     // Should get at least 1 valid line (might filter some)
     assert!(
         line_count >= 1,
-        "Should process at least some valid lines, got {} lines", line_count
+        "Should process at least some valid lines, got {} lines",
+        line_count
     );
 
     Ok(())
@@ -214,12 +271,21 @@ fn test_negative_coordinates() -> Result<()> {
     let neg_coords = temp_dir.path().join("negative.paf");
 
     // Negative start position (invalid in PAF)
-    fs::write(&neg_coords,
-        "seq1\t1000\t-100\t200\t+\tseq2\t2000\t100\t300\t150\t200\t60\n")?;
+    fs::write(
+        &neg_coords,
+        "seq1\t1000\t-100\t200\t+\tseq2\t2000\t100\t300\t150\t200\t60\n",
+    )?;
 
     let output = Command::new("cargo")
-        .args(&["run", "--release", "--quiet", "--bin", "sweepga", "--",
-                neg_coords.to_str().unwrap()])
+        .args(&[
+            "run",
+            "--release",
+            "--quiet",
+            "--bin",
+            "sweepga",
+            "--",
+            neg_coords.to_str().unwrap(),
+        ])
         .output()?;
 
     // Should fail to parse negative number or reject it
@@ -240,12 +306,21 @@ fn test_overflow_coordinates() -> Result<()> {
     let overflow_paf = temp_dir.path().join("overflow.paf");
 
     // Coordinates that might overflow
-    fs::write(&overflow_paf,
-        "seq1\t999999999999999999999\t0\t100\t+\tseq2\t2000\t0\t100\t90\t100\t60\n")?;
+    fs::write(
+        &overflow_paf,
+        "seq1\t999999999999999999999\t0\t100\t+\tseq2\t2000\t0\t100\t90\t100\t60\n",
+    )?;
 
     let output = Command::new("cargo")
-        .args(&["run", "--release", "--quiet", "--bin", "sweepga", "--",
-                overflow_paf.to_str().unwrap()])
+        .args(&[
+            "run",
+            "--release",
+            "--quiet",
+            "--bin",
+            "sweepga",
+            "--",
+            overflow_paf.to_str().unwrap(),
+        ])
         .output()?;
 
     // Should fail to parse or reject
@@ -264,12 +339,21 @@ fn test_invalid_strand() -> Result<()> {
     let bad_strand = temp_dir.path().join("bad_strand.paf");
 
     // Invalid strand (should be + or -)
-    fs::write(&bad_strand,
-        "seq1\t1000\t0\t100\tX\tseq2\t2000\t0\t100\t90\t100\t60\n")?;
+    fs::write(
+        &bad_strand,
+        "seq1\t1000\t0\t100\tX\tseq2\t2000\t0\t100\t90\t100\t60\n",
+    )?;
 
     let output = Command::new("cargo")
-        .args(&["run", "--release", "--quiet", "--bin", "sweepga", "--",
-                bad_strand.to_str().unwrap()])
+        .args(&[
+            "run",
+            "--release",
+            "--quiet",
+            "--bin",
+            "sweepga",
+            "--",
+            bad_strand.to_str().unwrap(),
+        ])
         .output()?;
 
     // Program should not crash, regardless of whether it accepts or rejects
@@ -292,26 +376,40 @@ fn test_permission_denied() -> Result<()> {
     let no_read = temp_dir.path().join("no_read.paf");
 
     // Create file and remove read permissions
-    fs::write(&no_read, "seq1\t100\t0\t50\t+\tseq2\t200\t0\t50\t40\t50\t60\n")?;
+    fs::write(
+        &no_read,
+        "seq1\t100\t0\t50\t+\tseq2\t200\t0\t50\t40\t50\t60\n",
+    )?;
     fs::set_permissions(&no_read, fs::Permissions::from_mode(0o000))?;
 
     let output = Command::new("cargo")
-        .args(&["run", "--release", "--quiet", "--bin", "sweepga", "--",
-                no_read.to_str().unwrap()])
+        .args(&[
+            "run",
+            "--release",
+            "--quiet",
+            "--bin",
+            "sweepga",
+            "--",
+            no_read.to_str().unwrap(),
+        ])
         .output()?;
 
     // Restore permissions for cleanup
     let _ = fs::set_permissions(&no_read, fs::Permissions::from_mode(0o644));
 
     // Should fail with permission error
-    assert!(!output.status.success(), "Permission denied should cause error");
+    assert!(
+        !output.status.success(),
+        "Permission denied should cause error"
+    );
 
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(
-        stderr.contains("Permission denied") ||
-        stderr.contains("permission") ||
-        stderr.contains("access"),
-        "Should mention permission error, got: {}", stderr
+        stderr.contains("Permission denied")
+            || stderr.contains("permission")
+            || stderr.contains("access"),
+        "Should mention permission error, got: {}",
+        stderr
     );
 
     Ok(())

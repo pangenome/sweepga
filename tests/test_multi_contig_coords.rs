@@ -3,7 +3,6 @@
 /// Tests coordinate conversion when sequences contain Ns (creating multiple contigs).
 /// Verifies that offsets are correctly applied and coordinates properly map across
 /// contig boundaries.
-
 use anyhow::Result;
 
 /// Test scaffold offset calculation with multiple contigs
@@ -13,9 +12,9 @@ fn test_scaffold_offsets_calculation() {
     // This creates 3 contigs with different offsets
 
     let contig_boundaries = vec![
-        (0, 4),      // Contig 0: positions 0-3 (ACGT)
-        (7, 11),     // Contig 1: positions 7-10 (TGCA) - offset by 3 Ns
-        (13, 17),    // Contig 2: positions 13-16 (GGCC) - offset by 5 Ns total
+        (0, 4),   // Contig 0: positions 0-3 (ACGT)
+        (7, 11),  // Contig 1: positions 7-10 (TGCA) - offset by 3 Ns
+        (13, 17), // Contig 2: positions 13-16 (GGCC) - offset by 5 Ns total
     ];
 
     // Verify contig lengths and offsets
@@ -47,9 +46,21 @@ fn test_forward_strand_multi_contig() {
     }
 
     let contigs = vec![
-        ContigInfo { scaffold_start: 0, scaffold_end: 4, original_start: 0 },
-        ContigInfo { scaffold_start: 4, scaffold_end: 8, original_start: 7 },
-        ContigInfo { scaffold_start: 8, scaffold_end: 12, original_start: 13 },
+        ContigInfo {
+            scaffold_start: 0,
+            scaffold_end: 4,
+            original_start: 0,
+        },
+        ContigInfo {
+            scaffold_start: 4,
+            scaffold_end: 8,
+            original_start: 7,
+        },
+        ContigInfo {
+            scaffold_start: 8,
+            scaffold_end: 12,
+            original_start: 13,
+        },
     ];
 
     // Test alignment in contig 1 (positions 5-7 in scaffold coords)
@@ -62,10 +73,10 @@ fn test_forward_strand_multi_contig() {
 
     // Convert to original coordinates
     let contig_relative_start = align_start - contig.scaffold_start; // 5 - 4 = 1
-    let contig_relative_end = align_end - contig.scaffold_start;     // 7 - 4 = 3
+    let contig_relative_end = align_end - contig.scaffold_start; // 7 - 4 = 3
 
     let original_start = contig.original_start + contig_relative_start; // 7 + 1 = 8
-    let original_end = contig.original_start + contig_relative_end;     // 7 + 3 = 10
+    let original_end = contig.original_start + contig_relative_end; // 7 + 3 = 10
 
     assert_eq!(original_start, 8);
     assert_eq!(original_end, 10);
@@ -110,15 +121,15 @@ fn test_reverse_strand_multi_contig() {
 
     // For reverse strand, coordinates are swapped relative to scaffold end
     let contig_relative_start = align_start - contig.scaffold_start; // 1
-    let contig_relative_end = align_end - contig.scaffold_start;     // 3
+    let contig_relative_end = align_end - contig.scaffold_start; // 3
 
     // Reverse strand: swap and calculate from end
     let contig_length = contig.scaffold_end - contig.scaffold_start; // 4
-    let rev_contig_start = contig_length - contig_relative_end;      // 4 - 3 = 1
-    let rev_contig_end = contig_length - contig_relative_start;      // 4 - 1 = 3
+    let rev_contig_start = contig_length - contig_relative_end; // 4 - 3 = 1
+    let rev_contig_end = contig_length - contig_relative_start; // 4 - 1 = 3
 
-    let original_start = contig.original_start + rev_contig_start;   // 7 + 1 = 8
-    let original_end = contig.original_start + rev_contig_end;       // 7 + 3 = 10
+    let original_start = contig.original_start + rev_contig_start; // 7 + 1 = 8
+    let original_end = contig.original_start + rev_contig_end; // 7 + 3 = 10
 
     // Verify span is preserved even after reversal
     assert_eq!(align_end - align_start, original_end - original_start);
@@ -131,9 +142,9 @@ fn test_alignment_within_single_contig() {
     // If it does, it should be split into separate alignments
 
     let contig_boundaries = vec![
-        (0, 100),    // Contig 0
-        (150, 250),  // Contig 1 (50 Ns gap)
-        (300, 400),  // Contig 2 (50 Ns gap)
+        (0, 100),   // Contig 0
+        (150, 250), // Contig 1 (50 Ns gap)
+        (300, 400), // Contig 2 (50 Ns gap)
     ];
 
     // Valid alignment: entirely within contig 0
@@ -153,9 +164,12 @@ fn test_alignment_within_single_contig() {
     let align3_end = 160; // Crosses from contig 0 to contig 1
 
     // This should be detected and split
-    let spans_boundary = !(align3_end <= contig_boundaries[0].1 ||
-                           align3_start >= contig_boundaries[1].0);
-    assert!(spans_boundary, "Alignment incorrectly spans contig boundary");
+    let spans_boundary =
+        !(align3_end <= contig_boundaries[0].1 || align3_start >= contig_boundaries[1].0);
+    assert!(
+        spans_boundary,
+        "Alignment incorrectly spans contig boundary"
+    );
 }
 
 /// Test coordinate ordering invariants across contigs
@@ -168,21 +182,34 @@ fn test_coordinate_ordering_multi_contig() {
     }
 
     let mappings = vec![
-        Mapping { scaffold_start: 10, scaffold_end: 20 },
-        Mapping { scaffold_start: 50, scaffold_end: 60 },
-        Mapping { scaffold_start: 90, scaffold_end: 95 },
+        Mapping {
+            scaffold_start: 10,
+            scaffold_end: 20,
+        },
+        Mapping {
+            scaffold_start: 50,
+            scaffold_end: 60,
+        },
+        Mapping {
+            scaffold_start: 90,
+            scaffold_end: 95,
+        },
     ];
 
     // Verify ordering within each mapping
     for m in &mappings {
-        assert!(m.scaffold_start < m.scaffold_end,
-            "Start must be < end in scaffold coords");
+        assert!(
+            m.scaffold_start < m.scaffold_end,
+            "Start must be < end in scaffold coords"
+        );
     }
 
     // Verify scaffold coordinates increase across contigs
     for i in 1..mappings.len() {
-        assert!(mappings[i-1].scaffold_end <= mappings[i].scaffold_start,
-            "Mappings should be ordered by scaffold position");
+        assert!(
+            mappings[i - 1].scaffold_end <= mappings[i].scaffold_start,
+            "Mappings should be ordered by scaffold position"
+        );
     }
 }
 
@@ -216,9 +243,9 @@ fn test_variable_contig_sizes() {
 
     // Verify offsets increase monotonically
     for i in 1..contigs.len() {
-        assert!(contigs[i].offset_in_scaffold > contigs[i-1].offset_in_scaffold);
-        let _gap = contigs[i].offset_in_scaffold -
-                   (contigs[i-1].offset_in_scaffold + contigs[i-1].length);
+        assert!(contigs[i].offset_in_scaffold > contigs[i - 1].offset_in_scaffold);
+        let _gap = contigs[i].offset_in_scaffold
+            - (contigs[i - 1].offset_in_scaffold + contigs[i - 1].length);
         // Gap is always non-negative (usize subtraction)
     }
 }
@@ -231,9 +258,9 @@ fn test_coordinate_conversion_properties_multi_contig() -> Result<()> {
 
     let test_cases = vec![
         // (contig_start, contig_end, contig_offset)
-        (100, 200, 0),      // First contig, no offset
-        (50, 150, 1000),    // Second contig, offset by 1000
-        (0, 500, 2000),     // Third contig, offset by 2000
+        (100, 200, 0),   // First contig, no offset
+        (50, 150, 1000), // Second contig, offset by 1000
+        (0, 500, 2000),  // Third contig, offset by 2000
     ];
 
     for (contig_start, contig_end, offset) in test_cases {
@@ -245,8 +272,10 @@ fn test_coordinate_conversion_properties_multi_contig() -> Result<()> {
         let scaffold_span = scaffold_end - scaffold_start;
 
         // Verify span preservation
-        assert_eq!(contig_span, scaffold_span,
-            "Span should be preserved in coordinate conversion");
+        assert_eq!(
+            contig_span, scaffold_span,
+            "Span should be preserved in coordinate conversion"
+        );
 
         // Reverse conversion: scaffold -> contig
         let recovered_contig_start = scaffold_start - offset;
