@@ -203,6 +203,10 @@ fn test_end_to_end_yeast_coverage() -> Result<()> {
 
 /// Test that 1:1 filtering preserves genome pair coverage
 #[test]
+#[cfg_attr(
+    target_os = "macos",
+    ignore = "FastGA ARM64 compatibility issue on macOS CI"
+)]
 fn test_one_to_one_preserves_pairs() -> Result<()> {
     let input = Path::new("data/scerevisiae8.fa.gz");
     assert!(
