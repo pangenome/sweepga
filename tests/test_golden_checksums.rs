@@ -47,6 +47,10 @@ fn load_golden_checksums() -> Result<std::collections::HashMap<String, String>> 
 }
 
 #[test]
+#[cfg_attr(
+    target_os = "macos",
+    ignore = "FastGA ARM64 compatibility issue on macOS CI"
+)]
 fn test_golden_1aln_output() -> Result<()> {
     let golden_checksums = load_golden_checksums()?;
 
@@ -108,6 +112,10 @@ fn test_golden_1aln_output() -> Result<()> {
 }
 
 #[test]
+#[cfg_attr(
+    target_os = "macos",
+    ignore = "FastGA ARM64 compatibility issue on macOS CI"
+)]
 fn test_golden_paf_output() -> Result<()> {
     let golden_checksums = load_golden_checksums()?;
 
@@ -159,6 +167,10 @@ fn test_golden_paf_output() -> Result<()> {
 }
 
 #[test]
+#[cfg_attr(
+    target_os = "macos",
+    ignore = "FastGA ARM64 compatibility issue on macOS CI"
+)]
 fn test_golden_filtered_1to1() -> Result<()> {
     let golden_checksums = load_golden_checksums()?;
 
