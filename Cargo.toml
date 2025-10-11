@@ -33,3 +33,9 @@ path = "src/bin/alnstats.rs"
 pretty_assertions = "1.4"
 rand = "0.8"
 num_cpus = "1.16"
+proptest = "1.5"
+criterion = "0.5"
+
+[[bench]]
+name = "filtering_benchmarks"
+harness = false
