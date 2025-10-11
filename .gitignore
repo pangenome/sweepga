@@ -11,6 +11,7 @@ test_data/*.paf
 test_data/*.png
 test_data/*.fai
 *.paf
+*.1aln
 *.png
 *.log
 *.html
