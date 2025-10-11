@@ -39,43 +39,34 @@ jobs:
       - name: Build tests (ensures fastga-rs is compiled)
         run: cargo test --no-run --verbose
 
-      - name: Set FastGA binary path
+      - name: Build release binaries (tests use cargo run --release)
+        run: cargo build --release --verbose
+
+      - name: Set FastGA binary paths (debug and release)
         run: |
-          # Find the FastGA binary (not just the first fastga-rs directory)
-          FASTGA_BIN=$(find target/debug/build -name "FastGA" -type f | head -1)
-          if [ -f "$FASTGA_BIN" ]; then
-            FASTGA_DIR=$(dirname "$FASTGA_BIN")
-            echo "Found FastGA binaries in: $FASTGA_DIR"
-            echo "$FASTGA_DIR" >> $GITHUB_PATH
+          # Tests call 'cargo run --release', so we need BOTH debug and release FastGA binaries in PATH
+
+          # Find debug FastGA
+          FASTGA_DEBUG=$(find target/debug/build -name "FastGA" -type f | head -1)
+          if [ -f "$FASTGA_DEBUG" ]; then
+            FASTGA_DEBUG_DIR=$(dirname "$FASTGA_DEBUG")
+            echo "Found debug FastGA in: $FASTGA_DEBUG_DIR"
+            echo "$FASTGA_DEBUG_DIR" >> $GITHUB_PATH
+          fi
+
+          # Find release FastGA
+          FASTGA_RELEASE=$(find target/release/build -name "FastGA" -type f | head -1)
+          if [ -f "$FASTGA_RELEASE" ]; then
+            FASTGA_RELEASE_DIR=$(dirname "$FASTGA_RELEASE")
+            echo "Found release FastGA in: $FASTGA_RELEASE_DIR"
+            echo "$FASTGA_RELEASE_DIR" >> $GITHUB_PATH
           else
-            echo "ERROR: FastGA binary not found!"
-            find target/debug/build -name "fastga-rs-*" -type d || true
+            echo "ERROR: Release FastGA binary not found (tests need this for 'cargo run --release')!"
             exit 1
           fi
 
       - name: Run tests
         run: cargo test --verbose
-
-      - name: Set FastGA binary path (release)
-        run: |
-          # Find the FastGA binary in release build directory
-          FASTGA_BIN=$(find target/release/build -name "FastGA" -type f | head -1)
-          if [ -f "$FASTGA_BIN" ]; then
-            FASTGA_DIR=$(dirname "$FASTGA_BIN")
-            echo "Found FastGA release binaries in: $FASTGA_DIR"
-            echo "$FASTGA_DIR" >> $GITHUB_PATH
-          else
-            echo "Warning: FastGA release binaries not found, trying to build..."
-            cargo build --release
-            FASTGA_BIN=$(find target/release/build -name "FastGA" -type f | head -1)
-            if [ -f "$FASTGA_BIN" ]; then
-              FASTGA_DIR=$(dirname "$FASTGA_BIN")
-              echo "$FASTGA_DIR" >> $GITHUB_PATH
-            fi
-          fi
-
-      - name: Run tests (release mode)
-        run: cargo test --release --verbose
 
       - name: Check for forbidden files
         run: |
