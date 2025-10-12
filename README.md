@@ -41,6 +41,8 @@ cargo install --force --path .
 
 ### With Guix
 
+Adapted from https://issues.genenetwork.org/topics/rust/guix-rust-bootstrap:
+
 ```shell
 # Update Guix
 mkdir -p $HOME/opt
