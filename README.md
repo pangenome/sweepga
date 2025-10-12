@@ -39,6 +39,44 @@ cd sweepga
 cargo install --force --path .
 ```
 
+### With Guix
+
+```shell
+# Update Guix
+mkdir -p $HOME/opt
+guix pull -p $HOME/opt/guix-pull-20251012 --url=https://codeberg.org/guix/guix
+
+# Be sure to use the updated Guix
+alias guix=$HOME/opt/guix-pull-20251012/bin/guix
+
+# Update Rust and Cargo
+mkdir -p ~/.cargo ~/.rustup # to prevent rebuilds
+guix shell --share=$HOME/.cargo  --share=$HOME/.rustup -C -N -D -F -v 3 guix gcc-toolchain make libdeflate pkg-config xz coreutils sed zstd zlib nss-certs openssl curl
+curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
+. ~/.cargo/env
+rustup default stable
+exit
+
+# Clone the repository
+git clone https://github.com/pangenome/sweepga.git
+cd sweepga
+
+guix shell --share=$HOME/.cargo  --share=$HOME/.rustup -C -N -D -F -v 3 guix gcc-toolchain make libdeflate pkg-config xz coreutils sed zstd zlib nss-certs openssl curl cmake clang # we need cmake and clang too for building
+. ~/.cargo/env
+export LD_LIBRARY_PATH=$GUIX_ENVIRONMENT/lib
+cargo build --release
+
+# Check the lib path and put it into your ~/.bashrc or ~/.zshrc
+echo $GUIX_ENVIRONMENT/
+   #/gnu/store/whgjblccmr4kdmsi4vg8h0p53m5f7sch-profile/
+exit
+echo "export GUIX_ENVIRONMENT=/gnu/store/whgjblccmr4kdmsi4vg8h0p53m5f7sch-profile/" >> ~/.bashrc # or ~/.zshrc
+source ~/.bashrc # or ~/.zshrc
+
+# Use the executable in sweepga/target/release
+env LD_LIBRARY_PATH=$GUIX_ENVIRONMENT/lib ./target/release/sweepga --help
+```
+
 ## Basic Usage
 
 ### Direct alignment (FASTA input)
