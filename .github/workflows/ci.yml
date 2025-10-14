@@ -75,7 +75,12 @@ jobs:
           FASTGA_RELEASE_ABS=$(cd $(dirname $FASTGA_RELEASE) && pwd)
           export PATH="$FASTGA_DEBUG_ABS:$FASTGA_RELEASE_ABS:$PATH"
           echo "PATH for tests: $PATH"
-          cargo test --verbose
+          # Run tests sequentially on Linux to avoid FastGA race conditions
+          if [ "$RUNNER_OS" == "Linux" ]; then
+            cargo test --verbose -- --test-threads=1
+          else
+            cargo test --verbose
+          fi
 
       - name: Check for forbidden files
         run: |
