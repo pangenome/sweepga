@@ -62,12 +62,14 @@ fn test_golden_1aln_output() -> Result<()> {
     let temp_dir = TempDir::new()?;
     let output = temp_dir.path().join("test_output.1aln");
 
-    // Use same input as golden generation
+    // Copy input to temp to avoid accumulating FastGA intermediate files
     let input = Path::new("data/scerevisiae8.fa.gz");
     assert!(
         input.exists(),
         "Test data not found: data/scerevisiae8.fa.gz - required for CI"
     );
+    let temp_input = temp_dir.path().join("test_input.fa.gz");
+    fs::copy(input, &temp_input)?;
 
     Command::new("cargo")
         .args(&[
@@ -77,7 +79,7 @@ fn test_golden_1aln_output() -> Result<()> {
             "--bin",
             "sweepga",
             "--",
-            input.to_str().unwrap(),
+            temp_input.to_str().unwrap(),
         ])
         .stdout(fs::File::create(&output)?)
         .status()?;
@@ -126,11 +128,14 @@ fn test_golden_paf_output() -> Result<()> {
     let temp_dir = TempDir::new()?;
     let output = temp_dir.path().join("test_output.paf");
 
+    // Copy input to temp to avoid accumulating FastGA intermediate files
     let input = Path::new("data/scerevisiae8.fa.gz");
     assert!(
         input.exists(),
         "Test data not found: data/scerevisiae8.fa.gz - required for CI"
     );
+    let temp_input = temp_dir.path().join("test_input.fa.gz");
+    fs::copy(input, &temp_input)?;
 
     Command::new("cargo")
         .args(&[
@@ -140,7 +145,7 @@ fn test_golden_paf_output() -> Result<()> {
             "--bin",
             "sweepga",
             "--",
-            input.to_str().unwrap(),
+            temp_input.to_str().unwrap(),
             "--paf",
         ])
         .stdout(fs::File::create(&output)?)
@@ -180,14 +185,17 @@ fn test_golden_filtered_1to1() -> Result<()> {
 
     let temp_dir = TempDir::new()?;
 
-    // First generate unfiltered
-    let unfiltered = temp_dir.path().join("unfiltered.1aln");
+    // Copy input to temp to avoid accumulating FastGA intermediate files
     let input = Path::new("data/scerevisiae8.fa.gz");
     assert!(
         input.exists(),
         "Test data not found: data/scerevisiae8.fa.gz - required for CI"
     );
+    let temp_input = temp_dir.path().join("test_input.fa.gz");
+    fs::copy(input, &temp_input)?;
 
+    // First generate unfiltered
+    let unfiltered = temp_dir.path().join("unfiltered.1aln");
     Command::new("cargo")
         .args(&[
             "run",
@@ -196,7 +204,7 @@ fn test_golden_filtered_1to1() -> Result<()> {
             "--bin",
             "sweepga",
             "--",
-            input.to_str().unwrap(),
+            temp_input.to_str().unwrap(),
         ])
         .stdout(fs::File::create(&unfiltered)?)
         .status()?;
