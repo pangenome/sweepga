@@ -411,10 +411,13 @@ fn test_b3106_paf_output() -> Result<()> {
 
     // Basic validation
     assert!(paf_records.len() > 0, "Should produce some alignments");
-    
+
     for rec in &paf_records {
         assert!(rec.query_start < rec.query_end, "Valid query coordinates");
-        assert!(rec.target_start < rec.target_end, "Valid target coordinates");
+        assert!(
+            rec.target_start < rec.target_end,
+            "Valid target coordinates"
+        );
         assert!(rec.matches <= rec.block_len, "Matches <= block length");
     }
 
@@ -469,10 +472,17 @@ fn test_b3106_filtering_behavior() -> Result<()> {
     let nn = parse_paf_alignments(&nn_paf)?;
     let filtered = parse_paf_alignments(&filtered_paf)?;
 
-    eprintln!("✓ B-3106 filtering: N:N={} → 1:1={}", nn.len(), filtered.len());
+    eprintln!(
+        "✓ B-3106 filtering: N:N={} → 1:1={}",
+        nn.len(),
+        filtered.len()
+    );
 
     // Filtering invariant
-    assert!(filtered.len() <= nn.len(), "1:1 should not increase alignments");
+    assert!(
+        filtered.len() <= nn.len(),
+        "1:1 should not increase alignments"
+    );
     assert!(filtered.len() > 0, "Should keep some alignments");
 
     Ok(())
@@ -536,7 +546,10 @@ fn test_b3106_coordinate_determinism() -> Result<()> {
     }
 
     assert_eq!(diffs, 0, "Output should be deterministic");
-    eprintln!("✓ B-3106 determinism: {} identical alignments", records1.len());
+    eprintln!(
+        "✓ B-3106 determinism: {} identical alignments",
+        records1.len()
+    );
 
     Ok(())
 }
