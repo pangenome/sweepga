@@ -22,6 +22,7 @@ test_data/*.fai
 *.fai
 *.fa.gz
 !data/scerevisiae8.fa.gz
+!data/B-3106.fa
 *.fa.gz.fai
 *.fa.gz.gzi
 
