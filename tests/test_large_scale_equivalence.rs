@@ -82,6 +82,10 @@ fn test_large_scale_paf_output() -> Result<()> {
 
     let temp_dir = TempDir::new()?;
 
+    // Copy input to temp to avoid accumulating FastGA intermediate files
+    let temp_input = temp_dir.path().join("test_input.fa.gz");
+    fs::copy(input, &temp_input)?;
+
     // Generate PAF output with default filtering
     eprintln!("Generating PAF output from FASTA...");
     let paf_output = temp_dir.path().join("output.paf");
@@ -93,7 +97,7 @@ fn test_large_scale_paf_output() -> Result<()> {
             "--bin",
             "sweepga",
             "--",
-            input.to_str().unwrap(),
+            temp_input.to_str().unwrap(),
             "--paf",
         ])
         .stdout(fs::File::create(&paf_output)?)
@@ -156,6 +160,10 @@ fn test_large_scale_paf_filtering() -> Result<()> {
 
     let temp_dir = TempDir::new()?;
 
+    // Copy input to temp to avoid accumulating FastGA intermediate files
+    let temp_input = temp_dir.path().join("test_input.fa.gz");
+    fs::copy(input, &temp_input)?;
+
     // Generate truly unfiltered PAF (use -n N:N to disable filtering)
     eprintln!("Generating unfiltered PAF with -n N:N...");
     let unfiltered_paf = temp_dir.path().join("unfiltered.paf");
@@ -167,7 +175,7 @@ fn test_large_scale_paf_filtering() -> Result<()> {
             "--bin",
             "sweepga",
             "--",
-            input.to_str().unwrap(),
+            temp_input.to_str().unwrap(),
             "--paf",
             "-n",
             "N:N",
@@ -280,6 +288,10 @@ fn test_coordinate_stability_at_scale() -> Result<()> {
 
     let temp_dir = TempDir::new()?;
 
+    // Copy input to temp to avoid accumulating FastGA intermediate files
+    let temp_input = temp_dir.path().join("test_input.fa.gz");
+    fs::copy(input, &temp_input)?;
+
     // Run same input twice to verify deterministic output
     eprintln!("Testing coordinate determinism with repeated runs...");
 
@@ -292,7 +304,7 @@ fn test_coordinate_stability_at_scale() -> Result<()> {
             "--bin",
             "sweepga",
             "--",
-            input.to_str().unwrap(),
+            temp_input.to_str().unwrap(),
             "--paf",
         ])
         .stdout(fs::File::create(&paf1)?)
@@ -307,7 +319,7 @@ fn test_coordinate_stability_at_scale() -> Result<()> {
             "--bin",
             "sweepga",
             "--",
-            input.to_str().unwrap(),
+            temp_input.to_str().unwrap(),
             "--paf",
         ])
         .stdout(fs::File::create(&paf2)?)
