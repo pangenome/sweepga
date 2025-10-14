@@ -80,9 +80,9 @@ jobs:
       - name: Check for forbidden files
         run: |
           # Check for files that should never be committed
-          if git ls-tree -r HEAD --name-only | grep -E '\.(fa|fasta|paf|gdb|ktab|bps)$' | grep -v 'data/scerevisiae8.fa.gz'; then
+          if git ls-tree -r HEAD --name-only | grep -E '\.(fa|fasta|paf|gdb|ktab|bps)$' | grep -v 'data/scerevisiae8.fa.gz' | grep -v 'data/B-3106.fa'; then
             echo "ERROR: Found forbidden data files in repository!"
-            echo "Only data/scerevisiae8.fa.gz is allowed"
+            echo "Only data/scerevisiae8.fa.gz and data/B-3106.fa are allowed"
             exit 1
           fi
 
