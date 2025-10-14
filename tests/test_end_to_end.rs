@@ -285,39 +285,47 @@ fn test_filtering_mode_comparison() -> Result<()> {
 
     // Test N:N (no filtering)
     let nn_paf = temp_dir.path().join("nn.paf");
-    Command::new("cargo")
-        .args(&[
-            "run",
-            "--release",
-            "--quiet",
-            "--bin",
-            "sweepga",
-            "--",
-            input.to_str().unwrap(),
-            "--paf",
-            "-n",
-            "N:N",
-        ])
-        .stdout(fs::File::create(&nn_paf)?)
-        .status()?;
+    {
+        let file = fs::File::create(&nn_paf)?;
+        let status = Command::new("cargo")
+            .args(&[
+                "run",
+                "--release",
+                "--quiet",
+                "--bin",
+                "sweepga",
+                "--",
+                input.to_str().unwrap(),
+                "--paf",
+                "-n",
+                "N:N",
+            ])
+            .stdout(file)
+            .status()?;
+        assert!(status.success(), "N:N filtering failed");
+    } // file is closed here
 
     // Test 1:1 filtering
     let one_to_one_paf = temp_dir.path().join("1to1.paf");
-    Command::new("cargo")
-        .args(&[
-            "run",
-            "--release",
-            "--quiet",
-            "--bin",
-            "sweepga",
-            "--",
-            input.to_str().unwrap(),
-            "--paf",
-            "-n",
-            "1:1",
-        ])
-        .stdout(fs::File::create(&one_to_one_paf)?)
-        .status()?;
+    {
+        let file = fs::File::create(&one_to_one_paf)?;
+        let status = Command::new("cargo")
+            .args(&[
+                "run",
+                "--release",
+                "--quiet",
+                "--bin",
+                "sweepga",
+                "--",
+                input.to_str().unwrap(),
+                "--paf",
+                "-n",
+                "1:1",
+            ])
+            .stdout(file)
+            .status()?;
+        assert!(status.success(), "1:1 filtering failed");
+    } // file is closed here
 
     let nn_stats = calculate_coverage_stats(&nn_paf)?;
     let one_to_one_stats = calculate_coverage_stats(&one_to_one_paf)?;
