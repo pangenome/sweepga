@@ -73,8 +73,9 @@ impl PafRecord {
 }
 
 #[test]
-#[ignore = "Slow: 10K+ alignments, 2+ minutes - run manually with --ignored"]
 fn test_large_scale_paf_output() -> Result<()> {
+    // Keep this ONE yeast test for comprehensive validation of default mode
+    // Tests ~10K alignments with real genomic data - sensitive to changes
     let input = Path::new("data/scerevisiae8.fa.gz");
     assert!(
         input.exists(),
@@ -369,5 +370,173 @@ fn test_coordinate_stability_at_scale() -> Result<()> {
         "✓ Coordinate stability verified: {} alignments identical across runs",
         records1.len()
     );
+    Ok(())
+}
+
+/// Fast regression tests using B-3106 (~32KB, runs in seconds)
+/// Provides quick CI feedback while maintaining coverage
+
+#[test]
+fn test_b3106_paf_output() -> Result<()> {
+    // Fast test for basic PAF output validation
+    let input = Path::new("data/B-3106.fa");
+    assert!(
+        input.exists(),
+        "Test data not found: data/B-3106.fa - required for fast CI tests"
+    );
+
+    let temp_dir = TempDir::new()?;
+    let temp_input = temp_dir.path().join("test_input.fa");
+    fs::copy(input, &temp_input)?;
+
+    let paf_output = temp_dir.path().join("output.paf");
+    let status = Command::new("cargo")
+        .args(&[
+            "run",
+            "--release",
+            "--quiet",
+            "--bin",
+            "sweepga",
+            "--",
+            temp_input.to_str().unwrap(),
+            "--paf",
+        ])
+        .stdout(fs::File::create(&paf_output)?)
+        .status()?;
+
+    assert!(status.success(), "Failed to generate PAF output");
+
+    let paf_records = parse_paf_alignments(&paf_output)?;
+    eprintln!("✓ B-3106 PAF test: {} alignments", paf_records.len());
+
+    // Basic validation
+    assert!(paf_records.len() > 0, "Should produce some alignments");
+    
+    for rec in &paf_records {
+        assert!(rec.query_start < rec.query_end, "Valid query coordinates");
+        assert!(rec.target_start < rec.target_end, "Valid target coordinates");
+        assert!(rec.matches <= rec.block_len, "Matches <= block length");
+    }
+
+    Ok(())
+}
+
+#[test]
+fn test_b3106_filtering_behavior() -> Result<()> {
+    // Fast test for filtering logic
+    let input = Path::new("data/B-3106.fa");
+    assert!(input.exists(), "Test data not found: data/B-3106.fa");
+
+    let temp_dir = TempDir::new()?;
+    let temp_input = temp_dir.path().join("test_input.fa");
+    fs::copy(input, &temp_input)?;
+
+    // Generate N:N (no filtering)
+    let nn_paf = temp_dir.path().join("nn.paf");
+    Command::new("cargo")
+        .args(&[
+            "run",
+            "--release",
+            "--quiet",
+            "--bin",
+            "sweepga",
+            "--",
+            temp_input.to_str().unwrap(),
+            "--paf",
+            "-n",
+            "N:N",
+        ])
+        .stdout(fs::File::create(&nn_paf)?)
+        .status()?;
+
+    // Generate 1:1 filtered
+    let filtered_paf = temp_dir.path().join("filtered.paf");
+    Command::new("cargo")
+        .args(&[
+            "run",
+            "--release",
+            "--quiet",
+            "--bin",
+            "sweepga",
+            "--",
+            nn_paf.to_str().unwrap(),
+            "-n",
+            "1:1",
+        ])
+        .stdout(fs::File::create(&filtered_paf)?)
+        .status()?;
+
+    let nn = parse_paf_alignments(&nn_paf)?;
+    let filtered = parse_paf_alignments(&filtered_paf)?;
+
+    eprintln!("✓ B-3106 filtering: N:N={} → 1:1={}", nn.len(), filtered.len());
+
+    // Filtering invariant
+    assert!(filtered.len() <= nn.len(), "1:1 should not increase alignments");
+    assert!(filtered.len() > 0, "Should keep some alignments");
+
+    Ok(())
+}
+
+#[test]
+fn test_b3106_coordinate_determinism() -> Result<()> {
+    // Fast test for deterministic output
+    let input = Path::new("data/B-3106.fa");
+    assert!(input.exists(), "Test data not found: data/B-3106.fa");
+
+    let temp_dir = TempDir::new()?;
+    let temp_input = temp_dir.path().join("test_input.fa");
+    fs::copy(input, &temp_input)?;
+
+    // Run twice
+    let paf1 = temp_dir.path().join("run1.paf");
+    Command::new("cargo")
+        .args(&[
+            "run",
+            "--release",
+            "--quiet",
+            "--bin",
+            "sweepga",
+            "--",
+            temp_input.to_str().unwrap(),
+            "--paf",
+        ])
+        .stdout(fs::File::create(&paf1)?)
+        .status()?;
+
+    let paf2 = temp_dir.path().join("run2.paf");
+    Command::new("cargo")
+        .args(&[
+            "run",
+            "--release",
+            "--quiet",
+            "--bin",
+            "sweepga",
+            "--",
+            temp_input.to_str().unwrap(),
+            "--paf",
+        ])
+        .stdout(fs::File::create(&paf2)?)
+        .status()?;
+
+    let records1 = parse_paf_alignments(&paf1)?;
+    let records2 = parse_paf_alignments(&paf2)?;
+
+    assert_eq!(
+        records1.len(),
+        records2.len(),
+        "Same input should produce same count"
+    );
+
+    let mut diffs = 0;
+    for (r1, r2) in records1.iter().zip(records2.iter()) {
+        if r1 != r2 {
+            diffs += 1;
+        }
+    }
+
+    assert_eq!(diffs, 0, "Output should be deterministic");
+    eprintln!("✓ B-3106 determinism: {} identical alignments", records1.len());
+
     Ok(())
 }
