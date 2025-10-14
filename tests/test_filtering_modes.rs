@@ -52,6 +52,11 @@ fn generate_unfiltered_paf(temp_dir: &Path) -> Result<std::path::PathBuf> {
         "Test data not found: data/scerevisiae8.fa.gz - required for CI"
     );
 
+    // Copy input to temp dir so FastGA's intermediate files (.gdb, .ktab, .bps)
+    // are also created in temp and automatically cleaned up
+    let temp_input = temp_dir.join("test_input.fa.gz");
+    fs::copy(input, &temp_input)?;
+
     let output = temp_dir.join("unfiltered.paf");
 
     Command::new("cargo")
@@ -62,7 +67,7 @@ fn generate_unfiltered_paf(temp_dir: &Path) -> Result<std::path::PathBuf> {
             "--bin",
             "sweepga",
             "--",
-            input.to_str().unwrap(),
+            temp_input.to_str().unwrap(),
             "--paf",
             "-n",
             "N:N", // No filtering
@@ -325,7 +330,11 @@ fn test_filter_monotonicity() -> Result<()> {
 )]
 fn test_filter_no_filtering() -> Result<()> {
     let temp_dir = TempDir::new()?;
+
+    // Copy input to temp dir to avoid accumulating intermediate files
     let input = Path::new("data/scerevisiae8.fa.gz");
+    let temp_input = temp_dir.path().join("test_input.fa.gz");
+    fs::copy(input, &temp_input)?;
 
     let output1 = temp_dir.path().join("output1.paf");
     let output2 = temp_dir.path().join("output2.paf");
@@ -339,7 +348,7 @@ fn test_filter_no_filtering() -> Result<()> {
             "--bin",
             "sweepga",
             "--",
-            input.to_str().unwrap(),
+            temp_input.to_str().unwrap(),
             "--paf",
             "-n",
             "N:N",

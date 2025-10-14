@@ -141,6 +141,11 @@ fn test_end_to_end_yeast_coverage() -> Result<()> {
     );
 
     let temp_dir = TempDir::new()?;
+
+    // Copy input to temp to avoid accumulating FastGA intermediate files
+    let temp_input = temp_dir.path().join("test_input.fa.gz");
+    fs::copy(input, &temp_input)?;
+
     let output_paf = temp_dir.path().join("output.paf");
 
     eprintln!("Running end-to-end pipeline on yeast genomes...");
@@ -154,7 +159,7 @@ fn test_end_to_end_yeast_coverage() -> Result<()> {
             "--bin",
             "sweepga",
             "--",
-            input.to_str().unwrap(),
+            temp_input.to_str().unwrap(),
             "--paf",
         ])
         .stdout(fs::File::create(&output_paf)?)
@@ -216,6 +221,10 @@ fn test_one_to_one_preserves_pairs() -> Result<()> {
 
     let temp_dir = TempDir::new()?;
 
+    // Copy input to temp to avoid accumulating FastGA intermediate files
+    let temp_input = temp_dir.path().join("test_input.fa.gz");
+    fs::copy(input, &temp_input)?;
+
     // Generate unfiltered output
     let unfiltered_paf = temp_dir.path().join("unfiltered.paf");
     Command::new("cargo")
@@ -226,7 +235,7 @@ fn test_one_to_one_preserves_pairs() -> Result<()> {
             "--bin",
             "sweepga",
             "--",
-            input.to_str().unwrap(),
+            temp_input.to_str().unwrap(),
             "--paf",
             "-n",
             "N:N",
@@ -283,6 +292,10 @@ fn test_filtering_mode_comparison() -> Result<()> {
 
     let temp_dir = TempDir::new()?;
 
+    // Copy input to temp to avoid accumulating FastGA intermediate files
+    let temp_input = temp_dir.path().join("test_input.fa.gz");
+    fs::copy(input, &temp_input)?;
+
     // Test N:N (no filtering)
     let nn_paf = temp_dir.path().join("nn.paf");
     {
@@ -295,7 +308,7 @@ fn test_filtering_mode_comparison() -> Result<()> {
                 "--bin",
                 "sweepga",
                 "--",
-                input.to_str().unwrap(),
+                temp_input.to_str().unwrap(),
                 "--paf",
                 "-n",
                 "N:N",
@@ -317,7 +330,7 @@ fn test_filtering_mode_comparison() -> Result<()> {
                 "--bin",
                 "sweepga",
                 "--",
-                input.to_str().unwrap(),
+                temp_input.to_str().unwrap(),
                 "--paf",
                 "-n",
                 "1:1",
