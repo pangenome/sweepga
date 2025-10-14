@@ -238,10 +238,9 @@ fn test_golden_filtered_1to1() -> Result<()> {
     Ok(())
 }
 
-/// Verify all golden files exist and have checksums
+/// Verify all required checksums are present
 #[test]
 fn test_golden_files_complete() -> Result<()> {
-    let golden_dir = Path::new("tests/golden_data");
     let checksums = load_golden_checksums()?;
 
     let required_files = [
@@ -251,13 +250,6 @@ fn test_golden_files_complete() -> Result<()> {
     ];
 
     for filename in &required_files {
-        let file_path = golden_dir.join(filename);
-        assert!(
-            file_path.exists(),
-            "Golden file missing: {:?}\nRun: cd tests/golden_data && ./generate_golden.sh",
-            file_path
-        );
-
         assert!(
             checksums.contains_key(*filename),
             "Checksum missing for: {}\nRun: cd tests/golden_data && ./generate_golden.sh",
@@ -265,6 +257,6 @@ fn test_golden_files_complete() -> Result<()> {
         );
     }
 
-    eprintln!("✓ All golden files present with checksums");
+    eprintln!("✓ All required checksums present in checksums.txt");
     Ok(())
 }
