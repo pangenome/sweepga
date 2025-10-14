@@ -73,6 +73,7 @@ impl PafRecord {
 }
 
 #[test]
+#[ignore = "Slow: 10K+ alignments, 2+ minutes - run manually with --ignored"]
 fn test_large_scale_paf_output() -> Result<()> {
     let input = Path::new("data/scerevisiae8.fa.gz");
     assert!(
@@ -151,6 +152,7 @@ fn test_large_scale_paf_output() -> Result<()> {
 }
 
 #[test]
+#[ignore = "Slow: 10K+ alignments, 2+ minutes - run manually with --ignored"]
 fn test_large_scale_paf_filtering() -> Result<()> {
     let input = Path::new("data/scerevisiae8.fa.gz");
     assert!(
@@ -279,6 +281,7 @@ fn test_large_scale_paf_filtering() -> Result<()> {
 }
 
 #[test]
+#[ignore = "Slow: 10K+ alignments, 2+ minutes - run manually with --ignored"]
 fn test_coordinate_stability_at_scale() -> Result<()> {
     let input = Path::new("data/scerevisiae8.fa.gz");
     assert!(
