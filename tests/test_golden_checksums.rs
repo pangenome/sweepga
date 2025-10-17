@@ -47,19 +47,32 @@ fn sha256sum_1aln_normalized(path: &Path) -> Result<String> {
     let mut grep = Command::new("grep")
         .arg("-v")
         .arg("^!")
-        .stdin(oneview.stdout.take().ok_or_else(|| anyhow::anyhow!("Failed to pipe ONEview"))?)
+        .stdin(
+            oneview
+                .stdout
+                .take()
+                .ok_or_else(|| anyhow::anyhow!("Failed to pipe ONEview"))?,
+        )
         .stdout(std::process::Stdio::piped())
         .spawn()
         .context("Failed to spawn grep")?;
 
     let mut sort = Command::new("sort")
-        .stdin(grep.stdout.take().ok_or_else(|| anyhow::anyhow!("Failed to pipe grep"))?)
+        .stdin(
+            grep.stdout
+                .take()
+                .ok_or_else(|| anyhow::anyhow!("Failed to pipe grep"))?,
+        )
         .stdout(std::process::Stdio::piped())
         .spawn()
         .context("Failed to spawn sort")?;
 
     let sha256sum = Command::new("sha256sum")
-        .stdin(sort.stdout.take().ok_or_else(|| anyhow::anyhow!("Failed to pipe sort"))?)
+        .stdin(
+            sort.stdout
+                .take()
+                .ok_or_else(|| anyhow::anyhow!("Failed to pipe sort"))?,
+        )
         .output()
         .context("Failed to run sha256sum")?;
 
@@ -136,9 +149,7 @@ fn test_golden_1aln_output() -> Result<()> {
     // Use gunzip (no -c flag) to gunzip in-place and remove .gz file
     // This is important because FastGA embeds the filename in .1aln format
     let temp_input = temp_dir_path.join("test_input.fa");
-    Command::new("gunzip")
-        .arg(&temp_input_gz)
-        .status()?;
+    Command::new("gunzip").arg(&temp_input_gz).status()?;
 
     Command::new("cargo")
         .args(&[
@@ -216,9 +227,7 @@ fn test_golden_paf_output() -> Result<()> {
     // Use gunzip (no -c flag) to gunzip in-place and remove .gz file
     // This is important because FastGA embeds the filename in .1aln format
     let temp_input = temp_dir_path.join("test_input.fa");
-    Command::new("gunzip")
-        .arg(&temp_input_gz)
-        .status()?;
+    Command::new("gunzip").arg(&temp_input_gz).status()?;
 
     Command::new("cargo")
         .args(&[
@@ -286,9 +295,7 @@ fn test_golden_filtered_1to1() -> Result<()> {
     // Use gunzip (no -c flag) to gunzip in-place and remove .gz file
     // This is important because FastGA embeds the filename in .1aln format
     let temp_input = temp_dir_path.join("test_input.fa");
-    Command::new("gunzip")
-        .arg(&temp_input_gz)
-        .status()?;
+    Command::new("gunzip").arg(&temp_input_gz).status()?;
 
     // First generate unfiltered
     let unfiltered = temp_dir_path.join("unfiltered.1aln");
