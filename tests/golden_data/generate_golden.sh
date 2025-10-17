@@ -27,7 +27,11 @@ cargo build --release --quiet
 
 # Create test input (deterministic - use existing test data)
 echo "Creating test input..."
-TEMP_DIR=$(mktemp -d)
+# Use fixed temp directory to ensure deterministic output
+# (mktemp creates random paths which can affect .1aln binary format)
+TEMP_DIR="/tmp/sweepga_golden_gen"
+rm -rf "$TEMP_DIR"
+mkdir -p "$TEMP_DIR"
 trap "rm -rf $TEMP_DIR" EXIT
 
 # Use existing test data if available
@@ -63,26 +67,38 @@ PYTHON
     cp /tmp/test_input_golden.fa "$TEMP_DIR/test_input.fa"
 fi
 
-# Generate .1aln output
+# Generate .1aln output (use cargo run to match test environment)
 echo "Generating .1aln golden file..."
-./target/release/sweepga "$TEMP_DIR/test_input.fa" > "$GOLDEN_DIR/golden_output.1aln" 2>/dev/null || true
+cargo run --release --quiet --bin sweepga -- "$TEMP_DIR/test_input.fa" > "$GOLDEN_DIR/golden_output.1aln" 2>/dev/null || true
 
 # Generate filtered .1aln (1:1 mode)
 echo "Generating filtered .1aln golden file..."
 if [ -f "$GOLDEN_DIR/golden_output.1aln" ]; then
-    ./target/release/sweepga "$GOLDEN_DIR/golden_output.1aln" -n 1:1 > "$GOLDEN_DIR/golden_filtered_1to1.1aln" 2>/dev/null || true
+    cargo run --release --quiet --bin sweepga -- "$GOLDEN_DIR/golden_output.1aln" -n 1:1 > "$GOLDEN_DIR/golden_filtered_1to1.1aln" 2>/dev/null || true
 fi
 
 # Generate PAF output
 echo "Generating PAF golden file..."
-./target/release/sweepga "$TEMP_DIR/test_input.fa" --paf > "$GOLDEN_DIR/golden_output.paf" 2>/dev/null || true
+cargo run --release --quiet --bin sweepga -- "$TEMP_DIR/test_input.fa" --paf > "$GOLDEN_DIR/golden_output.paf" 2>/dev/null || true
 
 # Generate checksums
 echo "Generating checksums..."
 cd "$GOLDEN_DIR"
 rm -f checksums.txt
 
-for file in golden_*.1aln golden_*.paf; do
+# For .1aln files: use normalized checksums (ONEview + filter provenance + sort)
+# This removes non-deterministic provenance records ('!' lines with timestamps/paths)
+# and sorts output to handle non-deterministic record ordering from FastGA multithreading
+for file in golden_*.1aln; do
+    if [ -f "$file" ]; then
+        echo "Computing normalized checksum for $file..."
+        CHECKSUM=$(ONEview "$file" | grep -v '^!' | sort | sha256sum | awk '{print $1}')
+        echo "$CHECKSUM  $file" >> checksums.txt
+    fi
+done
+
+# For PAF files: use regular checksums (deterministic)
+for file in golden_*.paf; do
     if [ -f "$file" ]; then
         sha256sum "$file" >> checksums.txt
     fi

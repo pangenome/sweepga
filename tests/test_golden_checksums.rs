@@ -2,7 +2,13 @@
 ///
 /// These tests lock down current behavior to prevent unintended changes.
 /// ANY change to output format/coordinates/filtering will fail these tests.
-use anyhow::Result;
+///
+/// IMPORTANT: These tests must run sequentially (not in parallel) because they
+/// all use the same fixed temp directory path `/tmp/sweepga_golden_gen`.
+/// The temp directory path affects .1aln binary format, so must match exactly.
+///
+/// Run with: `cargo test test_golden -- --test-threads=1`
+use anyhow::{Context, Result};
 use std::fs;
 use std::path::Path;
 use std::process::Command;
@@ -13,6 +19,56 @@ fn sha256sum(path: &Path) -> Result<String> {
     let output = Command::new("sha256sum").arg(path).output()?;
 
     let stdout = String::from_utf8(output.stdout)?;
+    let checksum = stdout
+        .split_whitespace()
+        .next()
+        .ok_or_else(|| anyhow::anyhow!("Failed to parse sha256sum output"))?;
+
+    Ok(checksum.to_string())
+}
+
+/// Compute SHA256 checksum of a .1aln file with normalized output
+/// Uses ONEview to convert to text, filters out provenance records ('!' lines),
+/// and sorts the output to handle non-deterministic record ordering from FastGA multithreading
+fn sha256sum_1aln_normalized(path: &Path) -> Result<String> {
+    // Run: ONEview file.1aln | grep -v '^!' | sort | sha256sum
+    // This pipeline:
+    // 1. Converts binary .1aln to text
+    // 2. Removes non-deterministic provenance lines
+    // 3. Sorts to canonicalize record order (FastGA multithreading creates non-deterministic order)
+    // 4. Computes checksum of normalized output
+
+    let mut oneview = Command::new("ONEview")
+        .arg(path)
+        .stdout(std::process::Stdio::piped())
+        .spawn()
+        .context("Failed to spawn ONEview")?;
+
+    let mut grep = Command::new("grep")
+        .arg("-v")
+        .arg("^!")
+        .stdin(oneview.stdout.take().ok_or_else(|| anyhow::anyhow!("Failed to pipe ONEview"))?)
+        .stdout(std::process::Stdio::piped())
+        .spawn()
+        .context("Failed to spawn grep")?;
+
+    let mut sort = Command::new("sort")
+        .stdin(grep.stdout.take().ok_or_else(|| anyhow::anyhow!("Failed to pipe grep"))?)
+        .stdout(std::process::Stdio::piped())
+        .spawn()
+        .context("Failed to spawn sort")?;
+
+    let sha256sum = Command::new("sha256sum")
+        .stdin(sort.stdout.take().ok_or_else(|| anyhow::anyhow!("Failed to pipe sort"))?)
+        .output()
+        .context("Failed to run sha256sum")?;
+
+    // Wait for all processes
+    oneview.wait()?;
+    grep.wait()?;
+    sort.wait()?;
+
+    let stdout = String::from_utf8(sha256sum.stdout)?;
     let checksum = stdout
         .split_whitespace()
         .next()
@@ -51,7 +107,6 @@ fn load_golden_checksums() -> Result<std::collections::HashMap<String, String>> 
     target_os = "macos",
     ignore = "FastGA ARM64 compatibility issue on macOS CI"
 )]
-#[ignore = ".1aln output is non-deterministic due to provenance containing temp file paths"]
 fn test_golden_1aln_output() -> Result<()> {
     let golden_checksums = load_golden_checksums()?;
 
@@ -59,9 +114,14 @@ fn test_golden_1aln_output() -> Result<()> {
         .get("golden_output.1aln")
         .ok_or_else(|| anyhow::anyhow!("golden_output.1aln checksum not found"))?;
 
-    // Generate fresh output
-    let temp_dir = TempDir::new()?;
-    let output = temp_dir.path().join("test_output.1aln");
+    // Use EXACT same temp directory as generate_golden.sh (ensures deterministic output)
+    // The temp directory PATH itself affects .1aln binary format, so must match exactly
+    let temp_dir_path = Path::new("/tmp/sweepga_golden_gen");
+    if temp_dir_path.exists() {
+        fs::remove_dir_all(temp_dir_path)?;
+    }
+    fs::create_dir_all(temp_dir_path)?;
+    let output = temp_dir_path.join("test_output.1aln");
 
     // Copy input to temp to avoid accumulating FastGA intermediate files
     let input = Path::new("data/scerevisiae8.fa.gz");
@@ -69,8 +129,16 @@ fn test_golden_1aln_output() -> Result<()> {
         input.exists(),
         "Test data not found: data/scerevisiae8.fa.gz - required for CI"
     );
-    let temp_input = temp_dir.path().join("test_input.fa.gz");
-    fs::copy(input, &temp_input)?;
+    let temp_input_gz = temp_dir_path.join("test_input.fa.gz");
+    fs::copy(input, &temp_input_gz)?;
+
+    // Gunzip to match golden file generation (uncompressed FASTA)
+    // Use gunzip (no -c flag) to gunzip in-place and remove .gz file
+    // This is important because FastGA embeds the filename in .1aln format
+    let temp_input = temp_dir_path.join("test_input.fa");
+    Command::new("gunzip")
+        .arg(&temp_input_gz)
+        .status()?;
 
     Command::new("cargo")
         .args(&[
@@ -85,7 +153,8 @@ fn test_golden_1aln_output() -> Result<()> {
         .stdout(fs::File::create(&output)?)
         .status()?;
 
-    let actual = sha256sum(&output)?;
+    // Use normalized checksum that filters out non-deterministic provenance records
+    let actual = sha256sum_1aln_normalized(&output)?;
 
     assert_eq!(
         &actual, expected,
@@ -126,8 +195,13 @@ fn test_golden_paf_output() -> Result<()> {
         .get("golden_output.paf")
         .ok_or_else(|| anyhow::anyhow!("golden_output.paf checksum not found"))?;
 
-    let temp_dir = TempDir::new()?;
-    let output = temp_dir.path().join("test_output.paf");
+    // Use EXACT same temp directory as generate_golden.sh
+    let temp_dir_path = Path::new("/tmp/sweepga_golden_gen");
+    if temp_dir_path.exists() {
+        fs::remove_dir_all(temp_dir_path)?;
+    }
+    fs::create_dir_all(temp_dir_path)?;
+    let output = temp_dir_path.join("test_output.paf");
 
     // Copy input to temp to avoid accumulating FastGA intermediate files
     let input = Path::new("data/scerevisiae8.fa.gz");
@@ -135,8 +209,16 @@ fn test_golden_paf_output() -> Result<()> {
         input.exists(),
         "Test data not found: data/scerevisiae8.fa.gz - required for CI"
     );
-    let temp_input = temp_dir.path().join("test_input.fa.gz");
-    fs::copy(input, &temp_input)?;
+    let temp_input_gz = temp_dir_path.join("test_input.fa.gz");
+    fs::copy(input, &temp_input_gz)?;
+
+    // Gunzip to match golden file generation (uncompressed FASTA)
+    // Use gunzip (no -c flag) to gunzip in-place and remove .gz file
+    // This is important because FastGA embeds the filename in .1aln format
+    let temp_input = temp_dir_path.join("test_input.fa");
+    Command::new("gunzip")
+        .arg(&temp_input_gz)
+        .status()?;
 
     Command::new("cargo")
         .args(&[
@@ -177,7 +259,6 @@ fn test_golden_paf_output() -> Result<()> {
     target_os = "macos",
     ignore = "FastGA ARM64 compatibility issue on macOS CI"
 )]
-#[ignore = ".1aln output is non-deterministic due to provenance containing temp file paths"]
 fn test_golden_filtered_1to1() -> Result<()> {
     let golden_checksums = load_golden_checksums()?;
 
@@ -185,7 +266,12 @@ fn test_golden_filtered_1to1() -> Result<()> {
         .get("golden_filtered_1to1.1aln")
         .ok_or_else(|| anyhow::anyhow!("golden_filtered_1to1.1aln checksum not found"))?;
 
-    let temp_dir = TempDir::new()?;
+    // Use EXACT same temp directory as generate_golden.sh (ensures deterministic output)
+    let temp_dir_path = Path::new("/tmp/sweepga_golden_gen");
+    if temp_dir_path.exists() {
+        fs::remove_dir_all(temp_dir_path)?;
+    }
+    fs::create_dir_all(temp_dir_path)?;
 
     // Copy input to temp to avoid accumulating FastGA intermediate files
     let input = Path::new("data/scerevisiae8.fa.gz");
@@ -193,11 +279,19 @@ fn test_golden_filtered_1to1() -> Result<()> {
         input.exists(),
         "Test data not found: data/scerevisiae8.fa.gz - required for CI"
     );
-    let temp_input = temp_dir.path().join("test_input.fa.gz");
-    fs::copy(input, &temp_input)?;
+    let temp_input_gz = temp_dir_path.join("test_input.fa.gz");
+    fs::copy(input, &temp_input_gz)?;
+
+    // Gunzip to match golden file generation (uncompressed FASTA)
+    // Use gunzip (no -c flag) to gunzip in-place and remove .gz file
+    // This is important because FastGA embeds the filename in .1aln format
+    let temp_input = temp_dir_path.join("test_input.fa");
+    Command::new("gunzip")
+        .arg(&temp_input_gz)
+        .status()?;
 
     // First generate unfiltered
-    let unfiltered = temp_dir.path().join("unfiltered.1aln");
+    let unfiltered = temp_dir_path.join("unfiltered.1aln");
     Command::new("cargo")
         .args(&[
             "run",
@@ -212,7 +306,7 @@ fn test_golden_filtered_1to1() -> Result<()> {
         .status()?;
 
     // Then filter with 1:1
-    let output = temp_dir.path().join("filtered.1aln");
+    let output = temp_dir_path.join("filtered.1aln");
     Command::new("cargo")
         .args(&[
             "run",
@@ -228,7 +322,8 @@ fn test_golden_filtered_1to1() -> Result<()> {
         .stdout(fs::File::create(&output)?)
         .status()?;
 
-    let actual = sha256sum(&output)?;
+    // Use normalized checksum that filters out non-deterministic provenance records
+    let actual = sha256sum_1aln_normalized(&output)?;
 
     assert_eq!(
         &actual, expected,
