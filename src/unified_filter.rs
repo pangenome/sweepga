@@ -176,7 +176,9 @@ pub fn write_1aln_filtered<P1: AsRef<Path>, P2: AsRef<Path>>(
     // Explicitly finalize the output file
     writer.finalize();
 
-    eprintln!("[unified_filter] Wrote {written} alignments to .1aln (GDB preserved via open_write_from)");
+    eprintln!(
+        "[unified_filter] Wrote {written} alignments to .1aln (GDB preserved via open_write_from)"
+    );
     Ok(())
 }
 

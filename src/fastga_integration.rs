@@ -225,14 +225,14 @@ impl FastGAIntegration {
             + ".1gdb";
 
         // Copy BOTH files to temp location
-        std::fs::copy(&aln_path, temp_aln_path)
-            .context("Failed to copy .1aln to temp")?;
+        std::fs::copy(&aln_path, temp_aln_path).context("Failed to copy .1aln to temp")?;
 
         if std::path::Path::new(&gdb_path).exists() {
-            std::fs::copy(&gdb_path, &temp_gdb_path)
-                .context("Failed to copy .1gdb to temp")?;
-            eprintln!("[fastga] Preserved .1gdb with {} sequence names",
-                     std::fs::metadata(&temp_gdb_path)?.len());
+            std::fs::copy(&gdb_path, &temp_gdb_path).context("Failed to copy .1gdb to temp")?;
+            eprintln!(
+                "[fastga] Preserved .1gdb with {} sequence names",
+                std::fs::metadata(&temp_gdb_path)?.len()
+            );
         } else {
             eprintln!("[fastga] WARNING: No .1gdb file found at {}", gdb_path);
         }
