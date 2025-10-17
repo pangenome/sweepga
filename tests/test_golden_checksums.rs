@@ -117,8 +117,8 @@ fn load_golden_checksums() -> Result<std::collections::HashMap<String, String>> 
 
 #[test]
 #[cfg_attr(
-    target_os = "macos",
-    ignore = "FastGA ARM64 compatibility issue on macOS CI"
+    any(target_os = "macos", target_os = "linux"),
+    ignore = "Requires ONEview (not available on CI) - run locally with ./generate_golden.sh"
 )]
 fn test_golden_1aln_output() -> Result<()> {
     let golden_checksums = load_golden_checksums()?;
@@ -196,8 +196,8 @@ fn test_golden_1aln_output() -> Result<()> {
 
 #[test]
 #[cfg_attr(
-    target_os = "macos",
-    ignore = "FastGA ARM64 compatibility issue on macOS CI"
+    any(target_os = "macos", target_os = "linux"),
+    ignore = "Requires FastGA (not configured on CI) - run locally with ./generate_golden.sh"
 )]
 fn test_golden_paf_output() -> Result<()> {
     let golden_checksums = load_golden_checksums()?;
@@ -265,8 +265,8 @@ fn test_golden_paf_output() -> Result<()> {
 
 #[test]
 #[cfg_attr(
-    target_os = "macos",
-    ignore = "FastGA ARM64 compatibility issue on macOS CI"
+    any(target_os = "macos", target_os = "linux"),
+    ignore = "Requires ONEview (not available on CI) - run locally with ./generate_golden.sh"
 )]
 fn test_golden_filtered_1to1() -> Result<()> {
     let golden_checksums = load_golden_checksums()?;
