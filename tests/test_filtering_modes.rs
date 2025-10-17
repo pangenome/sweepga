@@ -2,6 +2,12 @@
 ///
 /// Tests various N:M filtering modes to ensure plane sweep algorithm
 /// works correctly across different multiplicity constraints.
+///
+/// IMPORTANT: These tests may fail with race conditions when run in parallel
+/// on Linux due to FastGA multithreading issues. CI runs with --test-threads=1
+/// on Linux to avoid this. If you see tests getting 0 mappings locally, run:
+///
+///   cargo test test_filter -- --test-threads=1
 use anyhow::Result;
 use std::collections::HashMap;
 use std::fs;

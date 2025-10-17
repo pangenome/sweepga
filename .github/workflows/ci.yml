@@ -75,8 +75,13 @@ jobs:
           FASTGA_RELEASE_ABS=$(cd $(dirname $FASTGA_RELEASE) && pwd)
           export PATH="$FASTGA_DEBUG_ABS:$FASTGA_RELEASE_ABS:$PATH"
           echo "PATH for tests: $PATH"
-          # Race condition fixed in fastga-rs rev 6662984 - parallel execution now safe
-          cargo test --verbose
+          # FastGA has race conditions with parallel test execution on Linux
+          # Run tests sequentially to avoid 0-mapping failures
+          if [[ "${{ runner.os }}" == "Linux" ]]; then
+            cargo test --verbose -- --test-threads=1
+          else
+            cargo test --verbose
+          fi
 
       - name: Check for forbidden files
         run: |
