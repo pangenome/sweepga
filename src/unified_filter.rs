@@ -139,6 +139,7 @@ pub fn extract_1aln_metadata<P: AsRef<Path>>(
 }
 
 /// Write filtered .1aln using passing ranks
+/// IMPORTANT: Also copies the .1gdb file from input to output to preserve sequence names
 pub fn write_1aln_filtered<P1: AsRef<Path>, P2: AsRef<Path>>(
     input_path: P1,
     output_path: P2,
@@ -150,8 +151,13 @@ pub fn write_1aln_filtered<P1: AsRef<Path>, P2: AsRef<Path>>(
     // Re-open input for reading
     let mut reader = fastga_rs::AlnReader::open(path_str)?;
 
-    // Create output writer
-    let mut writer = fastga_rs::AlnWriter::create(output_path.as_ref(), true)?;
+    // Create output writer with GDB copied from input
+    // This preserves sequence names when filtering
+    let mut writer = fastga_rs::AlnWriter::create_with_gdb(
+        output_path.as_ref(),
+        input_path.as_ref(),
+        true, // binary
+    )?;
 
     let mut rank = 0;
     let mut written = 0;
@@ -167,7 +173,10 @@ pub fn write_1aln_filtered<P1: AsRef<Path>, P2: AsRef<Path>>(
         rank += 1;
     }
 
-    eprintln!("[unified_filter] Wrote {written} alignments to .1aln");
+    // Explicitly finalize the output file
+    writer.finalize();
+
+    eprintln!("[unified_filter] Wrote {written} alignments to .1aln (GDB preserved via open_write_from)");
     Ok(())
 }
 

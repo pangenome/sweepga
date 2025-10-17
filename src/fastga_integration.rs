@@ -187,6 +187,7 @@ impl FastGAIntegration {
 
     /// Run FastGA alignment and return .1aln file directly (NO PAF conversion)
     /// This is the native FastGA output format
+    /// IMPORTANT: Also copies the .1gdb file alongside the .1aln to preserve sequence names
     pub fn align_to_temp_1aln(&self, queries: &Path, targets: &Path) -> Result<NamedTempFile> {
         // Create orchestrator to run FastGA binary directly
         let orchestrator = fastga_rs::orchestrator::FastGAOrchestrator {
@@ -197,19 +198,50 @@ impl FastGAIntegration {
             temp_dir: std::env::var("TMPDIR").unwrap_or_else(|_| ".".to_string()),
         };
 
-        // Run alignment - FastGA creates .1aln natively
+        // Run alignment - FastGA creates BOTH .1aln and .1gdb files
         let aln_path = orchestrator
             .align_to_1aln(queries, targets)
             .map_err(|e| anyhow::anyhow!("Failed to run FastGA alignment: {}", e))?;
 
-        // Open the .1aln file as a NamedTempFile
-        let temp_file = NamedTempFile::new().context("Failed to create temp file")?;
-        std::fs::copy(&aln_path, temp_file.path())?;
+        // Derive .1gdb path from .1aln path
+        let gdb_path = aln_path
+            .strip_suffix(".1aln")
+            .unwrap_or(&aln_path)
+            .to_string()
+            + ".1gdb";
 
-        // Clean up original
+        // Create temp file for .1aln (NamedTempFile ensures unique name)
+        let temp_aln = NamedTempFile::new().context("Failed to create temp .1aln file")?;
+        let temp_aln_path = temp_aln.path();
+
+        // Derive temp .1gdb path (same base name as temp .1aln)
+        let temp_gdb_path = temp_aln_path
+            .to_str()
+            .context("Invalid temp path")?
+            .strip_suffix(".1aln")
+            .or_else(|| temp_aln_path.to_str())
+            .unwrap()
+            .to_string()
+            + ".1gdb";
+
+        // Copy BOTH files to temp location
+        std::fs::copy(&aln_path, temp_aln_path)
+            .context("Failed to copy .1aln to temp")?;
+
+        if std::path::Path::new(&gdb_path).exists() {
+            std::fs::copy(&gdb_path, &temp_gdb_path)
+                .context("Failed to copy .1gdb to temp")?;
+            eprintln!("[fastga] Preserved .1gdb with {} sequence names",
+                     std::fs::metadata(&temp_gdb_path)?.len());
+        } else {
+            eprintln!("[fastga] WARNING: No .1gdb file found at {}", gdb_path);
+        }
+
+        // Clean up originals
         let _ = std::fs::remove_file(&aln_path);
+        let _ = std::fs::remove_file(&gdb_path);
 
-        Ok(temp_file)
+        Ok(temp_aln)
     }
 
     /// Run FastGA alignment and write output to a temporary PAF file

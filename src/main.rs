@@ -1387,6 +1387,7 @@ fn main() -> Result<()> {
     // Enable .1aln workflow when:
     // - Input is .1aln or FASTA (not PAF)
     // - User hasn't explicitly requested PAF output with --paf flag
+    // GDB is now preserved using AlnWriter::create_with_gdb (via open_write_from)
     let input_is_paf =
         !input_file_types.is_empty() && input_file_types.iter().all(|ft| *ft == FileType::Paf);
     let want_paf_output = args.output_paf
