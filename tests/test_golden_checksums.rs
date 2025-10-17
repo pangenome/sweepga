@@ -115,11 +115,11 @@ fn load_golden_checksums() -> Result<std::collections::HashMap<String, String>> 
     Ok(checksums)
 }
 
+/// Test that .1aln output matches golden checksums
+///
+/// Note: This test is skipped on CI (--skip test_golden) because ONEview is not available,
+/// but runs by default locally. Run with: cd tests/golden_data && ./generate_golden.sh
 #[test]
-#[cfg_attr(
-    any(target_os = "macos", target_os = "linux"),
-    ignore = "Requires ONEview (not available on CI) - run locally with ./generate_golden.sh"
-)]
 fn test_golden_1aln_output() -> Result<()> {
     let golden_checksums = load_golden_checksums()?;
 
@@ -194,11 +194,11 @@ fn test_golden_1aln_output() -> Result<()> {
     Ok(())
 }
 
+/// Test that PAF output matches golden checksums
+///
+/// Note: This test is skipped on CI (--skip test_golden) because ONEview is not available,
+/// but runs by default locally. Run with: cd tests/golden_data && ./generate_golden.sh
 #[test]
-#[cfg_attr(
-    any(target_os = "macos", target_os = "linux"),
-    ignore = "Requires FastGA (not configured on CI) - run locally with ./generate_golden.sh"
-)]
 fn test_golden_paf_output() -> Result<()> {
     let golden_checksums = load_golden_checksums()?;
 
@@ -263,11 +263,11 @@ fn test_golden_paf_output() -> Result<()> {
     Ok(())
 }
 
+/// Test that 1:1 filtered output matches golden checksums
+///
+/// Note: This test is skipped on CI (--skip test_golden) because ONEview is not available,
+/// but runs by default locally. Run with: cd tests/golden_data && ./generate_golden.sh
 #[test]
-#[cfg_attr(
-    any(target_os = "macos", target_os = "linux"),
-    ignore = "Requires ONEview (not available on CI) - run locally with ./generate_golden.sh"
-)]
 fn test_golden_filtered_1to1() -> Result<()> {
     let golden_checksums = load_golden_checksums()?;
 

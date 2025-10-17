@@ -128,11 +128,10 @@ struct CoverageStats {
 }
 
 /// Test end-to-end pipeline with yeast genomes
+///
+/// Note: This test is skipped on CI (--skip test_end_to_end) due to FastGA race conditions,
+/// but runs by default locally. Run with: cargo test test_end_to_end -- --test-threads=1
 #[test]
-#[cfg_attr(
-    any(target_os = "macos", target_os = "linux"),
-    ignore = "FastGA race conditions on CI - run locally with --test-threads=1"
-)]
 fn test_end_to_end_yeast_coverage() -> Result<()> {
     let input = Path::new("data/scerevisiae8.fa.gz");
     assert!(
@@ -207,11 +206,10 @@ fn test_end_to_end_yeast_coverage() -> Result<()> {
 }
 
 /// Test that 1:1 filtering preserves genome pair coverage
+///
+/// Note: This test is skipped on CI (--skip test_end_to_end) due to FastGA race conditions,
+/// but runs by default locally. Run with: cargo test test_end_to_end -- --test-threads=1
 #[test]
-#[cfg_attr(
-    any(target_os = "macos", target_os = "linux"),
-    ignore = "FastGA race conditions on CI - run locally with --test-threads=1"
-)]
 fn test_one_to_one_preserves_pairs() -> Result<()> {
     let input = Path::new("data/scerevisiae8.fa.gz");
     assert!(
@@ -282,11 +280,10 @@ fn test_one_to_one_preserves_pairs() -> Result<()> {
 }
 
 /// Test that pipeline handles different filtering modes correctly
+///
+/// Note: This test is skipped on CI (--skip test_end_to_end) due to FastGA race conditions,
+/// but runs by default locally. Run with: cargo test test_end_to_end -- --test-threads=1
 #[test]
-#[cfg_attr(
-    any(target_os = "macos", target_os = "linux"),
-    ignore = "FastGA race conditions on CI - run locally with --test-threads=1"
-)]
 fn test_filtering_mode_comparison() -> Result<()> {
     let input = Path::new("data/scerevisiae8.fa.gz");
     assert!(
