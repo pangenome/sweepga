@@ -11,7 +11,7 @@ rayon = "1.10"
 byteorder = "1.5"
 tempfile = "3.8"
 ordered-float = "4.0"
-fastga-rs = { git = "https://github.com/pangenome/fastga-rs.git", rev = "fe93fed" }
+fastga-rs = { git = "https://github.com/pangenome/fastga-rs.git", rev = "e5ef750" }
 onecode = { git = "https://github.com/pangenome/onecode-rs.git", rev = "2811715" }
 chrono = "0.4"
 flate2 = "1.0"
