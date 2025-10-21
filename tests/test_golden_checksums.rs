@@ -3,21 +3,43 @@
 /// These tests lock down current behavior to prevent unintended changes.
 /// ANY change to output format/coordinates/filtering will fail these tests.
 ///
-/// ⚠️  CRITICAL: MUST RUN WITH --test-threads=1 ⚠️
+/// These tests now support parallel execution by filtering out path-specific
+/// information from .1aln files (both `!` provenance lines and `<` header lines
+/// containing directory paths).
 ///
-/// Run with: `cargo test test_golden -- --test-threads=1`
-///
-/// WHY SERIAL EXECUTION IS REQUIRED:
-/// - ONElib .1aln format embeds absolute directory paths in `<` lines (not just `!` provenance)
-/// - All tests must use the EXACT same directory: `/tmp/sweepga_golden_gen`
-/// - Different paths → different file contents → checksum failures
-/// - This is a fundamental .1aln format constraint that cannot be avoided
-///
-/// Running these tests in parallel will cause random failures due to shared directory conflicts.
+/// Run with: `cargo test test_golden`
 use anyhow::{Context, Result};
 use std::fs;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::Command;
+use tempfile::TempDir;
+
+/// Find ONEview binary from fastga-rs build output
+fn find_oneview() -> Result<PathBuf> {
+    // ONEview is built by fastga-rs and placed in its OUT_DIR
+    // The path pattern is: target/{profile}/build/fastga-rs-{hash}/out/ONEview
+    let target_dir = Path::new("target");
+
+    for profile in &["release", "debug"] {
+        let build_dir = target_dir.join(profile).join("build");
+        if !build_dir.exists() {
+            continue;
+        }
+
+        for entry in fs::read_dir(&build_dir)? {
+            let entry = entry?;
+            let path = entry.path();
+            if path.is_dir() && entry.file_name().to_string_lossy().starts_with("fastga-rs-") {
+                let oneview = path.join("out").join("ONEview");
+                if oneview.exists() {
+                    return Ok(oneview);
+                }
+            }
+        }
+    }
+
+    anyhow::bail!("ONEview not found in fastga-rs build output. Run: cargo build --release")
+}
 
 /// Compute SHA256 checksum of a file
 fn sha256sum(path: &Path) -> Result<String> {
@@ -33,17 +55,19 @@ fn sha256sum(path: &Path) -> Result<String> {
 }
 
 /// Compute SHA256 checksum of a .1aln file with normalized output
-/// Uses ONEview to convert to text, filters out provenance records ('!' lines),
+/// Uses ONEview to convert to text, filters out path-dependent lines ('!' and '<'),
 /// and sorts the output to handle non-deterministic record ordering from FastGA multithreading
 fn sha256sum_1aln_normalized(path: &Path) -> Result<String> {
-    // Run: ONEview file.1aln | grep -v '^!' | sort | sha256sum
+    // Run: ONEview file.1aln | grep -v '^[!<]' | sort | sha256sum
     // This pipeline:
     // 1. Converts binary .1aln to text
-    // 2. Removes non-deterministic provenance lines
+    // 2. Removes non-deterministic provenance lines ('!') and path-containing headers ('<')
     // 3. Sorts to canonicalize record order (FastGA multithreading creates non-deterministic order)
     // 4. Computes checksum of normalized output
 
-    let mut oneview = Command::new("ONEview")
+    let oneview_bin = find_oneview()?;
+
+    let mut oneview = Command::new(&oneview_bin)
         .arg(path)
         .stdout(std::process::Stdio::piped())
         .spawn()
@@ -51,7 +75,7 @@ fn sha256sum_1aln_normalized(path: &Path) -> Result<String> {
 
     let mut grep = Command::new("grep")
         .arg("-v")
-        .arg("^!")
+        .arg("^[!<]")  // Filter out both '!' (provenance) and '<' (path-containing headers)
         .stdin(
             oneview
                 .stdout
@@ -132,13 +156,9 @@ fn test_golden_1aln_output() -> Result<()> {
         .get("golden_output.1aln")
         .ok_or_else(|| anyhow::anyhow!("golden_output.1aln checksum not found"))?;
 
-    // Use EXACT same temp directory as generate_golden.sh (ensures deterministic output)
-    // The temp directory PATH itself affects .1aln binary format, so must match exactly
-    let temp_dir_path = Path::new("/tmp/sweepga_golden_gen");
-    if temp_dir_path.exists() {
-        fs::remove_dir_all(temp_dir_path)?;
-    }
-    fs::create_dir_all(temp_dir_path)?;
+    // Use temporary directory (path-independent now that we filter out '<' lines)
+    let temp_dir = TempDir::new()?;
+    let temp_dir_path = temp_dir.path();
     let output = temp_dir_path.join("test_output.1aln");
 
     // Copy input to temp to avoid accumulating FastGA intermediate files
@@ -218,12 +238,9 @@ fn test_golden_paf_output() -> Result<()> {
         .get("golden_output.paf")
         .ok_or_else(|| anyhow::anyhow!("golden_output.paf checksum not found"))?;
 
-    // Use EXACT same temp directory as generate_golden.sh
-    let temp_dir_path = Path::new("/tmp/sweepga_golden_gen");
-    if temp_dir_path.exists() {
-        fs::remove_dir_all(temp_dir_path)?;
-    }
-    fs::create_dir_all(temp_dir_path)?;
+    // Use temporary directory
+    let temp_dir = TempDir::new()?;
+    let temp_dir_path = temp_dir.path();
     let output = temp_dir_path.join("test_output.paf");
 
     // Copy input to temp to avoid accumulating FastGA intermediate files
@@ -293,12 +310,9 @@ fn test_golden_filtered_1to1() -> Result<()> {
         .get("golden_filtered_1to1.1aln")
         .ok_or_else(|| anyhow::anyhow!("golden_filtered_1to1.1aln checksum not found"))?;
 
-    // Use EXACT same temp directory as generate_golden.sh (ensures deterministic output)
-    let temp_dir_path = Path::new("/tmp/sweepga_golden_gen");
-    if temp_dir_path.exists() {
-        fs::remove_dir_all(temp_dir_path)?;
-    }
-    fs::create_dir_all(temp_dir_path)?;
+    // Use temporary directory (path-independent now that we filter out '<' lines)
+    let temp_dir = TempDir::new()?;
+    let temp_dir_path = temp_dir.path();
 
     // Copy input to temp to avoid accumulating FastGA intermediate files
     let input = Path::new("data/scerevisiae8.fa.gz");

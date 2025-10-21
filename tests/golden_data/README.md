@@ -10,20 +10,22 @@ Golden files lock down exact behavior to prevent unintended changes:
 - Filtering consistency
 - Output format preservation
 
-## CRITICAL: Tests Must Run Serially
+## Tests Support Parallel Execution ✨
 
-The golden tests in `tests/test_golden_checksums.rs` **MUST** run with `--test-threads=1`:
+Golden tests now run in **parallel** (default behavior) thanks to path-independent checksumming:
 
 ```bash
-cargo test test_golden -- --test-threads=1
+cargo test test_golden  # Runs in parallel automatically!
 ```
 
-**Why?** The ONElib .1aln binary format embeds the **absolute directory path** in the file's `<` lines (not just provenance `!` lines). This means:
-- Different temp directory paths → different .1aln file contents → different checksums
-- All tests must use the EXACT same directory: `/tmp/sweepga_golden_gen`
-- Running in parallel would cause tests to interfere with each other's temp directories
+**How it works:**
+- ONEview (bundled with fastga-rs build) converts .1aln binary to text
+- Filter out path-dependent lines: `!` (provenance) and `<` (headers containing directory paths)
+- Sort output to handle non-deterministic FastGA multithreading
+- Compute checksum of normalized output
+- Each test uses unique temp directories without conflicts
 
-This is a fundamental constraint of the .1aln format and cannot be avoided without changing ONElib itself.
+This was previously impossible because .1aln format embeds absolute directory paths in `<` header lines.
 
 ## Files
 

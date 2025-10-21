@@ -27,8 +27,7 @@ cargo build --release --quiet
 
 # Create test input (deterministic - use existing test data)
 echo "Creating test input..."
-# Use fixed temp directory to ensure deterministic output
-# (mktemp creates random paths which can affect .1aln binary format)
+# Use fixed temp directory for convenience (tests now filter out path info from checksums)
 TEMP_DIR="/tmp/sweepga_golden_gen"
 rm -rf "$TEMP_DIR"
 mkdir -p "$TEMP_DIR"
@@ -86,13 +85,13 @@ echo "Generating checksums..."
 cd "$GOLDEN_DIR"
 rm -f checksums.txt
 
-# For .1aln files: use normalized checksums (ONEview + filter provenance + sort)
-# This removes non-deterministic provenance records ('!' lines with timestamps/paths)
+# For .1aln files: use normalized checksums (ONEview + filter path-dependent lines + sort)
+# This removes non-deterministic provenance records ('!' lines) and path-containing headers ('<' lines)
 # and sorts output to handle non-deterministic record ordering from FastGA multithreading
 for file in golden_*.1aln; do
     if [ -f "$file" ]; then
         echo "Computing normalized checksum for $file..."
-        CHECKSUM=$(ONEview "$file" | grep -v '^!' | sort | sha256sum | awk '{print $1}')
+        CHECKSUM=$(ONEview "$file" | grep -v '^[!<]' | sort | sha256sum | awk '{print $1}')
         echo "$CHECKSUM  $file" >> checksums.txt
     fi
 done
