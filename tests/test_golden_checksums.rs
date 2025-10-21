@@ -29,7 +29,12 @@ fn find_oneview() -> Result<PathBuf> {
         for entry in fs::read_dir(&build_dir)? {
             let entry = entry?;
             let path = entry.path();
-            if path.is_dir() && entry.file_name().to_string_lossy().starts_with("fastga-rs-") {
+            if path.is_dir()
+                && entry
+                    .file_name()
+                    .to_string_lossy()
+                    .starts_with("fastga-rs-")
+            {
                 let oneview = path.join("out").join("ONEview");
                 if oneview.exists() {
                     return Ok(oneview);
@@ -75,7 +80,7 @@ fn sha256sum_1aln_normalized(path: &Path) -> Result<String> {
 
     let mut grep = Command::new("grep")
         .arg("-v")
-        .arg("^[!<]")  // Filter out both '!' (provenance) and '<' (path-containing headers)
+        .arg("^[!<]") // Filter out both '!' (provenance) and '<' (path-containing headers)
         .stdin(
             oneview
                 .stdout
