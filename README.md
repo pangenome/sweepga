@@ -39,6 +39,22 @@ cd sweepga
 cargo install --force --path .
 ```
 
+### Build Issues on Mixed glibc Systems
+
+If you encounter linker errors like `undefined reference to __pthread_barrier_wait@GLIBC_PRIVATE`, this indicates a mixed glibc environment (e.g., Debian + Guix). The system's `librt.so` is incompatible with libraries from a different glibc version in your PATH.
+
+**Solution:** Use the provided build script that creates a clean environment:
+
+```bash
+# Build only
+./scripts/build-clean.sh
+
+# Build and install to ~/.cargo/bin
+./scripts/build-clean.sh --install
+```
+
+This script removes package manager paths (like Guix) from the build environment to ensure consistent glibc usage. See [docs/BUILD-NOTES.md](docs/BUILD-NOTES.md) for technical details.
+
 ### With Guix
 
 Adapted from https://issues.genenetwork.org/topics/rust/guix-rust-bootstrap:
