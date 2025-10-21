@@ -151,18 +151,25 @@ fn test_golden_1aln_output() -> Result<()> {
     let temp_input = temp_dir_path.join("test_input.fa");
     Command::new("gunzip").arg(&temp_input_gz).status()?;
 
-    Command::new("cargo")
-        .args(&[
-            "run",
-            "--release",
-            "--quiet",
-            "--bin",
-            "sweepga",
-            "--",
-            temp_input.to_str().unwrap(),
-        ])
-        .stdout(fs::File::create(&output)?)
-        .status()?;
+    // Use the release binary directly instead of cargo run to avoid subprocess issues
+    let sweepga_bin = Path::new("target/release/sweepga");
+    if !sweepga_bin.exists() {
+        anyhow::bail!("Release binary not found. Run: cargo build --release");
+    }
+
+    let result = Command::new(sweepga_bin)
+        .arg(temp_input.to_str().unwrap())
+        .output()?;
+
+    if !result.status.success() {
+        anyhow::bail!(
+            "sweepga failed with status {:?}\nstderr: {}",
+            result.status.code(),
+            String::from_utf8_lossy(&result.stderr)
+        );
+    }
+
+    fs::write(&output, result.stdout)?;
 
     // Use normalized checksum that filters out non-deterministic provenance records
     let actual = sha256sum_1aln_normalized(&output)?;
@@ -229,19 +236,25 @@ fn test_golden_paf_output() -> Result<()> {
     let temp_input = temp_dir_path.join("test_input.fa");
     Command::new("gunzip").arg(&temp_input_gz).status()?;
 
-    Command::new("cargo")
-        .args(&[
-            "run",
-            "--release",
-            "--quiet",
-            "--bin",
-            "sweepga",
-            "--",
-            temp_input.to_str().unwrap(),
-            "--paf",
-        ])
-        .stdout(fs::File::create(&output)?)
-        .status()?;
+    // Use the release binary directly instead of cargo run to avoid subprocess issues
+    let sweepga_bin = Path::new("target/release/sweepga");
+    if !sweepga_bin.exists() {
+        anyhow::bail!("Release binary not found. Run: cargo build --release");
+    }
+
+    let result = Command::new(sweepga_bin)
+        .args(&[temp_input.to_str().unwrap(), "--paf"])
+        .output()?;
+
+    if !result.status.success() {
+        anyhow::bail!(
+            "sweepga failed with status {:?}\nstderr: {}",
+            result.status.code(),
+            String::from_utf8_lossy(&result.stderr)
+        );
+    }
+
+    fs::write(&output, result.stdout)?;
 
     let actual = sha256sum(&output)?;
 
@@ -297,37 +310,43 @@ fn test_golden_filtered_1to1() -> Result<()> {
     let temp_input = temp_dir_path.join("test_input.fa");
     Command::new("gunzip").arg(&temp_input_gz).status()?;
 
+    // Use the release binary directly instead of cargo run to avoid subprocess issues
+    let sweepga_bin = Path::new("target/release/sweepga");
+    if !sweepga_bin.exists() {
+        anyhow::bail!("Release binary not found. Run: cargo build --release");
+    }
+
     // First generate unfiltered
     let unfiltered = temp_dir_path.join("unfiltered.1aln");
-    Command::new("cargo")
-        .args(&[
-            "run",
-            "--release",
-            "--quiet",
-            "--bin",
-            "sweepga",
-            "--",
-            temp_input.to_str().unwrap(),
-        ])
-        .stdout(fs::File::create(&unfiltered)?)
-        .status()?;
+    let result = Command::new(sweepga_bin)
+        .arg(temp_input.to_str().unwrap())
+        .output()?;
+
+    if !result.status.success() {
+        anyhow::bail!(
+            "sweepga failed with status {:?}\nstderr: {}",
+            result.status.code(),
+            String::from_utf8_lossy(&result.stderr)
+        );
+    }
+
+    fs::write(&unfiltered, result.stdout)?;
 
     // Then filter with 1:1
     let output = temp_dir_path.join("filtered.1aln");
-    Command::new("cargo")
-        .args(&[
-            "run",
-            "--release",
-            "--quiet",
-            "--bin",
-            "sweepga",
-            "--",
-            unfiltered.to_str().unwrap(),
-            "-n",
-            "1:1",
-        ])
-        .stdout(fs::File::create(&output)?)
-        .status()?;
+    let result = Command::new(sweepga_bin)
+        .args(&[unfiltered.to_str().unwrap(), "-n", "1:1"])
+        .output()?;
+
+    if !result.status.success() {
+        anyhow::bail!(
+            "sweepga failed with status {:?}\nstderr: {}",
+            result.status.code(),
+            String::from_utf8_lossy(&result.stderr)
+        );
+    }
+
+    fs::write(&output, result.stdout)?;
 
     // Use normalized checksum that filters out non-deterministic provenance records
     let actual = sha256sum_1aln_normalized(&output)?;

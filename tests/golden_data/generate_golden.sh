@@ -67,19 +67,19 @@ PYTHON
     cp /tmp/test_input_golden.fa "$TEMP_DIR/test_input.fa"
 fi
 
-# Generate .1aln output (use cargo run to match test environment)
+# Generate .1aln output (use binary directly to match test environment)
 echo "Generating .1aln golden file..."
-cargo run --release --quiet --bin sweepga -- "$TEMP_DIR/test_input.fa" > "$GOLDEN_DIR/golden_output.1aln" 2>/dev/null || true
+"$PROJECT_ROOT/target/release/sweepga" "$TEMP_DIR/test_input.fa" > "$GOLDEN_DIR/golden_output.1aln" 2>/dev/null || true
 
 # Generate filtered .1aln (1:1 mode)
 echo "Generating filtered .1aln golden file..."
 if [ -f "$GOLDEN_DIR/golden_output.1aln" ]; then
-    cargo run --release --quiet --bin sweepga -- "$GOLDEN_DIR/golden_output.1aln" -n 1:1 > "$GOLDEN_DIR/golden_filtered_1to1.1aln" 2>/dev/null || true
+    "$PROJECT_ROOT/target/release/sweepga" "$GOLDEN_DIR/golden_output.1aln" -n 1:1 > "$GOLDEN_DIR/golden_filtered_1to1.1aln" 2>/dev/null || true
 fi
 
 # Generate PAF output
 echo "Generating PAF golden file..."
-cargo run --release --quiet --bin sweepga -- "$TEMP_DIR/test_input.fa" --paf > "$GOLDEN_DIR/golden_output.paf" 2>/dev/null || true
+"$PROJECT_ROOT/target/release/sweepga" "$TEMP_DIR/test_input.fa" --paf > "$GOLDEN_DIR/golden_output.paf" 2>/dev/null || true
 
 # Generate checksums
 echo "Generating checksums..."
