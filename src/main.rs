@@ -12,7 +12,7 @@ mod sequence_index;
 mod unified_filter;
 mod union_find;
 
-use anyhow::Result;
+use anyhow::{Context, Result};
 use clap::Parser;
 
 use crate::paf_filter::{FilterConfig, FilterMode, PafFilter, ScoringFunction};
@@ -1131,7 +1131,10 @@ fn align_multiple_fastas(
     // Run single FastGA alignment on the original input (all genomes together)
     // Use first file as both query and target for self-alignment
     let input_file = &fasta_files[0];
-    let temp_paf = fastga.align_to_temp_paf(Path::new(input_file), Path::new(input_file))?;
+    // Canonicalize path to avoid empty parent directory issues in fastga-rs
+    let input_path = std::fs::canonicalize(input_file)
+        .with_context(|| format!("Failed to resolve path: {}", input_file))?;
+    let temp_paf = fastga.align_to_temp_paf(&input_path, &input_path)?;
 
     if !quiet {
         let alignment_count = std::fs::read_to_string(temp_paf.path())?.lines().count();
@@ -1422,14 +1425,16 @@ fn main() -> Result<()> {
                 }
 
                 let alignment_start = Instant::now();
-                let path = Path::new(&args.files[0]);
+                // Canonicalize path to avoid empty parent directory issues in fastga-rs
+                let path = std::fs::canonicalize(&args.files[0])
+                    .with_context(|| format!("Failed to resolve path: {}", args.files[0]))?;
                 let fastga = create_fastga_integration(args.frequency, args.threads)?;
 
                 if !args.quiet {
                     timing.log("align", &format!("Running FastGA on {}", args.files[0]));
                 }
 
-                let temp_1aln = fastga.align_to_temp_1aln(path, path)?;
+                let temp_1aln = fastga.align_to_temp_1aln(&path, &path)?;
                 alignment_time = Some(alignment_start.elapsed().as_secs_f64());
 
                 if !args.quiet {
@@ -1536,8 +1541,10 @@ fn main() -> Result<()> {
         match (args.files.len(), all_fasta) {
             (1, true) => {
                 // Single FASTA - check if it has multiple genomes
-                let path = Path::new(&args.files[0]);
-                let groups = detect_genome_groups(path)?;
+                // Canonicalize path to avoid empty parent directory issues in fastga-rs
+                let path = std::fs::canonicalize(&args.files[0])
+                    .with_context(|| format!("Failed to resolve path: {}", args.files[0]))?;
+                let groups = detect_genome_groups(&path)?;
 
                 if groups.len() > 1 {
                     // Multiple genomes in single FASTA - use pairwise alignment
@@ -1592,7 +1599,7 @@ fn main() -> Result<()> {
                     }
 
                     let fastga = create_fastga_integration(args.frequency, args.threads)?;
-                    let temp_paf = fastga.align_to_temp_paf(path, path)?;
+                    let temp_paf = fastga.align_to_temp_paf(&path, &path)?;
 
                     alignment_time = Some(alignment_start.elapsed().as_secs_f64());
                     if !args.quiet {
@@ -1667,10 +1674,13 @@ fn main() -> Result<()> {
                         );
                     }
 
-                    let target = Path::new(&args.files[0]);
-                    let query = Path::new(&args.files[1]);
+                    // Canonicalize paths to avoid empty parent directory issues in fastga-rs
+                    let target = std::fs::canonicalize(&args.files[0])
+                        .with_context(|| format!("Failed to resolve path: {}", args.files[0]))?;
+                    let query = std::fs::canonicalize(&args.files[1])
+                        .with_context(|| format!("Failed to resolve path: {}", args.files[1]))?;
                     let fastga = create_fastga_integration(args.frequency, args.threads)?;
-                    let temp_paf = fastga.align_to_temp_paf(target, query)?;
+                    let temp_paf = fastga.align_to_temp_paf(&target, &query)?;
 
                     alignment_time = Some(alignment_start.elapsed().as_secs_f64());
                     if !args.quiet {
@@ -1794,9 +1804,11 @@ fn main() -> Result<()> {
                     );
                 }
 
-                let path = Path::new(&temp_path);
+                // Canonicalize path to avoid empty parent directory issues in fastga-rs
+                let path = std::fs::canonicalize(&temp_path)
+                    .with_context(|| format!("Failed to resolve path: {}", temp_path))?;
                 let fastga = create_fastga_integration(args.frequency, args.threads)?;
-                let temp_paf = fastga.align_to_temp_paf(path, path)?;
+                let temp_paf = fastga.align_to_temp_paf(&path, &path)?;
 
                 alignment_time = Some(alignment_start.elapsed().as_secs_f64());
                 if !args.quiet {
