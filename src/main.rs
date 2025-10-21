@@ -614,7 +614,7 @@ fn calculate_ani_stats(input_path: &str, method: AniMethod, quiet: bool) -> Resu
 
     // Get 50th percentile (median)
     let median_idx = ani_values.len() / 2;
-    let ani50 = if ani_values.len().is_multiple_of(2) && ani_values.len() > 1 {
+    let ani50 = if ani_values.len() % 2 == 0 && ani_values.len() > 1 {
         (ani_values[median_idx - 1] + ani_values[median_idx]) / 2.0
     } else {
         ani_values[median_idx]
@@ -826,7 +826,7 @@ fn calculate_ani_n_percentile(
 
     // Get median
     let median_idx = ani_values.len() / 2;
-    let ani50 = if ani_values.len().is_multiple_of(2) && ani_values.len() > 1 {
+    let ani50 = if ani_values.len() % 2 == 0 && ani_values.len() > 1 {
         (ani_values[median_idx - 1] + ani_values[median_idx]) / 2.0
     } else {
         ani_values[median_idx]
