@@ -3,16 +3,21 @@
 /// These tests lock down current behavior to prevent unintended changes.
 /// ANY change to output format/coordinates/filtering will fail these tests.
 ///
-/// IMPORTANT: These tests must run sequentially (not in parallel) because they
-/// all use the same fixed temp directory path `/tmp/sweepga_golden_gen`.
-/// The temp directory path affects .1aln binary format, so must match exactly.
+/// ⚠️  CRITICAL: MUST RUN WITH --test-threads=1 ⚠️
 ///
 /// Run with: `cargo test test_golden -- --test-threads=1`
+///
+/// WHY SERIAL EXECUTION IS REQUIRED:
+/// - ONElib .1aln format embeds absolute directory paths in `<` lines (not just `!` provenance)
+/// - All tests must use the EXACT same directory: `/tmp/sweepga_golden_gen`
+/// - Different paths → different file contents → checksum failures
+/// - This is a fundamental .1aln format constraint that cannot be avoided
+///
+/// Running these tests in parallel will cause random failures due to shared directory conflicts.
 use anyhow::{Context, Result};
 use std::fs;
 use std::path::Path;
 use std::process::Command;
-use tempfile::TempDir;
 
 /// Compute SHA256 checksum of a file
 fn sha256sum(path: &Path) -> Result<String> {
