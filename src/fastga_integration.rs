@@ -234,7 +234,7 @@ impl FastGAIntegration {
                 std::fs::metadata(&temp_gdb_path)?.len()
             );
         } else {
-            eprintln!("[fastga] WARNING: No .1gdb file found at {}", gdb_path);
+            eprintln!("[fastga] WARNING: No .1gdb file found at {gdb_path}");
         }
 
         // Clean up originals

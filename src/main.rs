@@ -614,7 +614,7 @@ fn calculate_ani_stats(input_path: &str, method: AniMethod, quiet: bool) -> Resu
 
     // Get 50th percentile (median)
     let median_idx = ani_values.len() / 2;
-    let ani50 = if ani_values.len() % 2 == 0 && ani_values.len() > 1 {
+    let ani50 = if ani_values.len().is_multiple_of(2) && ani_values.len() > 1 {
         (ani_values[median_idx - 1] + ani_values[median_idx]) / 2.0
     } else {
         ani_values[median_idx]
@@ -826,7 +826,7 @@ fn calculate_ani_n_percentile(
 
     // Get median
     let median_idx = ani_values.len() / 2;
-    let ani50 = if ani_values.len() % 2 == 0 && ani_values.len() > 1 {
+    let ani50 = if ani_values.len().is_multiple_of(2) && ani_values.len() > 1 {
         (ani_values[median_idx - 1] + ani_values[median_idx]) / 2.0
     } else {
         ani_values[median_idx]
@@ -1133,7 +1133,7 @@ fn align_multiple_fastas(
     let input_file = &fasta_files[0];
     // Canonicalize path to avoid empty parent directory issues in fastga-rs
     let input_path = std::fs::canonicalize(input_file)
-        .with_context(|| format!("Failed to resolve path: {}", input_file))?;
+        .with_context(|| format!("Failed to resolve path: {input_file}"))?;
     let temp_paf = fastga.align_to_temp_paf(&input_path, &input_path)?;
 
     if !quiet {
@@ -1368,7 +1368,7 @@ fn main() -> Result<()> {
 
     // Show help if no arguments provided
     if args.files.is_empty() {
-        Args::parse_from(&["sweepga", "-h"]);
+        Args::parse_from(["sweepga", "-h"]);
     }
 
     let timing = TimingContext::new();
@@ -1812,7 +1812,7 @@ fn main() -> Result<()> {
 
                 // Canonicalize path to avoid empty parent directory issues in fastga-rs
                 let path = std::fs::canonicalize(&temp_path)
-                    .with_context(|| format!("Failed to resolve path: {}", temp_path))?;
+                    .with_context(|| format!("Failed to resolve path: {temp_path}"))?;
                 let fastga = create_fastga_integration(args.frequency, args.threads)?;
                 let temp_paf = fastga.align_to_temp_paf(&path, &path)?;
 
