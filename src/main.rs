@@ -1365,6 +1365,12 @@ fn create_fastga_integration(
 
 fn main() -> Result<()> {
     let args = Args::parse();
+
+    // Show help if no arguments provided
+    if args.files.is_empty() {
+        Args::parse_from(&["sweepga", "--help"]);
+    }
+
     let timing = TimingContext::new();
 
     // Print startup banner
