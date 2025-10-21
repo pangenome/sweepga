@@ -41,19 +41,20 @@ cargo install --force --path .
 
 ### Build Issues on Mixed glibc Systems
 
-If you encounter linker errors like `undefined reference to __pthread_barrier_wait@GLIBC_PRIVATE`, this indicates a mixed glibc environment (e.g., Debian + Guix). The system's `librt.so` is incompatible with libraries from a different glibc version in your PATH.
+**Symptoms:** Build fails with linker errors like:
+```
+ld: /usr/lib/x86_64-linux-gnu/librt.so: undefined reference to '__pthread_barrier_wait@GLIBC_PRIVATE'
+```
 
-**Solution:** Use the provided build script that creates a clean environment:
+This occurs on systems with multiple package managers (e.g., Debian + Guix) providing different glibc versions.
+
+**Fix:** Use the clean build script to isolate from environment conflicts:
 
 ```bash
-# Build only
-./scripts/build-clean.sh
-
-# Build and install to ~/.cargo/bin
 ./scripts/build-clean.sh --install
 ```
 
-This script removes package manager paths (like Guix) from the build environment to ensure consistent glibc usage. See [docs/BUILD-NOTES.md](docs/BUILD-NOTES.md) for technical details.
+See [docs/BUILD-NOTES.md](docs/BUILD-NOTES.md) for details.
 
 ### With Guix
 
