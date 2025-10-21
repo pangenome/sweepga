@@ -22,7 +22,11 @@ Build with a pristine environment that excludes Guix paths:
 ### Method 1: Use the build script (recommended)
 
 ```bash
-./build-clean.sh
+# Build only
+./scripts/build-clean.sh
+
+# Build and install to ~/.cargo/bin
+./scripts/build-clean.sh --install
 ```
 
 ### Method 2: Manual build command
