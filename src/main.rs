@@ -1368,7 +1368,7 @@ fn main() -> Result<()> {
 
     // Show help if no arguments provided
     if args.files.is_empty() {
-        Args::parse_from(&["sweepga", "--help"]);
+        Args::parse_from(&["sweepga", "-h"]);
     }
 
     let timing = TimingContext::new();
