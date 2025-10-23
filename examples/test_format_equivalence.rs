@@ -105,6 +105,7 @@ fn main() -> Result<()> {
         temp_filtered_paf.path(),
         &config,
         false,
+        false,
     )?;
     println!("    ✓ PAF filtering succeeded");
 
