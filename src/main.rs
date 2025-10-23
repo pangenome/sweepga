@@ -1415,6 +1415,14 @@ fn main() -> Result<()> {
         timing.log("start", &format!("{} | {}", timestamp, cmd_line.join(" ")));
     }
 
+    // Set TMPDIR if --tempdir is specified (FastGA uses this via Rust's tempfile crate)
+    if let Some(ref tempdir) = args.tempdir {
+        std::env::set_var("TMPDIR", tempdir);
+        if !args.quiet {
+            timing.log("tempdir", &format!("Using temp directory: {}", tempdir));
+        }
+    }
+
     // Track alignment time separately
     let mut alignment_time: Option<f64> = None;
 

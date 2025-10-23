@@ -8,6 +8,7 @@ on:
 
 env:
   CARGO_TERM_COLOR: always
+  TMPDIR: ${{ runner.temp }}  # Use GitHub's temp directory for FastGA temporary files
 
 jobs:
   test:
