@@ -77,7 +77,7 @@ fn test_1aln_roundtrip_preserves_data() -> Result<()> {
     };
 
     let output_path = temp_dir.path().join("filtered.1aln");
-    unified_filter::filter_file(input_path, &output_path, &config, false)?;
+    unified_filter::filter_file(input_path, &output_path, &config, false, true)?; // keep_self=true
 
     // Read filtered metadata
     let (filtered_meta, _) = unified_filter::extract_1aln_metadata(&output_path)?;
@@ -198,7 +198,7 @@ fn test_1aln_roundtrip_with_filtering() -> Result<()> {
     };
 
     let output_path = temp_dir.path().join("filtered.1aln");
-    unified_filter::filter_file(input_path, &output_path, &config, false)?;
+    unified_filter::filter_file(input_path, &output_path, &config, false, true)?; // keep_self=true
 
     let (filtered_meta, _) = unified_filter::extract_1aln_metadata(&output_path)?;
 

@@ -309,6 +309,10 @@ struct Args {
     #[clap(long = "output-file")]
     output_file: Option<String>,
 
+    /// Check FastGA binary locations and exit (diagnostic tool)
+    #[clap(long = "check-fastga")]
+    check_fastga: bool,
+
     /// Temporary directory for intermediate files (defaults to TMPDIR env var, then /tmp)
     #[clap(long = "tempdir")]
     tempdir: Option<String>,
@@ -1343,6 +1347,56 @@ fn create_fastga_integration(
 fn main() -> Result<()> {
     let args = Args::parse();
 
+    // Handle --check-fastga diagnostic flag
+    if args.check_fastga {
+        println!("=== FastGA Binary Locations ===\n");
+
+        let bins = ["FastGA", "ALNtoPAF", "PAFtoALN"];
+        let mut all_found = true;
+
+        for bin in &bins {
+            match binary_paths::get_embedded_binary_path(bin) {
+                Ok(path) => {
+                    println!("✓ {}: {}", bin, path.display());
+                    if path.exists() {
+                        let metadata = std::fs::metadata(&path)?;
+                        println!("  Size: {} bytes", metadata.len());
+                        #[cfg(unix)]
+                        {
+                            use std::os::unix::fs::PermissionsExt;
+                            println!("  Executable: {}", metadata.permissions().mode() & 0o111 != 0);
+                        }
+
+                        let path_str = path.to_string_lossy();
+                        if path_str.contains("/build/fastga-rs-") {
+                            println!("  Location: Embedded (development build)");
+                        } else if path_str.contains("/.cargo/lib/") {
+                            println!("  Location: Installed (cargo install)");
+                        } else {
+                            println!("  Location: System PATH");
+                        }
+                    }
+                }
+                Err(e) => {
+                    println!("✗ {}: NOT FOUND", bin);
+                    println!("  Error: {}", e);
+                    all_found = false;
+                }
+            }
+            println!();
+        }
+
+        if all_found {
+            println!("All FastGA binaries found and ready to use!");
+            std::process::exit(0);
+        } else {
+            println!("Some FastGA binaries are missing. Please run:");
+            println!("  cargo build --release");
+            println!("  ./install.sh");
+            std::process::exit(1);
+        }
+    }
+
     // Show help if no arguments provided
     if args.files.is_empty() {
         Args::parse_from(["sweepga", "-h"]);
@@ -1475,11 +1529,11 @@ fn main() -> Result<()> {
         // Step 3: Filter .1aln directly using unified_filter (format-preserving)
         use crate::unified_filter::filter_file;
         if let Some(ref output_file) = args.output_file {
-            filter_file(&aln_input_path, output_file, &filter_config, false)?;
+            filter_file(&aln_input_path, output_file, &filter_config, false, args.keep_self)?;
         } else {
             // Write to temp file then copy to stdout
             let temp_output = tempfile::NamedTempFile::with_suffix(".1aln")?;
-            filter_file(&aln_input_path, temp_output.path(), &filter_config, false)?;
+            filter_file(&aln_input_path, temp_output.path(), &filter_config, false, args.keep_self)?;
 
             // Copy binary to stdout
             use std::io::copy;

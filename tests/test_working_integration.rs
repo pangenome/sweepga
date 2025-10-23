@@ -181,7 +181,7 @@ fn test_1aln_filtering_api() {
     };
 
     let filter_result =
-        sweepga::unified_filter::filter_file(aln_file.path(), &output, &config, false);
+        sweepga::unified_filter::filter_file(aln_file.path(), &output, &config, false, false);
 
     assert!(filter_result.is_ok(), "1aln filtering failed");
     assert!(output.exists(), "Output file should exist");

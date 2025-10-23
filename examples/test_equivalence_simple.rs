@@ -60,13 +60,13 @@ fn main() -> Result<()> {
     // Filter .1aln → .1aln
     println!("  - Filtering .1aln...");
     let temp_filtered_1aln = tempfile::NamedTempFile::with_suffix(".1aln")?;
-    filter_file(test_1aln, temp_filtered_1aln.path(), &config, false)?;
+    filter_file(test_1aln, temp_filtered_1aln.path(), &config, false, false)?;
     println!("    ✓ Complete");
 
     // Filter PAF → PAF
     println!("  - Filtering PAF...");
     let temp_filtered_paf = tempfile::NamedTempFile::with_suffix(".paf")?;
-    filter_file(test_paf, temp_filtered_paf.path(), &config, false)?;
+    filter_file(test_paf, temp_filtered_paf.path(), &config, false, false)?;
     println!("    ✓ Complete");
 
     println!("\nStep 2: Convert filtered .1aln to PAF for comparison...");

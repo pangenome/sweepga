@@ -60,11 +60,11 @@ fn main() -> Result<()> {
 
     // Filter .1aln
     let filtered_1aln = tempfile::NamedTempFile::with_suffix(".1aln")?;
-    filter_file(test_1aln, filtered_1aln.path(), &config, false)?;
+    filter_file(test_1aln, filtered_1aln.path(), &config, false, false)?;
 
     // Filter PAF
     let filtered_paf = tempfile::NamedTempFile::with_suffix(".paf")?;
-    filter_file(test_paf, filtered_paf.path(), &config, false)?;
+    filter_file(test_paf, filtered_paf.path(), &config, false, false)?;
 
     // Read filtered results
     let (aln_filtered, _) = sweepga::unified_filter::extract_1aln_metadata(filtered_1aln.path())?;
