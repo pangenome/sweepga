@@ -8,12 +8,13 @@ on:
 
 env:
   CARGO_TERM_COLOR: always
-  TMPDIR: ${{ runner.temp }}  # Use GitHub's temp directory for FastGA temporary files
 
 jobs:
   test:
     name: Test Suite
     runs-on: ${{ matrix.os }}
+    env:
+      TMPDIR: ${{ runner.temp }}  # Use GitHub's temp directory for FastGA temporary files
     strategy:
       matrix:
         os: [ubuntu-latest, macos-latest]
@@ -97,6 +98,8 @@ jobs:
   build:
     name: Build Check
     runs-on: ${{ matrix.os }}
+    env:
+      TMPDIR: ${{ runner.temp }}  # Use GitHub's temp directory for FastGA temporary files
     strategy:
       matrix:
         os: [ubuntu-latest, macos-latest]
