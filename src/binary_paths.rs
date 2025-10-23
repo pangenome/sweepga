@@ -13,8 +13,9 @@ use std::path::PathBuf;
 ///
 /// Search order:
 /// 1. OUT_DIR (set during build time only)
-/// 2. Glob pattern: target/{debug,release}/build/fastga-rs-*/out/{binary_name}
-/// 3. PATH (system fallback - least preferred)
+/// 2. Installed location: $CARGO_HOME/lib/sweepga/ or ~/.cargo/lib/sweepga/
+/// 3. Development build: target/{debug,release}/build/fastga-rs-*/out/{binary_name}
+/// 4. PATH (system fallback - least preferred)
 ///
 /// This ensures we use the FastGA binaries built as part of our dependency chain,
 /// not system-installed versions which may be incompatible.
@@ -24,6 +25,24 @@ pub fn get_embedded_binary_path(binary_name: &str) -> Result<PathBuf> {
         let path = PathBuf::from(out_dir).join(binary_name);
         if path.exists() {
             return Ok(path);
+        }
+    }
+
+    // Check installed location (for cargo install)
+    // Try $CARGO_HOME/lib/sweepga/ or ~/.cargo/lib/sweepga/
+    let cargo_home = env::var("CARGO_HOME")
+        .ok()
+        .map(PathBuf::from)
+        .or_else(|| {
+            env::var("HOME")
+                .ok()
+                .map(|h| PathBuf::from(h).join(".cargo"))
+        });
+
+    if let Some(cargo_home) = cargo_home {
+        let installed_path = cargo_home.join("lib").join("sweepga").join(binary_name);
+        if installed_path.exists() {
+            return Ok(installed_path);
         }
     }
 

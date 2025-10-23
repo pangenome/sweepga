@@ -1,4 +1,5 @@
 mod aln_filter;
+mod binary_paths;
 mod compact_mapping;
 mod fastga_integration;
 mod grouped_mappings;

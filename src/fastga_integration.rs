@@ -159,7 +159,32 @@ impl FastGAIntegration {
 
     /// Convert FASTA to GDB format (creates .gdb and .gix files)
     /// Returns the path to the .gdb file (without extension)
+    /// Ensure fastga-rs can find FastGA binaries by adding them to PATH temporarily
+    /// This is needed because fastga-rs uses which/PATH to find binaries
+    fn ensure_fastga_in_path() -> Result<()> {
+        // Try to find FastGA using our binary_paths module
+        if let Ok(fastga_path) = crate::binary_paths::get_embedded_binary_path("FastGA") {
+            eprintln!("[FastGA] Found embedded binary at: {}", fastga_path.display());
+            if let Some(fastga_dir) = fastga_path.parent() {
+                // Temporarily add this directory to PATH for fastga-rs to find
+                if let Ok(current_path) = std::env::var("PATH") {
+                    let new_path = format!("{}:{}", fastga_dir.display(), current_path);
+                    eprintln!("[FastGA] Setting PATH to include: {}", fastga_dir.display());
+                    std::env::set_var("PATH", new_path);
+                } else {
+                    std::env::set_var("PATH", fastga_dir.to_str().unwrap());
+                }
+            }
+        } else {
+            eprintln!("[FastGA] WARNING: Could not find embedded FastGA binary");
+        }
+        Ok(())
+    }
+
     pub fn prepare_gdb(&self, fasta_path: &Path) -> Result<String> {
+        // Ensure fastga-rs can find binaries
+        Self::ensure_fastga_in_path()?;
+
         // Create a temporary FastGA instance to access orchestrator methods
         let orchestrator = fastga_rs::orchestrator::FastGAOrchestrator {
             num_threads: self.config.num_threads as i32,
@@ -189,6 +214,9 @@ impl FastGAIntegration {
     /// This is the native FastGA output format
     /// IMPORTANT: Also copies the .1gdb file alongside the .1aln to preserve sequence names
     pub fn align_to_temp_1aln(&self, queries: &Path, targets: &Path) -> Result<NamedTempFile> {
+        // Ensure fastga-rs can find binaries
+        Self::ensure_fastga_in_path()?;
+
         // Create orchestrator to run FastGA binary directly
         let orchestrator = fastga_rs::orchestrator::FastGAOrchestrator {
             num_threads: self.config.num_threads as i32,
@@ -248,6 +276,9 @@ impl FastGAIntegration {
     /// Assumes GDB/GIX indices already exist for the input files
     /// Returns the temporary file handle (which auto-deletes when dropped)
     pub fn align_to_temp_paf(&self, queries: &Path, targets: &Path) -> Result<NamedTempFile> {
+        // Ensure fastga-rs can find binaries
+        Self::ensure_fastga_in_path()?;
+
         // Create orchestrator to run FastGA binary directly
         let orchestrator = fastga_rs::orchestrator::FastGAOrchestrator {
             num_threads: self.config.num_threads as i32,
