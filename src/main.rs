@@ -916,32 +916,8 @@ fn aln_to_paf(aln_path: &str, threads: usize) -> Result<tempfile::NamedTempFile>
         return Ok(temp_paf);
     }
 
-    // Fallback to ALNtoPAF
-    let alnto_paf_bin = std::env::current_exe()
-        .ok()
-        .and_then(|exe| exe.parent().map(|p| p.join("ALNtoPAF")))
-        .filter(|p| p.exists())
-        .or_else(|| {
-            let local = std::path::PathBuf::from("./ALNtoPAF");
-            if local.exists() {
-                Some(local)
-            } else {
-                None
-            }
-        })
-        .or_else(|| {
-            let deps = std::path::PathBuf::from("deps/fastga/ALNtoPAF");
-            if deps.exists() {
-                Some(deps)
-            } else {
-                None
-            }
-        })
-        .ok_or_else(|| {
-            anyhow::anyhow!(
-                "ALNtoPAF tool not found and native reader failed. Cannot convert .1aln to PAF."
-            )
-        })?;
+    // Fallback to ALNtoPAF (use embedded binary)
+    let alnto_paf_bin = sweepga::binary_paths::get_embedded_binary_path("ALNtoPAF")?;
 
     // Create temp file for PAF output
     let temp_paf = tempfile::NamedTempFile::with_suffix(".paf")?;
@@ -2040,11 +2016,9 @@ fn main() -> Result<()> {
                 (output_path.clone(), None::<tempfile::NamedTempFile>)
             } else {
                 // Convert filtered PAF to .1aln using PAFtoALN
-                // Find PAFtoALN binary (bundled with fastga-rs)
-                let paftoaln_bin = fastga_rs::embedded::get_binary_path("PAFtoALN")
-                    .ok()
-                    .and_then(|p| if p.exists() { Some(p) } else { None })
-                    .ok_or_else(|| anyhow::anyhow!("PAFtoALN tool not found. Cannot convert PAF to .1aln. Use --paf flag to output PAF format instead."))?;
+                // Find PAFtoALN binary (embedded)
+                let paftoaln_bin = sweepga::binary_paths::get_embedded_binary_path("PAFtoALN")
+                    .map_err(|_| anyhow::anyhow!("PAFtoALN tool not found. Cannot convert PAF to .1aln. Use --paf flag to output PAF format instead."))?;
 
                 if !args.quiet {
                     timing.log("convert", "Converting filtered PAF to .1aln");
