@@ -51,7 +51,7 @@ pub fn get_embedded_binary_path(binary_name: &str) -> Result<PathBuf> {
     if let Some(mut target_dir) = exe_dir {
         // Navigate up to find the target/ directory
         // Executable might be in target/release/ or target/release/deps/
-        while target_dir.file_name().map_or(false, |n| n != "target") {
+        while target_dir.file_name().is_some_and(|n| n != "target") {
             if !target_dir.pop() {
                 break;
             }
@@ -70,7 +70,7 @@ pub fn get_embedded_binary_path(binary_name: &str) -> Result<PathBuf> {
                                 && path
                                     .file_name()
                                     .and_then(|n| n.to_str())
-                                    .map_or(false, |n| n.starts_with("fastga-rs-"))
+                                    .is_some_and(|n| n.starts_with("fastga-rs-"))
                             {
                                 let binary_path = path.join("out").join(binary_name);
                                 if binary_path.exists() {
@@ -114,22 +114,6 @@ pub fn get_embedded_binary_path(binary_name: &str) -> Result<PathBuf> {
     ))
 }
 
-/// Get paths for all FastGA binaries
-pub struct FastGABinaries {
-    pub fastga: PathBuf,
-    pub alntopaf: PathBuf,
-    pub paftoaln: PathBuf,
-}
-
-impl FastGABinaries {
-    pub fn new() -> Result<Self> {
-        Ok(FastGABinaries {
-            fastga: get_embedded_binary_path("FastGA")?,
-            alntopaf: get_embedded_binary_path("ALNtoPAF")?,
-            paftoaln: get_embedded_binary_path("PAFtoALN")?,
-        })
-    }
-}
 
 #[cfg(test)]
 mod tests {

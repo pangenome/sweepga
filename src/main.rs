@@ -1381,8 +1381,8 @@ fn main() -> Result<()> {
                     }
                 }
                 Err(e) => {
-                    println!("✗ {}: NOT FOUND", bin);
-                    println!("  Error: {}", e);
+                    println!("✗ {bin}: NOT FOUND");
+                    println!("  Error: {e}");
                     all_found = false;
                 }
             }
