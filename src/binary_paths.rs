@@ -114,7 +114,6 @@ pub fn get_embedded_binary_path(binary_name: &str) -> Result<PathBuf> {
     ))
 }
 
-
 #[cfg(test)]
 mod tests {
     use super::*;
