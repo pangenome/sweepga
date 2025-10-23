@@ -164,7 +164,10 @@ impl FastGAIntegration {
     fn ensure_fastga_in_path() -> Result<()> {
         // Try to find FastGA using our binary_paths module
         if let Ok(fastga_path) = crate::binary_paths::get_embedded_binary_path("FastGA") {
-            eprintln!("[FastGA] Found embedded binary at: {}", fastga_path.display());
+            eprintln!(
+                "[FastGA] Found embedded binary at: {}",
+                fastga_path.display()
+            );
             if let Some(fastga_dir) = fastga_path.parent() {
                 // Temporarily add this directory to PATH for fastga-rs to find
                 if let Ok(current_path) = std::env::var("PATH") {

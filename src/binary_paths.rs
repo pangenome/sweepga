@@ -30,14 +30,11 @@ pub fn get_embedded_binary_path(binary_name: &str) -> Result<PathBuf> {
 
     // Check installed location (for cargo install)
     // Try $CARGO_HOME/lib/sweepga/ or ~/.cargo/lib/sweepga/
-    let cargo_home = env::var("CARGO_HOME")
-        .ok()
-        .map(PathBuf::from)
-        .or_else(|| {
-            env::var("HOME")
-                .ok()
-                .map(|h| PathBuf::from(h).join(".cargo"))
-        });
+    let cargo_home = env::var("CARGO_HOME").ok().map(PathBuf::from).or_else(|| {
+        env::var("HOME")
+            .ok()
+            .map(|h| PathBuf::from(h).join(".cargo"))
+    });
 
     if let Some(cargo_home) = cargo_home {
         let installed_path = cargo_home.join("lib").join("sweepga").join(binary_name);

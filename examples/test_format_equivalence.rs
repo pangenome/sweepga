@@ -87,7 +87,13 @@ fn main() -> Result<()> {
         min_scaffold_identity: 0.0,
     };
 
-    filter_file(temp_1aln.path(), temp_filtered_1aln.path(), &config, false, false)?;
+    filter_file(
+        temp_1aln.path(),
+        temp_filtered_1aln.path(),
+        &config,
+        false,
+        false,
+    )?;
     println!("    ✓ .1aln filtering succeeded");
 
     // Filter PAF → PAF

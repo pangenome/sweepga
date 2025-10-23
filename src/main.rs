@@ -1364,7 +1364,10 @@ fn main() -> Result<()> {
                         #[cfg(unix)]
                         {
                             use std::os::unix::fs::PermissionsExt;
-                            println!("  Executable: {}", metadata.permissions().mode() & 0o111 != 0);
+                            println!(
+                                "  Executable: {}",
+                                metadata.permissions().mode() & 0o111 != 0
+                            );
                         }
 
                         let path_str = path.to_string_lossy();
@@ -1529,11 +1532,23 @@ fn main() -> Result<()> {
         // Step 3: Filter .1aln directly using unified_filter (format-preserving)
         use crate::unified_filter::filter_file;
         if let Some(ref output_file) = args.output_file {
-            filter_file(&aln_input_path, output_file, &filter_config, false, args.keep_self)?;
+            filter_file(
+                &aln_input_path,
+                output_file,
+                &filter_config,
+                false,
+                args.keep_self,
+            )?;
         } else {
             // Write to temp file then copy to stdout
             let temp_output = tempfile::NamedTempFile::with_suffix(".1aln")?;
-            filter_file(&aln_input_path, temp_output.path(), &filter_config, false, args.keep_self)?;
+            filter_file(
+                &aln_input_path,
+                temp_output.path(),
+                &filter_config,
+                false,
+                args.keep_self,
+            )?;
 
             // Copy binary to stdout
             use std::io::copy;
