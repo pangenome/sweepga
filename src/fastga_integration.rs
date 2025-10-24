@@ -171,7 +171,10 @@ impl FastGAIntegration {
             if let Some(fastga_dir) = fastga_path.parent() {
                 // Set ISOLATED PATH so FastGA can ONLY find its own utilities
                 // This prevents FastGA from accidentally using system binaries
-                eprintln!("[FastGA] Setting ISOLATED PATH to: {}", fastga_dir.display());
+                eprintln!(
+                    "[FastGA] Setting ISOLATED PATH to: {}",
+                    fastga_dir.display()
+                );
                 std::env::set_var("PATH", fastga_dir.to_str().unwrap());
             }
         } else {
