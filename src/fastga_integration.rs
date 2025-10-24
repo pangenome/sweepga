@@ -169,14 +169,10 @@ impl FastGAIntegration {
                 fastga_path.display()
             );
             if let Some(fastga_dir) = fastga_path.parent() {
-                // Temporarily add this directory to PATH for fastga-rs to find
-                if let Ok(current_path) = std::env::var("PATH") {
-                    let new_path = format!("{}:{}", fastga_dir.display(), current_path);
-                    eprintln!("[FastGA] Setting PATH to include: {}", fastga_dir.display());
-                    std::env::set_var("PATH", new_path);
-                } else {
-                    std::env::set_var("PATH", fastga_dir.to_str().unwrap());
-                }
+                // Set ISOLATED PATH so FastGA can ONLY find its own utilities
+                // This prevents FastGA from accidentally using system binaries
+                eprintln!("[FastGA] Setting ISOLATED PATH to: {}", fastga_dir.display());
+                std::env::set_var("PATH", fastga_dir.to_str().unwrap());
             }
         } else {
             eprintln!("[FastGA] WARNING: Could not find embedded FastGA binary");
