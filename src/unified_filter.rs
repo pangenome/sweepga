@@ -162,22 +162,49 @@ pub fn write_1aln_filtered<P1: AsRef<Path>, P2: AsRef<Path>>(
     let mut rank = 0;
     let mut written = 0;
 
-    // Read through input, write passing records
-    while let Some(aln) = reader.read_alignment()? {
-        if passing_ranks.contains_key(&rank) {
-            // This record passed filtering - write it
-            // Note: sequence names are already numeric IDs in .1aln, so we write as-is
-            writer.write_alignment(&aln)?;
-            written += 1;
+    let input_file = &mut reader.file;
+
+    // Read through input file, looking for 'A' records
+    loop {
+        let line_type = input_file.read_line();
+
+        if line_type == '\0' {
+            break; // EOF
         }
-        rank += 1;
+
+        if line_type == 'A' {
+            // Found an alignment record
+            if passing_ranks.contains_key(&rank) {
+                // This record passed filtering - copy it directly with trace data
+                writer.copy_alignment_record_from_file(input_file)?;
+                written += 1;
+            } else {
+                // Skip this alignment - read past all its associated records
+                loop {
+                    let next_type = input_file.read_line();
+                    if next_type == '\0' {
+                        break; // EOF
+                    }
+                    if next_type == 'T' {
+                        // Read past X record too
+                        input_file.read_line();
+                        break;
+                    }
+                    if next_type == 'A' {
+                        // Hit next alignment without trace data
+                        break;
+                    }
+                }
+            }
+            rank += 1;
+        }
     }
 
     // Explicitly finalize the output file
     writer.finalize();
 
     eprintln!(
-        "[unified_filter] Wrote {written} alignments to .1aln (GDB preserved via open_write_from)"
+        "[unified_filter] Wrote {written} alignments to .1aln (GDB and trace data preserved)"
     );
     Ok(())
 }
