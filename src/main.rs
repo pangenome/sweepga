@@ -1075,6 +1075,7 @@ fn align_multiple_fastas(
     }
 
     // Default mode: single FastGA run with adaptive frequency
+    // Let fastga_integration.rs handle auto-detection via PanSN haplotype counting
     let effective_frequency = if let Some(f) = frequency {
         // User specified -f, use it as-is
         if !quiet {
@@ -1084,19 +1085,10 @@ fn align_multiple_fastas(
             );
         }
         Some(f)
-    } else if num_genomes > 1 {
-        // Auto-set frequency to at least num_genomes to avoid filtering out valid k-mers
-        let auto_freq = num_genomes;
-        if !quiet {
-            timing.log(
-                "align",
-                &format!("Setting frequency threshold to {auto_freq} (number of genome groups)"),
-            );
-        }
-        Some(auto_freq)
     } else {
-        // Single genome, use FastGA default
-        frequency
+        // No user-specified frequency: let fastga_integration.rs auto-detect
+        // from PanSN naming convention (capped at 255 due to FastGA uint8 limit)
+        None
     };
 
     if !quiet {
