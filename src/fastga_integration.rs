@@ -129,12 +129,14 @@ pub struct FastGAIntegration {
 
 impl FastGAIntegration {
     /// Create a new FastGA integration with optional frequency parameter
+    /// Defaults to 255 for pangenome workflows (high-similarity sequences)
     pub fn new(frequency: Option<usize>, num_threads: usize) -> Self {
         let mut builder = Config::builder().num_threads(num_threads).verbose(true);
 
-        if let Some(freq) = frequency {
-            builder = builder.adaptive_seed_cutoff(freq);
-        }
+        // Default to 255 for pangenome workflows with many similar sequences
+        // FastGA's original default of 10 is too restrictive for dense alignment
+        let freq = frequency.unwrap_or(255);
+        builder = builder.adaptive_seed_cutoff(freq);
 
         let config = builder.build();
         FastGAIntegration { config }
