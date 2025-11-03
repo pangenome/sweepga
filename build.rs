@@ -5,7 +5,6 @@
 ///
 /// The binaries are built by the fastga-rs dependency and placed in its OUT_DIR.
 /// We need to copy them to our OUT_DIR so they get installed alongside sweepga.
-
 use std::env;
 use std::path::PathBuf;
 
@@ -22,7 +21,9 @@ fn main() {
         .expect("Could not find build directory");
 
     // List of FastGA utilities we need to copy
-    let utilities = ["FastGA", "FAtoGDB", "GIXmake", "GIXrm", "ALNtoPAF", "PAFtoALN", "ONEview"];
+    let utilities = [
+        "FastGA", "FAtoGDB", "GIXmake", "GIXrm", "ALNtoPAF", "PAFtoALN", "ONEview",
+    ];
 
     println!("cargo:warning=Searching for FastGA binaries...");
 
@@ -30,14 +31,19 @@ fn main() {
     if let Ok(entries) = std::fs::read_dir(target_dir) {
         for entry in entries.flatten() {
             let path = entry.path();
-            if path.is_dir() && path.file_name()
-                .and_then(|n| n.to_str())
-                .map(|n| n.starts_with("fastga-rs-"))
-                .unwrap_or(false)
+            if path.is_dir()
+                && path
+                    .file_name()
+                    .and_then(|n| n.to_str())
+                    .map(|n| n.starts_with("fastga-rs-"))
+                    .unwrap_or(false)
             {
                 let fastga_out_dir = path.join("out");
                 if fastga_out_dir.exists() {
-                    println!("cargo:warning=Found FastGA binaries in: {}", fastga_out_dir.display());
+                    println!(
+                        "cargo:warning=Found FastGA binaries in: {}",
+                        fastga_out_dir.display()
+                    );
 
                     // Copy each utility to our OUT_DIR
                     for utility in &utilities {
@@ -61,8 +67,13 @@ fn main() {
                                 }
                             }
                         } else {
-                            if utility != &"ONEview" {  // ONEview is optional
-                                println!("cargo:warning={} not found at: {}", utility, src.display());
+                            if utility != &"ONEview" {
+                                // ONEview is optional
+                                println!(
+                                    "cargo:warning={} not found at: {}",
+                                    utility,
+                                    src.display()
+                                );
                             }
                         }
                     }
@@ -75,14 +86,17 @@ fn main() {
 
     // Also copy binaries to $CARGO_HOME/lib/sweepga/ for cargo install
     // This happens during every build, ensuring binaries are available after install
-    if let Ok(cargo_home) = env::var("CARGO_HOME")
-        .or_else(|_| env::var("HOME").map(|h| format!("{}/.cargo", h)))
+    if let Ok(cargo_home) =
+        env::var("CARGO_HOME").or_else(|_| env::var("HOME").map(|h| format!("{}/.cargo", h)))
     {
         let lib_dir = PathBuf::from(cargo_home).join("lib").join("sweepga");
 
         // Create the directory
         if std::fs::create_dir_all(&lib_dir).is_ok() {
-            println!("cargo:warning=Installing FastGA helper binaries to: {}", lib_dir.display());
+            println!(
+                "cargo:warning=Installing FastGA helper binaries to: {}",
+                lib_dir.display()
+            );
 
             // Copy binaries to lib directory
             for utility in &utilities {

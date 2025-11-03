@@ -1340,11 +1340,10 @@ fn create_fastga_integration(
 fn main() -> Result<()> {
     // Set OUT_DIR to help fastga-rs find its binaries
     // This ensures FAtoGDB, GIXmake, and GIXrm are found when FastGA needs them
-    if let Some(cargo_home) = std::env::var("CARGO_HOME").ok().or_else(|| {
-        std::env::var("HOME")
-            .ok()
-            .map(|h| format!("{}/.cargo", h))
-    }) {
+    if let Some(cargo_home) = std::env::var("CARGO_HOME")
+        .ok()
+        .or_else(|| std::env::var("HOME").ok().map(|h| format!("{}/.cargo", h)))
+    {
         let lib_dir = format!("{}/lib/sweepga", cargo_home);
         if std::path::Path::new(&lib_dir).exists() {
             std::env::set_var("OUT_DIR", &lib_dir);
@@ -1552,25 +1551,31 @@ fn main() -> Result<()> {
         };
 
         // Step 2.6: Apply tree filtering if requested (natively on .1aln format)
-        let tree_filtered_input = if let SparsificationStrategy::Tree(k_nearest, k_farthest, random_fraction) = sparsification_strategy {
-            // Apply tree filtering directly to .1aln
-            let temp_tree_filtered = tempfile::NamedTempFile::with_suffix(".1aln")?;
+        let tree_filtered_input =
+            if let SparsificationStrategy::Tree(k_nearest, k_farthest, random_fraction) =
+                sparsification_strategy
+            {
+                // Apply tree filtering directly to .1aln
+                let temp_tree_filtered = tempfile::NamedTempFile::with_suffix(".1aln")?;
 
-            use tree_sparsify::apply_tree_filter_to_1aln;
-            apply_tree_filter_to_1aln(
-                &aln_input_path,
-                temp_tree_filtered.path().to_str().context("Invalid temp path")?,
-                k_nearest,
-                k_farthest,
-                random_fraction,
-                args.quiet,
-            )?;
+                use tree_sparsify::apply_tree_filter_to_1aln;
+                apply_tree_filter_to_1aln(
+                    &aln_input_path,
+                    temp_tree_filtered
+                        .path()
+                        .to_str()
+                        .context("Invalid temp path")?,
+                    k_nearest,
+                    k_farthest,
+                    random_fraction,
+                    args.quiet,
+                )?;
 
-            // Use tree-filtered output as input for plane sweep filtering
-            Some(temp_tree_filtered)
-        } else {
-            None
-        };
+                // Use tree-filtered output as input for plane sweep filtering
+                Some(temp_tree_filtered)
+            } else {
+                None
+            };
 
         let final_filter_input = if let Some(ref tf) = tree_filtered_input {
             tf.path().to_path_buf()
@@ -2106,14 +2111,25 @@ fn main() -> Result<()> {
     drop(output_file); // Close the file handle so filter_paf can open it
 
     // Apply tree-based sparsification if requested
-    let tree_filtered_path = if let SparsificationStrategy::Tree(k_nearest, k_farthest, rand_frac) = sparsification_strategy {
+    let tree_filtered_path = if let SparsificationStrategy::Tree(k_nearest, k_farthest, rand_frac) =
+        sparsification_strategy
+    {
         if !args.quiet {
             timing.log(
                 "tree-filter",
-                &format!("Applying tree sparsification: tree:{}{}{}",
+                &format!(
+                    "Applying tree sparsification: tree:{}{}{}",
                     k_nearest,
-                    if k_farthest > 0 { format!(",{}", k_farthest) } else { String::new() },
-                    if rand_frac > 0.0 { format!(",{}", rand_frac) } else { String::new() }
+                    if k_farthest > 0 {
+                        format!(",{}", k_farthest)
+                    } else {
+                        String::new()
+                    },
+                    if rand_frac > 0.0 {
+                        format!(",{}", rand_frac)
+                    } else {
+                        String::new()
+                    }
                 ),
             );
         }

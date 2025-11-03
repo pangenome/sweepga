@@ -2,7 +2,6 @@
 ///
 /// This test verifies that the build.rs script correctly installed all helper
 /// binaries needed by FastGA to function properly.
-
 use sweepga::binary_paths;
 
 #[test]
@@ -87,10 +86,12 @@ fn test_binary_directory_accessible() {
     let binaries_to_check = ["FastGA"];
 
     for binary in &binaries_to_check {
-        let path = binary_paths::get_embedded_binary_path(binary)
-            .expect("FastGA binary should be found");
+        let path =
+            binary_paths::get_embedded_binary_path(binary).expect("FastGA binary should be found");
 
-        let dir = path.parent().expect("Binary should have a parent directory");
+        let dir = path
+            .parent()
+            .expect("Binary should have a parent directory");
 
         assert!(
             dir.is_dir(),
