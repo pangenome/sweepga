@@ -1431,10 +1431,19 @@ fn main() -> Result<()> {
     // Enable .1aln workflow when:
     // - Input is .1aln or FASTA (not PAF)
     // - User hasn't explicitly requested PAF output with --paf flag
+    // - User hasn't requested tree sparsification (which requires PAF workflow)
     // GDB is now preserved using AlnWriter::create_with_gdb (via open_write_from)
     let input_is_paf =
         !input_file_types.is_empty() && input_file_types.iter().all(|ft| *ft == FileType::Paf);
+
+    // Check if tree sparsification is requested
+    use tree_sparsify::SparsificationStrategy;
+    let needs_tree_filtering = args.sparsify.parse::<SparsificationStrategy>()
+        .ok()
+        .map_or(false, |s| matches!(s, SparsificationStrategy::Tree(_, _, _)));
+
     let want_paf_output = args.output_paf
+        || needs_tree_filtering  // Force PAF workflow for tree filtering
         || args
             .output_file
             .as_ref()
@@ -1960,7 +1969,6 @@ fn main() -> Result<()> {
     };
 
     // Parse sparsification strategy (PAF workflow)
-    use tree_sparsify::SparsificationStrategy;
     let sparsification_strategy = args.sparsify.parse::<SparsificationStrategy>()?;
     let sparsity_fraction = match sparsification_strategy {
         SparsificationStrategy::Fraction(f) => f,

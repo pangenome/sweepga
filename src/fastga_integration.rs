@@ -259,12 +259,19 @@ impl FastGAIntegration {
 
         // Determine kmer frequency threshold
         // Default to number of haplotypes in query file for pangenome workflows
+        // FastGA has a maximum frequency cutoff of 255
+        const FASTGA_MAX_FREQ: usize = 255;
         let kmer_freq = if let Some(freq) = self.config.adaptive_seed_cutoff {
             freq as i32
         } else {
             let num_haplotypes = Self::count_haplotypes(queries)?;
-            eprintln!("[FastGA] Auto-setting frequency threshold to {} (number of haplotypes from PanSN naming)", num_haplotypes);
-            num_haplotypes as i32
+            let capped_freq = num_haplotypes.min(FASTGA_MAX_FREQ);
+            if capped_freq < num_haplotypes {
+                eprintln!("[FastGA] Auto-detected {} haplotypes, capping frequency to FastGA max of {}", num_haplotypes, FASTGA_MAX_FREQ);
+            } else {
+                eprintln!("[FastGA] Auto-setting frequency threshold to {} (number of haplotypes from PanSN naming)", num_haplotypes);
+            }
+            capped_freq as i32
         };
 
         // Create orchestrator to run FastGA binary directly
@@ -331,12 +338,19 @@ impl FastGAIntegration {
 
         // Determine kmer frequency threshold
         // Default to number of haplotypes in query file for pangenome workflows
+        // FastGA has a maximum frequency cutoff of 255
+        const FASTGA_MAX_FREQ: usize = 255;
         let kmer_freq = if let Some(freq) = self.config.adaptive_seed_cutoff {
             freq as i32
         } else {
             let num_haplotypes = Self::count_haplotypes(queries)?;
-            eprintln!("[FastGA] Auto-setting frequency threshold to {} (number of haplotypes from PanSN naming)", num_haplotypes);
-            num_haplotypes as i32
+            let capped_freq = num_haplotypes.min(FASTGA_MAX_FREQ);
+            if capped_freq < num_haplotypes {
+                eprintln!("[FastGA] Auto-detected {} haplotypes, capping frequency to FastGA max of {}", num_haplotypes, FASTGA_MAX_FREQ);
+            } else {
+                eprintln!("[FastGA] Auto-setting frequency threshold to {} (number of haplotypes from PanSN naming)", num_haplotypes);
+            }
+            capped_freq as i32
         };
 
         // Create orchestrator to run FastGA binary directly
