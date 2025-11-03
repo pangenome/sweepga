@@ -1338,6 +1338,19 @@ fn create_fastga_integration(
 }
 
 fn main() -> Result<()> {
+    // Set OUT_DIR to help fastga-rs find its binaries
+    // This ensures FAtoGDB, GIXmake, and GIXrm are found when FastGA needs them
+    if let Some(cargo_home) = std::env::var("CARGO_HOME").ok().or_else(|| {
+        std::env::var("HOME")
+            .ok()
+            .map(|h| format!("{}/.cargo", h))
+    }) {
+        let lib_dir = format!("{}/lib/sweepga", cargo_home);
+        if std::path::Path::new(&lib_dir).exists() {
+            std::env::set_var("OUT_DIR", &lib_dir);
+        }
+    }
+
     let args = Args::parse();
 
     // Handle --check-fastga diagnostic flag
