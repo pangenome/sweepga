@@ -302,6 +302,158 @@ pub fn apply_tree_filter_to_paf(
     Ok(())
 }
 
+/// Apply tree-based filtering directly to .1aln file (native format, no conversion)
+/// Reads .1aln alignments, builds identity matrix, selects tree pairs, writes filtered .1aln
+pub fn apply_tree_filter_to_1aln(
+    input_path: &str,
+    output_path: &str,
+    k_nearest: usize,
+    k_farthest: usize,
+    _random_fraction: f64,
+    quiet: bool,
+) -> Result<()> {
+    use crate::aln_filter::AlnFilterReader;
+
+    // Step 1: Read all alignments and build identity matrix
+    let mut reader = AlnFilterReader::open(input_path)?;
+    let mut all_alignments = Vec::new();
+    let mut genome_pairs: HashMap<(String, String), (f64, f64)> = HashMap::new();
+
+    while let Some(aln) = reader.read_alignment()? {
+        let query_genome = extract_genome_prefix(&aln.query_name);
+        let target_genome = extract_genome_prefix(&aln.target_name);
+
+        // Skip self-comparisons
+        if query_genome != target_genome {
+            // Accumulate for identity matrix
+            let key = if query_genome < target_genome {
+                (query_genome.clone(), target_genome.clone())
+            } else {
+                (target_genome.clone(), query_genome.clone())
+            };
+
+            let aln_len = (aln.query_end - aln.query_start) as usize;
+            let entry = genome_pairs.entry(key).or_insert((0.0, 0.0));
+            entry.0 += aln.matches as f64;
+            entry.1 += aln_len as f64;
+        }
+
+        all_alignments.push(aln);
+    }
+
+    if !quiet {
+        eprintln!("[sweepga] Tree filtering: read {} alignments from .1aln", all_alignments.len());
+    }
+
+    // Step 2: Build identity matrix
+    let identity_matrix: HashMap<(String, String), f64> = genome_pairs
+        .into_iter()
+        .map(|(key, (total_matches, total_length))| {
+            let identity = if total_length > 0.0 {
+                total_matches / total_length
+            } else {
+                0.0
+            };
+            (key, identity)
+        })
+        .collect();
+
+    // Step 3: Select tree pairs
+    let selected_pairs = select_tree_pairs(&identity_matrix, k_nearest, k_farthest);
+
+    // Step 4: Build a set of passing ranks (indices where filter passes)
+    let passing_ranks: HashSet<usize> = all_alignments
+        .iter()
+        .enumerate()
+        .filter_map(|(idx, aln)| {
+            let query_genome = extract_genome_prefix(&aln.query_name);
+            let target_genome = extract_genome_prefix(&aln.target_name);
+
+            // Skip self-comparisons
+            if query_genome == target_genome {
+                return None;
+            }
+
+            // Check if this pair is selected
+            let pair = if query_genome < target_genome {
+                (query_genome, target_genome)
+            } else {
+                (target_genome, query_genome)
+            };
+
+            if selected_pairs.contains(&pair) {
+                Some(idx)
+            } else {
+                None
+            }
+        })
+        .collect();
+
+    if !quiet {
+        eprintln!(
+            "[sweepga] Tree filtering: keeping {} alignments (tree:{}{}{})",
+            passing_ranks.len(),
+            k_nearest,
+            if k_farthest > 0 { format!(",{}", k_farthest) } else { String::new() },
+            if _random_fraction > 0.0 { format!(",{}", _random_fraction) } else { String::new() }
+        );
+    }
+
+    // Step 6: Write filtered .1aln using unified_filter's rank-based copying
+    let mut reader = fastga_rs::AlnReader::open(input_path)?;
+    let mut writer = fastga_rs::AlnWriter::create_with_gdb(
+        std::path::Path::new(output_path),
+        std::path::Path::new(input_path),
+        true, // binary
+    )?;
+
+    let mut rank = 0;
+    let mut written = 0;
+    let input_file = &mut reader.file;
+
+    // Read through input file, copying only alignments that passed tree filtering
+    loop {
+        let line_type = input_file.read_line();
+        if line_type == '\0' {
+            break; // EOF
+        }
+
+        if line_type == 'A' {
+            if passing_ranks.contains(&rank) {
+                // This alignment passed tree filtering - copy it with trace data
+                writer.copy_alignment_record_from_file(input_file)?;
+                written += 1;
+            } else {
+                // Skip this alignment and its trace data
+                loop {
+                    let next_type = input_file.read_line();
+                    if next_type == '\0' {
+                        break; // EOF
+                    }
+                    if next_type == 'T' {
+                        // Read past X record too
+                        input_file.read_line();
+                        break;
+                    }
+                    if next_type == 'A' {
+                        // Hit next alignment without trace data
+                        break;
+                    }
+                }
+            }
+            rank += 1;
+        }
+    }
+
+    writer.finalize();
+
+    if !quiet {
+        eprintln!("[sweepga] Wrote {written} tree-filtered alignments to .1aln");
+    }
+
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

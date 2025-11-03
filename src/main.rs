@@ -1538,20 +1538,38 @@ fn main() -> Result<()> {
             min_scaffold_identity: 0.0,
         };
 
-        // Warn if tree pattern is used - tree filtering only works on PAF format
-        if matches!(sparsification_strategy, SparsificationStrategy::Tree(_, _, _)) {
-            if !args.quiet {
-                eprintln!("[sweepga] WARNING: Tree sparsification requested but .1aln format doesn't support it.");
-                eprintln!("[sweepga] Tree filtering is only applied when processing PAF files.");
-                eprintln!("[sweepga] Use --output-paf flag to enable tree sparsification.");
-            }
-        }
+        // Step 2.6: Apply tree filtering if requested (natively on .1aln format)
+        let tree_filtered_input = if let SparsificationStrategy::Tree(k_nearest, k_farthest, random_fraction) = sparsification_strategy {
+            // Apply tree filtering directly to .1aln
+            let temp_tree_filtered = tempfile::NamedTempFile::with_suffix(".1aln")?;
+
+            use tree_sparsify::apply_tree_filter_to_1aln;
+            apply_tree_filter_to_1aln(
+                &aln_input_path,
+                temp_tree_filtered.path().to_str().context("Invalid temp path")?,
+                k_nearest,
+                k_farthest,
+                random_fraction,
+                args.quiet,
+            )?;
+
+            // Use tree-filtered output as input for plane sweep filtering
+            Some(temp_tree_filtered)
+        } else {
+            None
+        };
+
+        let final_filter_input = if let Some(ref tf) = tree_filtered_input {
+            tf.path().to_path_buf()
+        } else {
+            std::path::PathBuf::from(&aln_input_path)
+        };
 
         // Step 3: Filter .1aln directly using unified_filter (format-preserving)
         use crate::unified_filter::filter_file;
         if let Some(ref output_file) = args.output_file {
             filter_file(
-                &aln_input_path,
+                final_filter_input,
                 output_file,
                 &filter_config,
                 false,
@@ -1561,7 +1579,7 @@ fn main() -> Result<()> {
             // Write to temp file then copy to stdout
             let temp_output = tempfile::NamedTempFile::with_suffix(".1aln")?;
             filter_file(
-                &aln_input_path,
+                final_filter_input,
                 temp_output.path(),
                 &filter_config,
                 false,
