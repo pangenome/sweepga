@@ -137,7 +137,11 @@ pub fn select_tree_pairs(
     identity_matrix: &HashMap<(String, String), f64>,
     k_nearest: usize,
     k_farthest: usize,
+    random_fraction: f64,
 ) -> HashSet<(String, String)> {
+    use std::collections::hash_map::DefaultHasher;
+    use std::hash::{Hash, Hasher};
+
     // Collect all unique genomes
     let mut genomes = HashSet::new();
     for (g1, g2) in identity_matrix.keys() {
@@ -190,6 +194,24 @@ pub fn select_tree_pairs(
         }
     }
 
+    // Add random pairs using hash-based selection (deterministic but pseudo-random)
+    if random_fraction > 0.0 {
+        let threshold = (random_fraction * u64::MAX as f64) as u64;
+
+        for (pair, _) in identity_matrix.iter() {
+            // Hash the genome pair names (order-independent for canonical pairs)
+            let mut hasher = DefaultHasher::new();
+            pair.0.hash(&mut hasher);
+            pair.1.hash(&mut hasher);
+            let hash_value = hasher.finish();
+
+            // Keep pair if hash is below threshold
+            if hash_value <= threshold {
+                selected_pairs.insert(pair.clone());
+            }
+        }
+    }
+
     selected_pairs
 }
 
@@ -199,13 +221,13 @@ pub fn filter_tree_based(
     alignments: &[PafAlignment],
     k_nearest: usize,
     k_farthest: usize,
-    _random_fraction: f64, // TODO: implement random pairs
+    random_fraction: f64,
 ) -> Vec<usize> {
     // Build identity matrix from alignments
     let identity_matrix = build_identity_matrix(alignments);
 
     // Select genome pairs to keep
-    let selected_pairs = select_tree_pairs(&identity_matrix, k_nearest, k_farthest);
+    let selected_pairs = select_tree_pairs(&identity_matrix, k_nearest, k_farthest, random_fraction);
 
     // Filter alignments based on selected pairs
     let mut keep_indices = Vec::new();
@@ -309,7 +331,7 @@ pub fn apply_tree_filter_to_1aln(
     output_path: &str,
     k_nearest: usize,
     k_farthest: usize,
-    _random_fraction: f64,
+    random_fraction: f64,
     quiet: bool,
 ) -> Result<()> {
     use crate::aln_filter::AlnFilterReader;
@@ -359,7 +381,7 @@ pub fn apply_tree_filter_to_1aln(
         .collect();
 
     // Step 3: Select tree pairs
-    let selected_pairs = select_tree_pairs(&identity_matrix, k_nearest, k_farthest);
+    let selected_pairs = select_tree_pairs(&identity_matrix, k_nearest, k_farthest, random_fraction);
 
     // Step 4: Build a set of passing ranks (indices where filter passes)
     let passing_ranks: HashSet<usize> = all_alignments
@@ -395,7 +417,7 @@ pub fn apply_tree_filter_to_1aln(
             passing_ranks.len(),
             k_nearest,
             if k_farthest > 0 { format!(",{}", k_farthest) } else { String::new() },
-            if _random_fraction > 0.0 { format!(",{}", _random_fraction) } else { String::new() }
+            if random_fraction > 0.0 { format!(",{}", random_fraction) } else { String::new() }
         );
     }
 
