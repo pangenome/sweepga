@@ -10,6 +10,7 @@ mod plane_sweep;
 mod plane_sweep_core;
 mod plane_sweep_exact;
 mod sequence_index;
+mod tree_sparsify;
 mod unified_filter;
 mod union_find;
 
@@ -221,9 +222,9 @@ struct Args {
     #[clap(short = 'o', long = "overlap", default_value = "0.95")]
     overlap: f64,
 
-    /// Keep this fraction of mappings
+    /// Keep this fraction or tree pattern (e.g., "0.5" or "tree:3" or "tree:3,2,0.1")
     #[clap(short = 'x', long = "sparsify", default_value = "1.0")]
-    sparsify: f64,
+    sparsify: String,
 
     /// n:m-best mappings kept in query:target dimensions. 1:1 (orthogonal), use ∞/many for unbounded
     #[clap(short = 'n', long = "num-mappings", default_value = "1:1")]
@@ -1505,6 +1506,14 @@ fn main() -> Result<()> {
             _ => ScoringFunction::LogLengthIdentity,
         };
 
+        // Parse sparsification strategy
+        use tree_sparsify::SparsificationStrategy;
+        let sparsification_strategy = args.sparsify.parse::<SparsificationStrategy>()?;
+        let sparsity_fraction = match sparsification_strategy {
+            SparsificationStrategy::Fraction(f) => f,
+            SparsificationStrategy::Tree(_, _, _) => 1.0, // Tree filtering handled separately
+        };
+
         let filter_config = FilterConfig {
             chain_gap: args.scaffold_jump,
             min_block_length: args.block_length,
@@ -1516,7 +1525,7 @@ fn main() -> Result<()> {
             scaffold_max_per_query,
             scaffold_max_per_target,
             overlap_threshold: args.overlap,
-            sparsity: args.sparsify,
+            sparsity: sparsity_fraction,
             no_merge: true,
             scaffold_gap: args.scaffold_jump,
             min_scaffold_length: args.scaffold_mass,
@@ -1528,6 +1537,15 @@ fn main() -> Result<()> {
             min_identity: 0.0,
             min_scaffold_identity: 0.0,
         };
+
+        // Warn if tree pattern is used - tree filtering only works on PAF format
+        if matches!(sparsification_strategy, SparsificationStrategy::Tree(_, _, _)) {
+            if !args.quiet {
+                eprintln!("[sweepga] WARNING: Tree sparsification requested but .1aln format doesn't support it.");
+                eprintln!("[sweepga] Tree filtering is only applied when processing PAF files.");
+                eprintln!("[sweepga] Use --output-paf flag to enable tree sparsification.");
+            }
+        }
 
         // Step 3: Filter .1aln directly using unified_filter (format-preserving)
         use crate::unified_filter::filter_file;
@@ -1941,6 +1959,14 @@ fn main() -> Result<()> {
         _ => ScoringFunction::LogLengthIdentity,
     };
 
+    // Parse sparsification strategy (PAF workflow)
+    use tree_sparsify::SparsificationStrategy;
+    let sparsification_strategy = args.sparsify.parse::<SparsificationStrategy>()?;
+    let sparsity_fraction = match sparsification_strategy {
+        SparsificationStrategy::Fraction(f) => f,
+        SparsificationStrategy::Tree(_, _, _) => 1.0, // Tree filtering will be applied to PAF
+    };
+
     // Placeholder for identity values - will be calculated after we have input path
     let temp_config = FilterConfig {
         chain_gap: args.scaffold_jump,
@@ -1953,7 +1979,7 @@ fn main() -> Result<()> {
         scaffold_max_per_query,
         scaffold_max_per_target,
         overlap_threshold: args.overlap,
-        sparsity: args.sparsify,
+        sparsity: sparsity_fraction,
         no_merge: true,
         scaffold_gap: args.scaffold_jump,
         min_scaffold_length: args.scaffold_mass,
@@ -2048,11 +2074,47 @@ fn main() -> Result<()> {
     let output_path = output_path_buf.to_str().unwrap().to_string();
     drop(output_file); // Close the file handle so filter_paf can open it
 
+    // Apply tree-based sparsification if requested
+    let tree_filtered_path = if let SparsificationStrategy::Tree(k_nearest, k_farthest, rand_frac) = sparsification_strategy {
+        if !args.quiet {
+            timing.log(
+                "tree-filter",
+                &format!("Applying tree sparsification: tree:{}{}{}",
+                    k_nearest,
+                    if k_farthest > 0 { format!(",{}", k_farthest) } else { String::new() },
+                    if rand_frac > 0.0 { format!(",{}", rand_frac) } else { String::new() }
+                ),
+            );
+        }
+
+        // Create temporary file for tree-filtered PAF
+        let tree_temp = tempfile::NamedTempFile::with_suffix(".tree.paf")?;
+        let (tree_file, tree_path_buf) = tree_temp.keep()?;
+        let tree_path = tree_path_buf.to_str().unwrap().to_string();
+        drop(tree_file); // Close so apply_tree_filter_to_paf can open it
+
+        // Apply tree filtering
+        tree_sparsify::apply_tree_filter_to_paf(
+            &input_path,
+            &tree_path,
+            k_nearest,
+            k_farthest,
+            rand_frac,
+        )?;
+
+        Some(tree_path)
+    } else {
+        None
+    };
+
+    // Use tree-filtered PAF if available, otherwise use original input
+    let filter_input_path = tree_filtered_path.as_ref().unwrap_or(&input_path);
+
     // Note: -f (no_filter) implies --self (keep self-mappings)
     let filter = PafFilter::new(config)
         .with_keep_self(args.keep_self || args.no_filter)
         .with_scaffolds_only(args.scaffolds_only);
-    filter.filter_paf(&input_path, &output_path)?;
+    filter.filter_paf(filter_input_path, &output_path)?;
 
     // Convert output format if requested
     // Note: PAFtoALN automatically appends .paf to the input filename, so we need to strip it
