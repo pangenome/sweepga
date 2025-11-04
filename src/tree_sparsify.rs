@@ -24,7 +24,10 @@ impl FromStr for SparsificationStrategy {
         // Try to parse as float first
         if let Ok(frac) = s.parse::<f64>() {
             if !(0.0..=1.0).contains(&frac) {
-                return Err(anyhow!("Fraction must be between 0.0 and 1.0, got {}", frac));
+                return Err(anyhow!(
+                    "Fraction must be between 0.0 and 1.0, got {}",
+                    frac
+                ));
             }
             return Ok(SparsificationStrategy::Fraction(frac));
         }
@@ -60,7 +63,9 @@ impl FromStr for SparsificationStrategy {
                 0.0
             };
 
-            return Ok(SparsificationStrategy::Tree(k_nearest, k_farthest, rand_frac));
+            return Ok(SparsificationStrategy::Tree(
+                k_nearest, k_farthest, rand_frac,
+            ));
         }
 
         Err(anyhow!("Invalid sparsification pattern '{}'. Use a fraction (0.0-1.0) or tree:neighbor[,stranger[,random]]", s))
@@ -227,7 +232,8 @@ pub fn filter_tree_based(
     let identity_matrix = build_identity_matrix(alignments);
 
     // Select genome pairs to keep
-    let selected_pairs = select_tree_pairs(&identity_matrix, k_nearest, k_farthest, random_fraction);
+    let selected_pairs =
+        select_tree_pairs(&identity_matrix, k_nearest, k_farthest, random_fraction);
 
     // Filter alignments based on selected pairs
     let mut keep_indices = Vec::new();
@@ -302,16 +308,28 @@ pub fn apply_tree_filter_to_paf(
         paf_lines.push(line);
     }
 
-    eprintln!("[sweepga] Tree filtering: {} total alignments", alignments.len());
+    eprintln!(
+        "[sweepga] Tree filtering: {} total alignments",
+        alignments.len()
+    );
 
     // Apply tree filtering
     let keep_indices = filter_tree_based(&alignments, k_nearest, k_farthest, random_fraction);
 
-    eprintln!("[sweepga] Tree filtering: keeping {} alignments (tree:{}{}{})",
+    eprintln!(
+        "[sweepga] Tree filtering: keeping {} alignments (tree:{}{}{})",
         keep_indices.len(),
         k_nearest,
-        if k_farthest > 0 { format!(",{}", k_farthest) } else { String::new() },
-        if random_fraction > 0.0 { format!(",{}", random_fraction) } else { String::new() }
+        if k_farthest > 0 {
+            format!(",{}", k_farthest)
+        } else {
+            String::new()
+        },
+        if random_fraction > 0.0 {
+            format!(",{}", random_fraction)
+        } else {
+            String::new()
+        }
     );
 
     // Write filtered PAF
@@ -364,7 +382,10 @@ pub fn apply_tree_filter_to_1aln(
     }
 
     if !quiet {
-        eprintln!("[sweepga] Tree filtering: read {} alignments from .1aln", all_alignments.len());
+        eprintln!(
+            "[sweepga] Tree filtering: read {} alignments from .1aln",
+            all_alignments.len()
+        );
     }
 
     // Step 2: Build identity matrix
@@ -381,7 +402,8 @@ pub fn apply_tree_filter_to_1aln(
         .collect();
 
     // Step 3: Select tree pairs
-    let selected_pairs = select_tree_pairs(&identity_matrix, k_nearest, k_farthest, random_fraction);
+    let selected_pairs =
+        select_tree_pairs(&identity_matrix, k_nearest, k_farthest, random_fraction);
 
     // Step 4: Build a set of passing ranks (indices where filter passes)
     let passing_ranks: HashSet<usize> = all_alignments
@@ -416,8 +438,16 @@ pub fn apply_tree_filter_to_1aln(
             "[sweepga] Tree filtering: keeping {} alignments (tree:{}{}{})",
             passing_ranks.len(),
             k_nearest,
-            if k_farthest > 0 { format!(",{}", k_farthest) } else { String::new() },
-            if random_fraction > 0.0 { format!(",{}", random_fraction) } else { String::new() }
+            if k_farthest > 0 {
+                format!(",{}", k_farthest)
+            } else {
+                String::new()
+            },
+            if random_fraction > 0.0 {
+                format!(",{}", random_fraction)
+            } else {
+                String::new()
+            }
         );
     }
 

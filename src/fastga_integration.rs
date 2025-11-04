@@ -266,7 +266,10 @@ impl FastGAIntegration {
             let num_haplotypes = Self::count_haplotypes(queries)?;
             let capped_freq = num_haplotypes.min(FASTGA_MAX_FREQ);
             if capped_freq < num_haplotypes {
-                eprintln!("[FastGA] Auto-detected {} haplotypes, capping frequency to FastGA max of {}", num_haplotypes, FASTGA_MAX_FREQ);
+                eprintln!(
+                    "[FastGA] Auto-detected {} haplotypes, capping frequency to FastGA max of {}",
+                    num_haplotypes, FASTGA_MAX_FREQ
+                );
             } else {
                 eprintln!("[FastGA] Auto-setting frequency threshold to {} (number of haplotypes from PanSN naming)", num_haplotypes);
             }
