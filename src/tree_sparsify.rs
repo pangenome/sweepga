@@ -84,6 +84,7 @@ fn extract_genome_prefix(seq_name: &str) -> String {
 
 /// PAF alignment record (minimal fields needed for filtering)
 #[derive(Debug, Clone)]
+#[allow(dead_code)]
 pub struct PafAlignment {
     pub query_name: String,
     pub target_name: String,
