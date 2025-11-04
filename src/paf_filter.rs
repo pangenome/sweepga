@@ -981,11 +981,14 @@ impl PafFilter {
 
         // Helper function to extract genome prefix from sequence name
         // For "SGDref#1#chrI", returns "SGDref#1#"
+        // For sequences without '#', return empty string to group all together
         let extract_genome_prefix = |seq_name: &str| -> String {
             if let Some(last_pos) = seq_name.rfind('#') {
                 seq_name[..=last_pos].to_string()
             } else {
-                seq_name.to_string()
+                // No delimiter - treat as single-genome data, use empty prefix
+                // This groups all sequences together for global plane sweep
+                String::new()
             }
         };
 
