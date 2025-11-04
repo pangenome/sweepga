@@ -114,8 +114,7 @@ impl FromStr for FastGAPreset {
             "ani95" | "95" => Ok(FastGAPreset::Ani95),
             "ani99" | "99" => Ok(FastGAPreset::Ani99),
             _ => anyhow::bail!(
-                "Unknown preset '{}'. Valid presets: ani70, ani80, ani85, ani90, ani95, ani99",
-                s
+                "Unknown preset '{s}'. Valid presets: ani70, ani80, ani85, ani90, ani95, ani99"
             ),
         }
     }
@@ -202,7 +201,7 @@ impl FastGAIntegration {
         // Prepare GDB
         let gdb_base = orchestrator
             .prepare_gdb(fasta_path)
-            .map_err(|e| anyhow::anyhow!("Failed to prepare GDB: {}", e))?;
+            .map_err(|e| anyhow::anyhow!("Failed to prepare GDB: {e}"))?;
 
         // Create index
         orchestrator
@@ -210,7 +209,7 @@ impl FastGAIntegration {
                 &gdb_base,
                 self.config.adaptive_seed_cutoff.unwrap_or(10) as i32,
             )
-            .map_err(|e| anyhow::anyhow!("Failed to create index: {}", e))?;
+            .map_err(|e| anyhow::anyhow!("Failed to create index: {e}"))?;
 
         Ok(gdb_base)
     }
@@ -267,11 +266,10 @@ impl FastGAIntegration {
             let capped_freq = num_haplotypes.min(FASTGA_MAX_FREQ);
             if capped_freq < num_haplotypes {
                 eprintln!(
-                    "[FastGA] Auto-detected {} haplotypes, capping frequency to FastGA max of {}",
-                    num_haplotypes, FASTGA_MAX_FREQ
+                    "[FastGA] Auto-detected {num_haplotypes} haplotypes, capping frequency to FastGA max of {FASTGA_MAX_FREQ}"
                 );
             } else {
-                eprintln!("[FastGA] Auto-setting frequency threshold to {} (number of haplotypes from PanSN naming)", num_haplotypes);
+                eprintln!("[FastGA] Auto-setting frequency threshold to {num_haplotypes} (number of haplotypes from PanSN naming)");
             }
             capped_freq as i32
         };
@@ -288,7 +286,7 @@ impl FastGAIntegration {
         // Run alignment - FastGA creates BOTH .1aln and .1gdb files
         let aln_path = orchestrator
             .align_to_1aln(queries, targets)
-            .map_err(|e| anyhow::anyhow!("Failed to run FastGA alignment: {}", e))?;
+            .map_err(|e| anyhow::anyhow!("Failed to run FastGA alignment: {e}"))?;
 
         // Derive .1gdb path from .1aln path
         let gdb_path = aln_path
@@ -344,7 +342,7 @@ impl FastGAIntegration {
             freq as i32
         } else {
             let num_haplotypes = Self::count_haplotypes(queries)?;
-            eprintln!("[FastGA] Auto-setting frequency threshold to {} (number of haplotypes from PanSN naming)", num_haplotypes);
+            eprintln!("[FastGA] Auto-setting frequency threshold to {num_haplotypes} (number of haplotypes from PanSN naming)");
             num_haplotypes as i32
         };
 
@@ -360,7 +358,7 @@ impl FastGAIntegration {
         // Run alignment with existing indices (returns PAF bytes directly)
         let paf_output = orchestrator
             .align_with_existing_indices(queries, targets)
-            .map_err(|e| anyhow::anyhow!("Failed to run FastGA alignment: {}", e))?;
+            .map_err(|e| anyhow::anyhow!("Failed to run FastGA alignment: {e}"))?;
 
         eprintln!(
             "[sweepga] PAF output: {} bytes, {} lines",

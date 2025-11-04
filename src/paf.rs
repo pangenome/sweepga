@@ -42,7 +42,7 @@ pub fn parse_cigar_counts(cigar: &str) -> Result<(u64, u64, u64, u64)> {
         } else {
             let count: u64 = num_str
                 .parse()
-                .map_err(|_| anyhow::anyhow!("Invalid number in CIGAR: {}", num_str))?;
+                .map_err(|_| anyhow::anyhow!("Invalid number in CIGAR: {num_str}"))?;
             num_str.clear();
 
             match ch {

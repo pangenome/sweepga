@@ -25,8 +25,7 @@ impl FromStr for SparsificationStrategy {
         if let Ok(frac) = s.parse::<f64>() {
             if !(0.0..=1.0).contains(&frac) {
                 return Err(anyhow!(
-                    "Fraction must be between 0.0 and 1.0, got {}",
-                    frac
+                    "Fraction must be between 0.0 and 1.0, got {frac}"
                 ));
             }
             return Ok(SparsificationStrategy::Fraction(frac));
@@ -68,7 +67,7 @@ impl FromStr for SparsificationStrategy {
             ));
         }
 
-        Err(anyhow!("Invalid sparsification pattern '{}'. Use a fraction (0.0-1.0) or tree:neighbor[,stranger[,random]]", s))
+        Err(anyhow!("Invalid sparsification pattern '{s}'. Use a fraction (0.0-1.0) or tree:neighbor[,stranger[,random]]"))
     }
 }
 
@@ -321,12 +320,12 @@ pub fn apply_tree_filter_to_paf(
         keep_indices.len(),
         k_nearest,
         if k_farthest > 0 {
-            format!(",{}", k_farthest)
+            format!(",{k_farthest}")
         } else {
             String::new()
         },
         if random_fraction > 0.0 {
-            format!(",{}", random_fraction)
+            format!(",{random_fraction}")
         } else {
             String::new()
         }
@@ -439,12 +438,12 @@ pub fn apply_tree_filter_to_1aln(
             passing_ranks.len(),
             k_nearest,
             if k_farthest > 0 {
-                format!(",{}", k_farthest)
+                format!(",{k_farthest}")
             } else {
                 String::new()
             },
             if random_fraction > 0.0 {
-                format!(",{}", random_fraction)
+                format!(",{random_fraction}")
             } else {
                 String::new()
             }
