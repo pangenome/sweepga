@@ -21,6 +21,7 @@ rand = "0.8"
 
 [build-dependencies]
 cc = "1.0"
+fastga-rs = { git = "https://github.com/pangenome/fastga-rs.git", branch = "main" }
 
 [[bin]]
 name = "sweepga"
