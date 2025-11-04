@@ -24,9 +24,7 @@ impl FromStr for SparsificationStrategy {
         // Try to parse as float first
         if let Ok(frac) = s.parse::<f64>() {
             if !(0.0..=1.0).contains(&frac) {
-                return Err(anyhow!(
-                    "Fraction must be between 0.0 and 1.0, got {frac}"
-                ));
+                return Err(anyhow!("Fraction must be between 0.0 and 1.0, got {frac}"));
             }
             return Ok(SparsificationStrategy::Fraction(frac));
         }

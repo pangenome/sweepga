@@ -68,11 +68,7 @@ fn main() {
                             }
                         } else if utility != &"ONEview" {
                             // ONEview is optional
-                            println!(
-                                "cargo:warning={} not found at: {}",
-                                utility,
-                                src.display()
-                            );
+                            println!("cargo:warning={} not found at: {}", utility, src.display());
                         }
                     }
 
