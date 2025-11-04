@@ -97,7 +97,7 @@ fn detect_file_type(path: &str) -> Result<FileType> {
     loop {
         line.clear();
         if reader.read_line(&mut line)? == 0 {
-            anyhow::bail!("Empty file: {}", path);
+            anyhow::bail!("Empty file: {path}");
         }
         let trimmed = line.trim();
         if !trimmed.is_empty() && !trimmed.starts_with('#') {
@@ -127,7 +127,7 @@ fn detect_file_type(path: &str) -> Result<FileType> {
         }
     }
 
-    anyhow::bail!("Could not detect file type for {}: not FASTA (starts with >), PAF (12+ tab-delimited fields), or .1aln (binary)", path);
+    anyhow::bail!("Could not detect file type for {path}: not FASTA (starts with >), PAF (12+ tab-delimited fields), or .1aln (binary)");
 }
 
 /// Method for calculating ANI from alignments
@@ -448,7 +448,7 @@ fn parse_identity_value(value: &str, ani_percentile: Option<f64>) -> Result<f64>
             if let Some((sign, offset_str)) = offset_part {
                 let offset: f64 = offset_str
                     .parse()
-                    .map_err(|_| anyhow::anyhow!("Invalid ANI offset: {}", offset_str))?;
+                    .map_err(|_| anyhow::anyhow!("Invalid ANI offset: {offset_str}"))?;
                 match sign {
                     '+' => Ok((ani_value + offset / 100.0).min(1.0)),
                     '-' => Ok((ani_value - offset / 100.0).max(0.0)),
@@ -468,7 +468,7 @@ fn parse_identity_value(value: &str, ani_percentile: Option<f64>) -> Result<f64>
             Ok(val) // Already fraction
         }
     } else {
-        anyhow::bail!("Invalid identity value: {}", value);
+        anyhow::bail!("Invalid identity value: {value}");
     }
 }
 
@@ -1342,9 +1342,9 @@ fn main() -> Result<()> {
     // This ensures FAtoGDB, GIXmake, and GIXrm are found when FastGA needs them
     if let Some(cargo_home) = std::env::var("CARGO_HOME")
         .ok()
-        .or_else(|| std::env::var("HOME").ok().map(|h| format!("{}/.cargo", h)))
+        .or_else(|| std::env::var("HOME").ok().map(|h| format!("{h}/.cargo")))
     {
-        let lib_dir = format!("{}/lib/sweepga", cargo_home);
+        let lib_dir = format!("{cargo_home}/lib/sweepga");
         if std::path::Path::new(&lib_dir).exists() {
             std::env::set_var("OUT_DIR", &lib_dir);
         }
@@ -1424,7 +1424,7 @@ fn main() -> Result<()> {
     if let Some(ref tempdir) = args.tempdir {
         std::env::set_var("TMPDIR", tempdir);
         if !args.quiet {
-            timing.log("tempdir", &format!("Using temp directory: {}", tempdir));
+            timing.log("tempdir", &format!("Using temp directory: {tempdir}"));
         }
     }
 
@@ -2121,12 +2121,12 @@ fn main() -> Result<()> {
                     "Applying tree sparsification: tree:{}{}{}",
                     k_nearest,
                     if k_farthest > 0 {
-                        format!(",{}", k_farthest)
+                        format!(",{k_farthest}")
                     } else {
                         String::new()
                     },
                     if rand_frac > 0.0 {
-                        format!(",{}", rand_frac)
+                        format!(",{rand_frac}")
                     } else {
                         String::new()
                     }

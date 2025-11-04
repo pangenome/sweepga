@@ -51,9 +51,9 @@ fn main() {
                         if src.exists() {
                             let dst = out_dir.join(utility);
                             if let Err(e) = std::fs::copy(&src, &dst) {
-                                println!("cargo:warning=Failed to copy {}: {}", utility, e);
+                                println!("cargo:warning=Failed to copy {utility}: {e}");
                             } else {
-                                println!("cargo:warning=Copied {}", utility);
+                                println!("cargo:warning=Copied {utility}");
 
                                 // Make executable on Unix
                                 #[cfg(unix)]
@@ -66,15 +66,13 @@ fn main() {
                                     }
                                 }
                             }
-                        } else {
-                            if utility != &"ONEview" {
-                                // ONEview is optional
-                                println!(
-                                    "cargo:warning={} not found at: {}",
-                                    utility,
-                                    src.display()
-                                );
-                            }
+                        } else if utility != &"ONEview" {
+                            // ONEview is optional
+                            println!(
+                                "cargo:warning={} not found at: {}",
+                                utility,
+                                src.display()
+                            );
                         }
                     }
 
@@ -87,7 +85,7 @@ fn main() {
     // Also copy binaries to $CARGO_HOME/lib/sweepga/ for cargo install
     // This happens during every build, ensuring binaries are available after install
     if let Ok(cargo_home) =
-        env::var("CARGO_HOME").or_else(|_| env::var("HOME").map(|h| format!("{}/.cargo", h)))
+        env::var("CARGO_HOME").or_else(|_| env::var("HOME").map(|h| format!("{h}/.cargo")))
     {
         let lib_dir = PathBuf::from(cargo_home).join("lib").join("sweepga");
 

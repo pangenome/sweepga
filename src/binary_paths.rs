@@ -108,9 +108,8 @@ pub fn get_embedded_binary_path(binary_name: &str) -> Result<PathBuf> {
     }
 
     Err(anyhow!(
-        "FastGA binary '{}' not found in embedded build directories or PATH.\n\
-         Try running 'cargo build' or 'cargo build --release' first.",
-        binary_name
+        "FastGA binary '{binary_name}' not found in embedded build directories or PATH.\n\
+         Try running 'cargo build' or 'cargo build --release' first."
     ))
 }
 
