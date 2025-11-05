@@ -262,7 +262,6 @@ fn test_paf_vs_1aln_equivalence() {
 }
 
 #[test]
-#[ignore] // TODO: Fix AlnReader hanging when .1gdb file is missing
 fn test_paf_vs_1aln_with_small_data() {
     // Use B-3106 data for fast testing
     let fasta_path = Path::new("data/B-3106.fa");
@@ -291,41 +290,49 @@ fn test_paf_vs_1aln_with_small_data() {
         .expect("Failed to generate PAF");
 
     // Parse stats from both
+    eprintln!("[test] Parsing PAF stats from: {:?}", paf_file.path());
     let paf_stats = parse_paf_stats(paf_file.path());
+    eprintln!("[test] PAF stats parsed");
 
-    // For .1aln, convert to PAF first using native reader
+    // For .1aln, convert to PAF using ALNtoPAF (the official converter)
+    // This ensures we use the exact same conversion logic as FastGA
     let aln_as_paf = temp_dir.path().join("aln_converted.paf");
+    eprintln!("[test] Converting .1aln to PAF using ALNtoPAF...");
 
-    use fastga_rs::AlnReader;
-    use std::io::Write;
+    // Persist the temp file so ALNtoPAF can read it
+    // (NamedTempFile auto-deletes when dropped)
+    let persisted_aln = temp_dir.path().join("test.1aln");
+    fs::copy(aln_file.path(), &persisted_aln).expect("Failed to copy .1aln file");
+    eprintln!("[test] Copied .1aln to: {:?}", persisted_aln);
 
-    let mut reader = AlnReader::open(aln_file.path()).expect("Failed to open .1aln");
-    let mut paf_out = fs::File::create(&aln_as_paf).unwrap();
-
-    while let Some(rec) = reader.read_record().unwrap() {
-        let qname = reader.get_seq_name(rec.query_id, 0).unwrap();
-        let tname = reader.get_seq_name(rec.target_id, 1).unwrap();
-
-        let aln_len = (rec.query_end - rec.query_start) as usize;
-        let matches = aln_len.saturating_sub(rec.diffs as usize);
-
-        writeln!(
-            paf_out,
-            "{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t60",
-            qname,
-            rec.query_len,
-            rec.query_start,
-            rec.query_end,
-            if rec.reverse != 0 { '-' } else { '+' },
-            tname,
-            rec.target_len,
-            rec.target_start,
-            rec.target_end,
-            matches,
-            aln_len
-        )
-        .unwrap();
+    // Also copy the .1gdb file if it exists (contains sequence names)
+    let aln_gdb = aln_file.path().to_str().unwrap().replace(".1aln", ".1gdb");
+    let persisted_gdb = persisted_aln.to_str().unwrap().replace(".1aln", ".1gdb");
+    if std::path::Path::new(&aln_gdb).exists() {
+        fs::copy(&aln_gdb, &persisted_gdb).expect("Failed to copy .1gdb file");
+        eprintln!("[test] Copied .1gdb to: {:?}", persisted_gdb);
     }
+
+    // Find ALNtoPAF binary using the embedded binary paths
+    let alnto_paf_bin = sweepga::binary_paths::get_embedded_binary_path("ALNtoPAF")
+        .expect("ALNtoPAF binary not found");
+
+    eprintln!("[test] Using ALNtoPAF binary at: {:?}", alnto_paf_bin);
+
+    let convert_result = std::process::Command::new(&alnto_paf_bin)
+        .arg("-x")  // Extended CIGAR mode (same as FastGA uses)
+        .arg(&persisted_aln)
+        .output()
+        .expect("Failed to run ALNtoPAF");
+
+    if !convert_result.status.success() {
+        eprintln!("ALNtoPAF failed:");
+        eprintln!("{}", String::from_utf8_lossy(&convert_result.stderr));
+        panic!("ALNtoPAF conversion failed");
+    }
+
+    // Write PAF output to file
+    fs::write(&aln_as_paf, &convert_result.stdout).expect("Failed to write PAF file");
 
     let aln_stats = parse_paf_stats(&aln_as_paf);
 
