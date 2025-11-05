@@ -258,20 +258,12 @@ impl FastGAIntegration {
 
         // Determine kmer frequency threshold
         // Default to number of haplotypes in query file for pangenome workflows
-        const FASTGA_MAX_FREQ: usize = 255;
         let kmer_freq = if let Some(freq) = self.config.adaptive_seed_cutoff {
             freq as i32
         } else {
             let num_haplotypes = Self::count_haplotypes(queries)?;
-            let capped_freq = num_haplotypes.min(FASTGA_MAX_FREQ);
-            if capped_freq < num_haplotypes {
-                eprintln!(
-                    "[FastGA] Auto-detected {num_haplotypes} haplotypes, capping frequency to FastGA max of {FASTGA_MAX_FREQ}"
-                );
-            } else {
-                eprintln!("[FastGA] Auto-setting frequency threshold to {num_haplotypes} (number of haplotypes from PanSN naming)");
-            }
-            capped_freq as i32
+            eprintln!("[FastGA] Auto-setting frequency threshold to {num_haplotypes} (number of haplotypes from PanSN naming)");
+            num_haplotypes as i32
         };
 
         // Create orchestrator to run FastGA binary directly

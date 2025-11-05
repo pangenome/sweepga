@@ -1088,7 +1088,7 @@ fn align_multiple_fastas(
         Some(f)
     } else {
         // No user-specified frequency: let fastga_integration.rs auto-detect
-        // from PanSN naming convention (capped at 255 due to FastGA uint8 limit)
+        // from PanSN naming convention
         None
     };
 
