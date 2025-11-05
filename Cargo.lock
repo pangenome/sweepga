@@ -397,14 +397,15 @@ dependencies = [
 [[package]]
 name = "fastga-rs"
 version = "0.1.0"
-source = "git+https://github.com/pangenome/fastga-rs.git?branch=main#8ce69a916162f87df4e391018d13223b5729271e"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a78a40ec15eeb8572c6d1b5ca7ad781798cc611aff6818a042ac4e6d4ca4d3c8"
 dependencies = [
  "anyhow",
  "cc",
  "libc",
  "nix",
  "num_cpus",
- "onecode 0.1.0 (git+https://github.com/pangenome/onecode-rs.git?rev=3ac229e39d72b0ac724c688e91fb2525e08922f7)",
+ "onecode",
  "pkg-config",
  "tempfile",
  "thiserror",
@@ -713,17 +714,8 @@ checksum = "384b8ab6d37215f3c5301a95a4accb5d64aa607f1fcb26a11b5303878451b4fe"
 [[package]]
 name = "onecode"
 version = "0.1.0"
-source = "git+https://github.com/pangenome/onecode-rs.git?rev=02d30676bdb0d382d325778f25fce1d5c1f45897#02d30676bdb0d382d325778f25fce1d5c1f45897"
-dependencies = [
- "bindgen",
- "cc",
- "libc",
-]
-
-[[package]]
-name = "onecode"
-version = "0.1.0"
-source = "git+https://github.com/pangenome/onecode-rs.git?rev=3ac229e39d72b0ac724c688e91fb2525e08922f7#3ac229e39d72b0ac724c688e91fb2525e08922f7"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c58555aa93237650330e6f87e5c020d8eb16dd9ae2291f4e6519bb1aaf3cd791"
 dependencies = [
  "bindgen",
  "cc",
@@ -1117,7 +1109,7 @@ dependencies = [
  "nom",
  "noodles",
  "num_cpus",
- "onecode 0.1.0 (git+https://github.com/pangenome/onecode-rs.git?rev=02d30676bdb0d382d325778f25fce1d5c1f45897)",
+ "onecode",
  "ordered-float",
  "pretty_assertions",
  "proptest",
