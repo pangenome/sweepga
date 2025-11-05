@@ -31,6 +31,16 @@ alnstats alignments.paf -d
 
 ## Installation
 
+### From crates.io (recommended)
+
+```bash
+cargo install sweepga
+```
+
+This installs both `sweepga` and `alnstats` binaries from the published crate.
+
+### From source
+
 Requires Rust 1.70+. Clone and install:
 
 ```bash
