@@ -18,8 +18,8 @@ rayon = "1.10"
 byteorder = "1.5"
 tempfile = "3.8"
 ordered-float = "4.0"
-fastga-rs = { git = "https://github.com/pangenome/fastga-rs.git", branch = "main" }
-onecode = { git = "https://github.com/pangenome/onecode-rs.git", rev = "02d30676bdb0d382d325778f25fce1d5c1f45897" }
+fastga-rs = "0.1.0"
+onecode = "0.1.0"
 chrono = "0.4"
 flate2 = "1.0"
 libc = "0.2"
@@ -28,7 +28,7 @@ rand = "0.8"
 
 [build-dependencies]
 cc = "1.0"
-fastga-rs = { git = "https://github.com/pangenome/fastga-rs.git", branch = "main" }
+fastga-rs = "0.1.0"
 
 [[bin]]
 name = "sweepga"
