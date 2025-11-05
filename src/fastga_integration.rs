@@ -225,12 +225,13 @@ impl FastGAIntegration {
         let file = File::open(fasta_path)?;
 
         // Handle both plain and gzipped FASTA files
-        let reader: Box<dyn BufRead> = if fasta_path.extension().and_then(|s| s.to_str()) == Some("gz") {
-            use flate2::read::MultiGzDecoder;
-            Box::new(BufReader::new(MultiGzDecoder::new(file)))
-        } else {
-            Box::new(BufReader::new(file))
-        };
+        let reader: Box<dyn BufRead> =
+            if fasta_path.extension().and_then(|s| s.to_str()) == Some("gz") {
+                use flate2::read::MultiGzDecoder;
+                Box::new(BufReader::new(MultiGzDecoder::new(file)))
+            } else {
+                Box::new(BufReader::new(file))
+            };
 
         let mut haplotypes = HashSet::new();
 
