@@ -9,6 +9,15 @@ repository = "https://github.com/pangenome/sweepga"
 readme = "README.md"
 keywords = ["genomics", "pangenome", "alignment", "filtering", "bioinformatics"]
 categories = ["science", "command-line-utilities"]
+exclude = [
+    "target/",
+    "data/",
+    "docs/",
+    "examples/",
+    "scripts/",
+    "test_aln_reader.rs",
+    "CLAUDE.md",
+]
 
 [dependencies]
 clap = { version = "4.5", features = ["derive"] }
