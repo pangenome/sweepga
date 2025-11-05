@@ -320,7 +320,7 @@ fn test_paf_vs_1aln_with_small_data() {
     eprintln!("[test] Using ALNtoPAF binary at: {:?}", alnto_paf_bin);
 
     let convert_result = std::process::Command::new(&alnto_paf_bin)
-        .arg("-x")  // Extended CIGAR mode (same as FastGA uses)
+        .arg("-x") // Extended CIGAR mode (same as FastGA uses)
         .arg(&persisted_aln)
         .output()
         .expect("Failed to run ALNtoPAF");
