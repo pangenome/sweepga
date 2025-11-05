@@ -10,6 +10,7 @@ mod plane_sweep;
 mod plane_sweep_core;
 mod plane_sweep_exact;
 mod sequence_index;
+mod tree_sparsify;
 mod unified_filter;
 mod union_find;
 
@@ -96,7 +97,7 @@ fn detect_file_type(path: &str) -> Result<FileType> {
     loop {
         line.clear();
         if reader.read_line(&mut line)? == 0 {
-            anyhow::bail!("Empty file: {}", path);
+            anyhow::bail!("Empty file: {path}");
         }
         let trimmed = line.trim();
         if !trimmed.is_empty() && !trimmed.starts_with('#') {
@@ -126,7 +127,7 @@ fn detect_file_type(path: &str) -> Result<FileType> {
         }
     }
 
-    anyhow::bail!("Could not detect file type for {}: not FASTA (starts with >), PAF (12+ tab-delimited fields), or .1aln (binary)", path);
+    anyhow::bail!("Could not detect file type for {path}: not FASTA (starts with >), PAF (12+ tab-delimited fields), or .1aln (binary)");
 }
 
 /// Method for calculating ANI from alignments
@@ -221,9 +222,9 @@ struct Args {
     #[clap(short = 'o', long = "overlap", default_value = "0.95")]
     overlap: f64,
 
-    /// Keep this fraction of mappings
+    /// Keep this fraction or tree pattern (e.g., "0.5" or "tree:3" or "tree:3,2,0.1")
     #[clap(short = 'x', long = "sparsify", default_value = "1.0")]
-    sparsify: f64,
+    sparsify: String,
 
     /// n:m-best mappings kept in query:target dimensions. 1:1 (orthogonal), use ∞/many for unbounded
     #[clap(short = 'n', long = "num-mappings", default_value = "1:1")]
@@ -447,7 +448,7 @@ fn parse_identity_value(value: &str, ani_percentile: Option<f64>) -> Result<f64>
             if let Some((sign, offset_str)) = offset_part {
                 let offset: f64 = offset_str
                     .parse()
-                    .map_err(|_| anyhow::anyhow!("Invalid ANI offset: {}", offset_str))?;
+                    .map_err(|_| anyhow::anyhow!("Invalid ANI offset: {offset_str}"))?;
                 match sign {
                     '+' => Ok((ani_value + offset / 100.0).min(1.0)),
                     '-' => Ok((ani_value - offset / 100.0).max(0.0)),
@@ -467,7 +468,7 @@ fn parse_identity_value(value: &str, ani_percentile: Option<f64>) -> Result<f64>
             Ok(val) // Already fraction
         }
     } else {
-        anyhow::bail!("Invalid identity value: {}", value);
+        anyhow::bail!("Invalid identity value: {value}");
     }
 }
 
@@ -1075,6 +1076,7 @@ fn align_multiple_fastas(
     }
 
     // Default mode: single FastGA run with adaptive frequency
+    // Let fastga_integration.rs handle auto-detection via PanSN haplotype counting
     let effective_frequency = if let Some(f) = frequency {
         // User specified -f, use it as-is
         if !quiet {
@@ -1084,19 +1086,10 @@ fn align_multiple_fastas(
             );
         }
         Some(f)
-    } else if num_genomes > 1 {
-        // Auto-set frequency to at least num_genomes to avoid filtering out valid k-mers
-        let auto_freq = num_genomes;
-        if !quiet {
-            timing.log(
-                "align",
-                &format!("Setting frequency threshold to {auto_freq} (number of genome groups)"),
-            );
-        }
-        Some(auto_freq)
     } else {
-        // Single genome, use FastGA default
-        frequency
+        // No user-specified frequency: let fastga_integration.rs auto-detect
+        // from PanSN naming convention
+        None
     };
 
     if !quiet {
@@ -1345,6 +1338,18 @@ fn create_fastga_integration(
 }
 
 fn main() -> Result<()> {
+    // Set OUT_DIR to help fastga-rs find its binaries
+    // This ensures FAtoGDB, GIXmake, and GIXrm are found when FastGA needs them
+    if let Some(cargo_home) = std::env::var("CARGO_HOME")
+        .ok()
+        .or_else(|| std::env::var("HOME").ok().map(|h| format!("{h}/.cargo")))
+    {
+        let lib_dir = format!("{cargo_home}/lib/sweepga");
+        if std::path::Path::new(&lib_dir).exists() {
+            std::env::set_var("OUT_DIR", &lib_dir);
+        }
+    }
+
     let args = Args::parse();
 
     // Handle --check-fastga diagnostic flag
@@ -1419,7 +1424,7 @@ fn main() -> Result<()> {
     if let Some(ref tempdir) = args.tempdir {
         std::env::set_var("TMPDIR", tempdir);
         if !args.quiet {
-            timing.log("tempdir", &format!("Using temp directory: {}", tempdir));
+            timing.log("tempdir", &format!("Using temp directory: {tempdir}"));
         }
     }
 
@@ -1513,6 +1518,14 @@ fn main() -> Result<()> {
             _ => ScoringFunction::LogLengthIdentity,
         };
 
+        // Parse sparsification strategy
+        use tree_sparsify::SparsificationStrategy;
+        let sparsification_strategy = args.sparsify.parse::<SparsificationStrategy>()?;
+        let sparsity_fraction = match sparsification_strategy {
+            SparsificationStrategy::Fraction(f) => f,
+            SparsificationStrategy::Tree(_, _, _) => 1.0, // Tree filtering handled separately
+        };
+
         let filter_config = FilterConfig {
             chain_gap: args.scaffold_jump,
             min_block_length: args.block_length,
@@ -1524,7 +1537,7 @@ fn main() -> Result<()> {
             scaffold_max_per_query,
             scaffold_max_per_target,
             overlap_threshold: args.overlap,
-            sparsity: args.sparsify,
+            sparsity: sparsity_fraction,
             no_merge: true,
             scaffold_gap: args.scaffold_jump,
             min_scaffold_length: args.scaffold_mass,
@@ -1537,11 +1550,44 @@ fn main() -> Result<()> {
             min_scaffold_identity: 0.0,
         };
 
+        // Step 2.6: Apply tree filtering if requested (natively on .1aln format)
+        let tree_filtered_input =
+            if let SparsificationStrategy::Tree(k_nearest, k_farthest, random_fraction) =
+                sparsification_strategy
+            {
+                // Apply tree filtering directly to .1aln
+                let temp_tree_filtered = tempfile::NamedTempFile::with_suffix(".1aln")?;
+
+                use tree_sparsify::apply_tree_filter_to_1aln;
+                apply_tree_filter_to_1aln(
+                    &aln_input_path,
+                    temp_tree_filtered
+                        .path()
+                        .to_str()
+                        .context("Invalid temp path")?,
+                    k_nearest,
+                    k_farthest,
+                    random_fraction,
+                    args.quiet,
+                )?;
+
+                // Use tree-filtered output as input for plane sweep filtering
+                Some(temp_tree_filtered)
+            } else {
+                None
+            };
+
+        let final_filter_input = if let Some(ref tf) = tree_filtered_input {
+            tf.path().to_path_buf()
+        } else {
+            std::path::PathBuf::from(&aln_input_path)
+        };
+
         // Step 3: Filter .1aln directly using unified_filter (format-preserving)
         use crate::unified_filter::filter_file;
         if let Some(ref output_file) = args.output_file {
             filter_file(
-                &aln_input_path,
+                final_filter_input,
                 output_file,
                 &filter_config,
                 false,
@@ -1551,7 +1597,7 @@ fn main() -> Result<()> {
             // Write to temp file then copy to stdout
             let temp_output = tempfile::NamedTempFile::with_suffix(".1aln")?;
             filter_file(
-                &aln_input_path,
+                final_filter_input,
                 temp_output.path(),
                 &filter_config,
                 false,
@@ -1949,6 +1995,14 @@ fn main() -> Result<()> {
         _ => ScoringFunction::LogLengthIdentity,
     };
 
+    // Parse sparsification strategy (PAF workflow)
+    use tree_sparsify::SparsificationStrategy;
+    let sparsification_strategy = args.sparsify.parse::<SparsificationStrategy>()?;
+    let sparsity_fraction = match sparsification_strategy {
+        SparsificationStrategy::Fraction(f) => f,
+        SparsificationStrategy::Tree(_, _, _) => 1.0, // Tree filtering will be applied to PAF
+    };
+
     // Placeholder for identity values - will be calculated after we have input path
     let temp_config = FilterConfig {
         chain_gap: args.scaffold_jump,
@@ -1961,7 +2015,7 @@ fn main() -> Result<()> {
         scaffold_max_per_query,
         scaffold_max_per_target,
         overlap_threshold: args.overlap,
-        sparsity: args.sparsify,
+        sparsity: sparsity_fraction,
         no_merge: true,
         scaffold_gap: args.scaffold_jump,
         min_scaffold_length: args.scaffold_mass,
@@ -2056,11 +2110,58 @@ fn main() -> Result<()> {
     let output_path = output_path_buf.to_str().unwrap().to_string();
     drop(output_file); // Close the file handle so filter_paf can open it
 
+    // Apply tree-based sparsification if requested
+    let tree_filtered_path = if let SparsificationStrategy::Tree(k_nearest, k_farthest, rand_frac) =
+        sparsification_strategy
+    {
+        if !args.quiet {
+            timing.log(
+                "tree-filter",
+                &format!(
+                    "Applying tree sparsification: tree:{}{}{}",
+                    k_nearest,
+                    if k_farthest > 0 {
+                        format!(",{k_farthest}")
+                    } else {
+                        String::new()
+                    },
+                    if rand_frac > 0.0 {
+                        format!(",{rand_frac}")
+                    } else {
+                        String::new()
+                    }
+                ),
+            );
+        }
+
+        // Create temporary file for tree-filtered PAF
+        let tree_temp = tempfile::NamedTempFile::with_suffix(".tree.paf")?;
+        let (tree_file, tree_path_buf) = tree_temp.keep()?;
+        let tree_path = tree_path_buf.to_str().unwrap().to_string();
+        drop(tree_file); // Close so apply_tree_filter_to_paf can open it
+
+        // Apply tree filtering
+        tree_sparsify::apply_tree_filter_to_paf(
+            &input_path,
+            &tree_path,
+            k_nearest,
+            k_farthest,
+            rand_frac,
+        )?;
+
+        Some(tree_path)
+    } else {
+        None
+    };
+
+    // Use tree-filtered PAF if available, otherwise use original input
+    let filter_input_path = tree_filtered_path.as_ref().unwrap_or(&input_path);
+
     // Note: -f (no_filter) implies --self (keep self-mappings)
     let filter = PafFilter::new(config)
         .with_keep_self(args.keep_self || args.no_filter)
         .with_scaffolds_only(args.scaffolds_only);
-    filter.filter_paf(&input_path, &output_path)?;
+    filter.filter_paf(filter_input_path, &output_path)?;
 
     // Convert output format if requested
     // Note: PAFtoALN automatically appends .paf to the input filename, so we need to strip it

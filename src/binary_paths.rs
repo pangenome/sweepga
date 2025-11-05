@@ -108,9 +108,8 @@ pub fn get_embedded_binary_path(binary_name: &str) -> Result<PathBuf> {
     }
 
     Err(anyhow!(
-        "FastGA binary '{}' not found in embedded build directories or PATH.\n\
-         Try running 'cargo build' or 'cargo build --release' first.",
-        binary_name
+        "FastGA binary '{binary_name}' not found in embedded build directories or PATH.\n\
+         Try running 'cargo build' or 'cargo build --release' first."
     ))
 }
 
@@ -121,7 +120,10 @@ mod tests {
     #[test]
     fn test_find_embedded_binaries() {
         // This test verifies we can find the embedded binaries
-        let bins = ["FastGA", "ALNtoPAF", "PAFtoALN"];
+        // Note: FAtoGDB, GIXmake, and GIXrm are required by FastGA itself
+        let bins = [
+            "FastGA", "FAtoGDB", "GIXmake", "GIXrm", "ALNtoPAF", "PAFtoALN",
+        ];
 
         for bin in &bins {
             match get_embedded_binary_path(bin) {

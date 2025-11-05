@@ -114,8 +114,7 @@ impl FromStr for FastGAPreset {
             "ani95" | "95" => Ok(FastGAPreset::Ani95),
             "ani99" | "99" => Ok(FastGAPreset::Ani99),
             _ => anyhow::bail!(
-                "Unknown preset '{}'. Valid presets: ani70, ani80, ani85, ani90, ani95, ani99",
-                s
+                "Unknown preset '{s}'. Valid presets: ani70, ani80, ani85, ani90, ani95, ani99"
             ),
         }
     }
@@ -129,9 +128,12 @@ pub struct FastGAIntegration {
 
 impl FastGAIntegration {
     /// Create a new FastGA integration with optional frequency parameter
+    /// If not provided, auto-detects from PanSN haplotype count during alignment
     pub fn new(frequency: Option<usize>, num_threads: usize) -> Self {
         let mut builder = Config::builder().num_threads(num_threads).verbose(true);
 
+        // Only set frequency if explicitly provided
+        // Otherwise, alignment methods will auto-detect from PanSN haplotype count
         if let Some(freq) = frequency {
             builder = builder.adaptive_seed_cutoff(freq);
         }
@@ -199,7 +201,7 @@ impl FastGAIntegration {
         // Prepare GDB
         let gdb_base = orchestrator
             .prepare_gdb(fasta_path)
-            .map_err(|e| anyhow::anyhow!("Failed to prepare GDB: {}", e))?;
+            .map_err(|e| anyhow::anyhow!("Failed to prepare GDB: {e}"))?;
 
         // Create index
         orchestrator
@@ -207,9 +209,52 @@ impl FastGAIntegration {
                 &gdb_base,
                 self.config.adaptive_seed_cutoff.unwrap_or(10) as i32,
             )
-            .map_err(|e| anyhow::anyhow!("Failed to create index: {}", e))?;
+            .map_err(|e| anyhow::anyhow!("Failed to create index: {e}"))?;
 
         Ok(gdb_base)
+    }
+
+    /// Count unique haplotypes in a FASTA file based on PanSN naming convention
+    /// PanSN format: SAMPLE#HAPLOTYPE#CONTIG (e.g., HG01106#1#CM087962.1)
+    /// Extracts SAMPLE#HAPLOTYPE prefix and counts unique haplotypes
+    fn count_haplotypes(fasta_path: &Path) -> Result<usize> {
+        use std::collections::HashSet;
+        use std::fs::File;
+        use std::io::{BufRead, BufReader};
+
+        let file = File::open(fasta_path)?;
+
+        // Handle both plain and gzipped FASTA files
+        let reader: Box<dyn BufRead> =
+            if fasta_path.extension().and_then(|s| s.to_str()) == Some("gz") {
+                use flate2::read::MultiGzDecoder;
+                Box::new(BufReader::new(MultiGzDecoder::new(file)))
+            } else {
+                Box::new(BufReader::new(file))
+            };
+
+        let mut haplotypes = HashSet::new();
+
+        for line in reader.lines() {
+            let line = line?;
+            if line.starts_with('>') {
+                // Strip '>' and extract SAMPLE#HAPLOTYPE
+                let header = line.trim_start_matches('>');
+
+                // Split by '#' and take first two components
+                let parts: Vec<&str> = header.split('#').collect();
+                if parts.len() >= 2 {
+                    // PanSN format: SAMPLE#HAPLOTYPE#...
+                    let haplotype_id = format!("{}#{}", parts[0], parts[1]);
+                    haplotypes.insert(haplotype_id);
+                } else {
+                    // Fallback: if not PanSN format, treat whole header as unique
+                    haplotypes.insert(header.to_string());
+                }
+            }
+        }
+
+        Ok(haplotypes.len())
     }
 
     /// Run FastGA alignment and return .1aln file directly (NO PAF conversion)
@@ -219,19 +264,29 @@ impl FastGAIntegration {
         // Ensure fastga-rs can find binaries
         Self::ensure_fastga_in_path()?;
 
+        // Determine kmer frequency threshold
+        // Default to number of haplotypes in query file for pangenome workflows
+        let kmer_freq = if let Some(freq) = self.config.adaptive_seed_cutoff {
+            freq as i32
+        } else {
+            let num_haplotypes = Self::count_haplotypes(queries)?;
+            eprintln!("[FastGA] Auto-setting frequency threshold to {num_haplotypes} (number of haplotypes from PanSN naming)");
+            num_haplotypes as i32
+        };
+
         // Create orchestrator to run FastGA binary directly
         let orchestrator = fastga_rs::orchestrator::FastGAOrchestrator {
             num_threads: self.config.num_threads as i32,
             min_length: self.config.min_alignment_length as i32,
             min_identity: self.config.min_identity.unwrap_or(0.0),
-            kmer_freq: self.config.adaptive_seed_cutoff.unwrap_or(10) as i32,
+            kmer_freq,
             temp_dir: std::env::var("TMPDIR").unwrap_or_else(|_| ".".to_string()),
         };
 
         // Run alignment - FastGA creates BOTH .1aln and .1gdb files
         let aln_path = orchestrator
             .align_to_1aln(queries, targets)
-            .map_err(|e| anyhow::anyhow!("Failed to run FastGA alignment: {}", e))?;
+            .map_err(|e| anyhow::anyhow!("Failed to run FastGA alignment: {e}"))?;
 
         // Derive .1gdb path from .1aln path
         let gdb_path = aln_path
@@ -281,19 +336,29 @@ impl FastGAIntegration {
         // Ensure fastga-rs can find binaries
         Self::ensure_fastga_in_path()?;
 
+        // Determine kmer frequency threshold
+        // Default to number of haplotypes in query file for pangenome workflows
+        let kmer_freq = if let Some(freq) = self.config.adaptive_seed_cutoff {
+            freq as i32
+        } else {
+            let num_haplotypes = Self::count_haplotypes(queries)?;
+            eprintln!("[FastGA] Auto-setting frequency threshold to {num_haplotypes} (number of haplotypes from PanSN naming)");
+            num_haplotypes as i32
+        };
+
         // Create orchestrator to run FastGA binary directly
         let orchestrator = fastga_rs::orchestrator::FastGAOrchestrator {
             num_threads: self.config.num_threads as i32,
             min_length: self.config.min_alignment_length as i32,
             min_identity: self.config.min_identity.unwrap_or(0.0), // 0.0 means use FastGA default
-            kmer_freq: self.config.adaptive_seed_cutoff.unwrap_or(10) as i32,
+            kmer_freq,
             temp_dir: std::env::var("TMPDIR").unwrap_or_else(|_| ".".to_string()),
         };
 
         // Run alignment with existing indices (returns PAF bytes directly)
         let paf_output = orchestrator
             .align_with_existing_indices(queries, targets)
-            .map_err(|e| anyhow::anyhow!("Failed to run FastGA alignment: {}", e))?;
+            .map_err(|e| anyhow::anyhow!("Failed to run FastGA alignment: {e}"))?;
 
         eprintln!(
             "[sweepga] PAF output: {} bytes, {} lines",
