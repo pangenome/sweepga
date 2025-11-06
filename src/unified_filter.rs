@@ -148,9 +148,6 @@ pub fn write_1aln_filtered<P1: AsRef<Path>, P2: AsRef<Path>>(
 ) -> Result<()> {
     let path_str = input_path.as_ref().to_str().context("Invalid path")?;
 
-    // Re-open input for reading
-    let mut reader = fastga_rs::AlnReader::open(path_str)?;
-
     // Create output writer with GDB copied from input
     // This preserves sequence names and GDB skeleton information when filtering
     let mut writer = fastga_rs::AlnWriter::create_with_gdb(
@@ -184,15 +181,14 @@ pub fn write_1aln_filtered<P1: AsRef<Path>, P2: AsRef<Path>>(
         );
 
         if passing_ranks.contains_key(&rank) {
-            eprintln!("[DEBUG] Rank {} PASSED, writing...", rank);
+            eprintln!("[DEBUG] Rank {rank} PASSED, writing...");
             writer.write_alignment(&aln)?;
             written += 1;
             eprintln!(
-                "[DEBUG] Wrote alignment {}, total written = {}",
-                rank, written
+                "[DEBUG] Wrote alignment {rank}, total written = {written}"
             );
         } else {
-            eprintln!("[DEBUG] Rank {} SKIPPED", rank);
+            eprintln!("[DEBUG] Rank {rank} SKIPPED");
         }
 
         rank += 1;
@@ -280,8 +276,7 @@ pub fn write_1aln_filtered<P1: AsRef<Path>, P2: AsRef<Path>>(
 
     // Explicitly finalize the output file
     eprintln!(
-        "[DEBUG] About to finalize writer after writing {} alignments",
-        written
+        "[DEBUG] About to finalize writer after writing {written} alignments"
     );
     writer.finalize();
     eprintln!("[DEBUG] Writer finalized");
