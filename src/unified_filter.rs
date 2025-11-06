@@ -184,9 +184,7 @@ pub fn write_1aln_filtered<P1: AsRef<Path>, P2: AsRef<Path>>(
             eprintln!("[DEBUG] Rank {rank} PASSED, writing...");
             writer.write_alignment(&aln)?;
             written += 1;
-            eprintln!(
-                "[DEBUG] Wrote alignment {rank}, total written = {written}"
-            );
+            eprintln!("[DEBUG] Wrote alignment {rank}, total written = {written}");
         } else {
             eprintln!("[DEBUG] Rank {rank} SKIPPED");
         }
@@ -275,9 +273,7 @@ pub fn write_1aln_filtered<P1: AsRef<Path>, P2: AsRef<Path>>(
     // END OLD CODE
 
     // Explicitly finalize the output file
-    eprintln!(
-        "[DEBUG] About to finalize writer after writing {written} alignments"
-    );
+    eprintln!("[DEBUG] About to finalize writer after writing {written} alignments");
     writer.finalize();
     eprintln!("[DEBUG] Writer finalized");
 
