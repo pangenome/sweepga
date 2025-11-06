@@ -391,21 +391,19 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "39cab71617ae0d63f51a36d69f866391735b51691dbda63cf6f96d042b63efeb"
 dependencies = [
  "libc",
- "windows-sys 0.60.2",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
 name = "fastga-rs"
 version = "0.1.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a78a40ec15eeb8572c6d1b5ca7ad781798cc611aff6818a042ac4e6d4ca4d3c8"
 dependencies = [
  "anyhow",
  "cc",
  "libc",
  "nix",
  "num_cpus",
- "onecode",
+ "onecode 0.1.0 (git+https://github.com/pangenome/onecode-rs.git?rev=3ac229e39d72b0ac724c688e91fb2525e08922f7)",
  "pkg-config",
  "tempfile",
  "thiserror",
@@ -534,7 +532,7 @@ checksum = "3640c1c38b8e4e43584d8df18be5fc6b0aa314ce6ebf51b53313d4306cca8e46"
 dependencies = [
  "hermit-abi",
  "libc",
- "windows-sys 0.60.2",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -716,6 +714,16 @@ name = "onecode"
 version = "0.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c58555aa93237650330e6f87e5c020d8eb16dd9ae2291f4e6519bb1aaf3cd791"
+dependencies = [
+ "bindgen",
+ "cc",
+ "libc",
+]
+
+[[package]]
+name = "onecode"
+version = "0.1.0"
+source = "git+https://github.com/pangenome/onecode-rs.git?rev=3ac229e39d72b0ac724c688e91fb2525e08922f7#3ac229e39d72b0ac724c688e91fb2525e08922f7"
 dependencies = [
  "bindgen",
  "cc",
@@ -996,7 +1004,7 @@ dependencies = [
  "errno",
  "libc",
  "linux-raw-sys 0.11.0",
- "windows-sys 0.60.2",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -1109,7 +1117,7 @@ dependencies = [
  "nom",
  "noodles",
  "num_cpus",
- "onecode",
+ "onecode 0.1.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "ordered-float",
  "pretty_assertions",
  "proptest",
@@ -1139,7 +1147,7 @@ dependencies = [
  "getrandom 0.3.4",
  "once_cell",
  "rustix 1.1.2",
- "windows-sys 0.60.2",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -1311,7 +1319,7 @@ version = "0.1.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c2a7b1c03c876122aa43f3020e6c3c3ee5c05081c9a00739faf7503aeba10d22"
 dependencies = [
- "windows-sys 0.60.2",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]

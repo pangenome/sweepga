@@ -27,7 +27,7 @@ rayon = "1.10"
 byteorder = "1.5"
 tempfile = "3.8"
 ordered-float = "4.0"
-fastga-rs = "0.1.0"
+fastga-rs = { path = "/tmp/fastga-rs-check" }
 onecode = "0.1.0"
 chrono = "0.4"
 flate2 = "1.0"
@@ -37,7 +37,7 @@ rand = "0.8"
 
 [build-dependencies]
 cc = "1.0"
-fastga-rs = "0.1.0"
+fastga-rs = { path = "/tmp/fastga-rs-check" }
 
 [[bin]]
 name = "sweepga"

@@ -151,20 +151,13 @@ pub fn write_1aln_filtered<P1: AsRef<Path>, P2: AsRef<Path>>(
     // Re-open input for reading
     let mut reader = fastga_rs::AlnReader::open(path_str)?;
 
-    // Create output writer
-    //
-    // WORKAROUND: There is a bug in fastga-rs 0.1.0's create_with_gdb() that causes
-    // the last alignment to be unreadable. We've tried multiple fixes in copy_gdb_records()
-    // (flushing, adding 'a' group markers) but the bug persists, suggesting it's deep in
-    // the ONEcode library interaction.
-    //
-    // For now, use create() without GDB copying. This means sequence names will be numeric
-    // IDs (e.g., "0", "1") instead of real names (e.g., "seq1", "seq2") in the output.
-    // This is acceptable for internal filtering where names are resolved at read time.
-    //
-    // TODO: Fix copy_gdb_records() bug in fastga-rs and switch back to create_with_gdb()
-    // Issue: https://github.com/pangenome/fastga-rs/issues/TBD
-    let mut writer = fastga_rs::AlnWriter::create(output_path.as_ref(), true)?;
+    // Create output writer with GDB copied from input
+    // This preserves sequence names and GDB skeleton information when filtering
+    let mut writer = fastga_rs::AlnWriter::create_with_gdb(
+        output_path.as_ref(),
+        input_path.as_ref(),
+        true, // binary
+    )?;
 
     // WORKAROUND: Instead of using the low-level copy function which seems to have a bug
     // with the last alignment, read all alignments using read_alignment() and write them
