@@ -172,15 +172,25 @@ pub fn write_1aln_filtered<P1: AsRef<Path>, P2: AsRef<Path>>(
     eprintln!("[DEBUG] Reading alignments using high-level API...");
 
     while let Some(aln) = reader.read_alignment()? {
-        eprintln!("[DEBUG] Read alignment {}: {}[{}-{}] -> {}[{}-{}]",
-                 rank, aln.query_name, aln.query_start, aln.query_end,
-                 aln.target_name, aln.target_start, aln.target_end);
+        eprintln!(
+            "[DEBUG] Read alignment {}: {}[{}-{}] -> {}[{}-{}]",
+            rank,
+            aln.query_name,
+            aln.query_start,
+            aln.query_end,
+            aln.target_name,
+            aln.target_start,
+            aln.target_end
+        );
 
         if passing_ranks.contains_key(&rank) {
             eprintln!("[DEBUG] Rank {} PASSED, writing...", rank);
             writer.write_alignment(&aln)?;
             written += 1;
-            eprintln!("[DEBUG] Wrote alignment {}, total written = {}", rank, written);
+            eprintln!(
+                "[DEBUG] Wrote alignment {}, total written = {}",
+                rank, written
+            );
         } else {
             eprintln!("[DEBUG] Rank {} SKIPPED", rank);
         }
@@ -265,10 +275,14 @@ pub fn write_1aln_filtered<P1: AsRef<Path>, P2: AsRef<Path>>(
             }
         }
     }
-    */ // END OLD CODE
+    */
+    // END OLD CODE
 
     // Explicitly finalize the output file
-    eprintln!("[DEBUG] About to finalize writer after writing {} alignments", written);
+    eprintln!(
+        "[DEBUG] About to finalize writer after writing {} alignments",
+        written
+    );
     writer.finalize();
     eprintln!("[DEBUG] Writer finalized");
 
