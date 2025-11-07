@@ -8,7 +8,7 @@ SweepGA can either:
 1. **Align FASTA files directly** using integrated FastGA (supports .fa.gz)
 2. **Filter existing PAF alignments** from any aligner (wfmash, minimap2, etc.)
 
-By default, it applies 1:1 plane sweep filtering to keep the single best mapping per query-target chromosome pair.
+By default, it applies 1:1 plane sweep filtering to keep the single best mapping per query/target pair.
 
 ## Tools Included
 
@@ -171,19 +171,27 @@ sweepga data/scerevisiae8.fa.gz > scerevisiae8.paf
 
 **`--self`** - Include self-mappings (excluded by default)
 
+**`-Y/--skip-prefix`** - Use PanSN-style prefix grouping for filtering
+- Sequences named with `prefix#haplotype#chromosome` format (e.g., `SGDref#1#chrI`)
+- Filtering groups by prefix pairs (e.g., all `SGDref#*` → `DBVPG6765#*` alignments)
+- Keeps best alignments per chromosome pair within each genome pair
+
 **`-f/--no-filter`** - Disable all filtering
 
 ## How It Works
 
 The plane sweep algorithm operates per query-target chromosome pair:
 
-1. **Sort** mappings by query position
-2. **Score** each mapping: `identity × log(block_length)` (matches wfmash)
-3. **Sweep** left-to-right, keeping best mappings based on `-n` setting:
+1. **Group** by chromosome pairs (or by genome prefix pairs when using `-Y` for PanSN naming)
+2. **Sort** mappings by query position
+3. **Score** each mapping: `identity × log(block_length)` (matches wfmash)
+4. **Sweep** left-to-right, keeping best mappings based on `-n` setting:
    - `1:1`: Keep single best mapping per position on both query and target
    - `1`: Keep best mapping per query position (multiple targets allowed)
    - `many`: Keep all non-overlapping mappings
-4. **Filter** mappings with >95% overlap (configurable with `-o`)
+5. **Filter** mappings with >95% overlap (configurable with `-o`)
+
+**PanSN Grouping (`-Y`)**: When enabled, sequences with PanSN-style names (e.g., `genome#hap#chr`) are grouped by genome prefix pairs before filtering, ensuring the best alignments are kept for each chromosome pair within each genome pair.
 
 ## Citation
 
