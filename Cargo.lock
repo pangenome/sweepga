@@ -396,8 +396,9 @@ dependencies = [
 
 [[package]]
 name = "fastga-rs"
-version = "0.1.0"
-source = "git+https://github.com/pangenome/fastga-rs.git?branch=main#c6573337cd46e78f62c8201da2f21f1d8351ed9d"
+version = "0.1.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9c1e0d0a32ed082b5fef24a4b23157967cbbe355a5f7a57b7ace6c1754dfec3a"
 dependencies = [
  "anyhow",
  "cc",
@@ -1096,7 +1097,7 @@ checksum = "7da8b5736845d9f2fcb837ea5d9e2628564b3b043a70948a3f0b778838c5fb4f"
 
 [[package]]
 name = "sweepga"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "anyhow",
  "byteorder",
