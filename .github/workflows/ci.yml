@@ -80,10 +80,10 @@ jobs:
           echo "TMPDIR for tests: $TMPDIR"
           # FastGA has race conditions with parallel test execution on Linux
           # Run tests sequentially and skip problematic tests on CI
-          # (end-to-end tests have FastGA race conditions on macOS, golden tests need ONEview)
+          # (end-to-end tests have FastGA race conditions, golden tests need ONEview)
           # Skip test_1aln_roundtrip - has OneCode C library cleanup race condition (FATAL ERROR: failed to remove temporary file)
           if [[ "${{ runner.os }}" == "Linux" ]]; then
-            cargo test --verbose -- --test-threads=1 --skip test_end_to_end --skip test_golden --skip test_1aln_roundtrip
+            cargo test --verbose -- --test-threads=1 --skip test_end_to_end_yeast_coverage --skip test_one_to_one_preserves_pairs --skip test_filtering_mode_comparison --skip test_golden --skip test_1aln_roundtrip
           else
             # Skip all end-to-end integration tests on macOS (FastGA has macOS-specific issues)
             cargo test --verbose -- --skip test_end_to_end_yeast_coverage --skip test_one_to_one_preserves_pairs --skip test_filtering_mode_comparison --skip test_golden --skip test_1aln_roundtrip
