@@ -192,6 +192,9 @@ fn parse_metric_number(s: &str) -> Result<u64, String> {
 #[derive(Parser, Debug)]
 #[clap(author, version, about, long_about = None)]
 struct Args {
+    // ============================================================================
+    // Input/Output
+    // ============================================================================
     /// PAF (filter) or FASTA (align & filter). Multiple FASTAs for all-pairs alignment
     #[clap(value_name = "FILE", num_args = 0..,
            long_help = "Input files: FASTA (1+) or PAF (1 only), auto-detected\n\
@@ -202,121 +205,136 @@ struct Args {
                         stdin: auto-detect and process")]
     files: Vec<String>,
 
-    /// Aligner to use for FASTA input
-    #[clap(long = "aligner", default_value = "fastga", value_parser = ["fastga"])]
-    aligner: String,
-
-    /// FastGA k-mer frequency threshold (use k-mers occurring ≤ N times)
-    #[clap(short = 'f', long = "frequency")]
-    frequency: Option<usize>,
-
-    /// Align all genome pairs separately (slower, uses more memory, but handles many genomes)
-    #[clap(long = "all-pairs")]
-    all_pairs: bool,
-
-    /// Minimum block length
-    #[clap(short = 'b', long = "block-length", default_value = "0", value_parser = parse_metric_number)]
-    block_length: u64,
-
-    /// Maximum overlap ratio for plane sweep filtering
-    #[clap(short = 'o', long = "overlap", default_value = "0.95")]
-    overlap: f64,
-
-    /// Keep this fraction or tree pattern (e.g., "0.5" or "tree:3" or "tree:3,2,0.1")
-    #[clap(short = 'x', long = "sparsify", default_value = "1.0")]
-    sparsify: String,
-
-    /// n:m-best mappings kept in query:target dimensions. 1:1 (orthogonal), use ∞/many for unbounded
-    #[clap(short = 'n', long = "num-mappings", default_value = "1:1")]
-    num_mappings: String,
-
-    /// Scaffold filter: "1:1" (best), "M:N" (top M per query, N per target; ∞/many for unbounded)
-    #[clap(
-        short = 'm',
-        long = "scaffold-filter",
-        default_value = "many:many",
-        hide = true
-    )]
-    scaffold_filter: String,
-
-    /// Scaffold jump (gap) distance. 0 = disable scaffolding (plane sweep only), >0 = enable scaffolding
-    #[clap(short = 'j', long = "scaffold-jump", default_value = "0", value_parser = parse_metric_number, hide = true)]
-    scaffold_jump: u64,
-
-    /// Minimum scaffold length when scaffolding is enabled
-    #[clap(short = 's', long = "scaffold-mass", default_value = "10k", value_parser = parse_metric_number, hide = true)]
-    scaffold_mass: u64,
-
-    /// Scaffold chain overlap threshold
-    #[clap(
-        short = 'O',
-        long = "scaffold-overlap",
-        default_value = "0.5",
-        hide = true
-    )]
-    scaffold_overlap: f64,
-
-    /// Maximum distance from scaffold anchor (0 = no rescue, only keep scaffold members)
-    #[clap(short = 'd', long = "scaffold-dist", default_value = "20k", value_parser = parse_metric_number, hide = true)]
-    scaffold_dist: u64,
-
-    /// Scoring function for plane sweep
-    #[clap(long = "scoring", default_value = "log-length-ani",
-           value_parser = ["ani", "length", "length-ani", "log-length-ani", "matches"])]
-    scoring: String,
-
-    /// Method for calculating ANI: all, orthogonal, nX[-sort] (e.g. n50, n90-identity, n100-score)
-    #[clap(long = "ani-method", default_value = "n100")]
-    ani_method: String,
-
-    /// Minimum identity threshold (0-1 fraction, 1-100%, or "aniN" for Nth percentile)
-    #[clap(short = 'i', long = "min-identity", default_value = "0")]
-    min_identity: String,
-
-    /// Minimum scaffold identity threshold (0-1 fraction, 1-100%, "aniN", or defaults to -i)
-    #[clap(
-        short = 'Y',
-        long = "min-scaffold-identity",
-        default_value = "0",
-        hide = true
-    )]
-    min_scaffold_identity: String,
-
-    /// Disable all filtering
-    #[clap(short = 'N', long = "no-filter")]
-    no_filter: bool,
-
-    /// Keep self-mappings (excluded by default)
-    #[clap(long = "self")]
-    keep_self: bool,
-
-    /// Output scaffold chains only (for debugging)
-    #[clap(long = "scaffolds-only", hide = true)]
-    scaffolds_only: bool,
-
-    /// Quiet mode (no progress output)
-    #[clap(long = "quiet")]
-    quiet: bool,
-
-    /// Number of threads for parallel processing
-    #[clap(short = 't', long = "threads", default_value = "8")]
-    threads: usize,
+    /// Output file path (auto-detects format from extension: .paf or .1aln)
+    #[clap(long = "output-file")]
+    output_file: Option<String>,
 
     /// Output PAF format instead of default .1aln (text instead of binary)
     #[clap(long = "paf")]
     output_paf: bool,
 
-    /// Output file path (auto-detects format from extension: .paf or .1aln)
-    #[clap(long = "output-file")]
-    output_file: Option<String>,
+    // ============================================================================
+    // Alignment (FASTA input only)
+    // ============================================================================
+    /// Aligner to use for FASTA input
+    #[clap(long = "aligner", default_value = "fastga", value_parser = ["fastga"],
+           help_heading = "Alignment options")]
+    aligner: String,
 
-    /// Check FastGA binary locations and exit (diagnostic tool)
-    #[clap(long = "check-fastga")]
-    check_fastga: bool,
+    /// FastGA k-mer frequency threshold (use k-mers occurring ≤ N times)
+    #[clap(short = 'f', long = "frequency", help_heading = "Alignment options")]
+    frequency: Option<usize>,
+
+    /// Align all genome pairs separately (slower, uses more memory, but handles many genomes)
+    #[clap(long = "all-pairs", help_heading = "Alignment options")]
+    all_pairs: bool,
+
+    // ============================================================================
+    // Basic Filtering
+    // ============================================================================
+    /// Minimum block length
+    #[clap(short = 'b', long = "block-length", default_value = "0", value_parser = parse_metric_number,
+           help_heading = "Basic filtering")]
+    block_length: u64,
+
+    /// n:m-best mappings kept in query:target dimensions. 1:1 (orthogonal), use ∞/many for unbounded
+    #[clap(short = 'n', long = "num-mappings", default_value = "1:1",
+           help_heading = "Basic filtering")]
+    num_mappings: String,
+
+    /// Maximum overlap ratio for plane sweep filtering
+    #[clap(short = 'o', long = "overlap", default_value = "0.95",
+           help_heading = "Basic filtering")]
+    overlap: f64,
+
+    /// Scoring function for plane sweep
+    #[clap(long = "scoring", default_value = "log-length-ani",
+           value_parser = ["ani", "length", "length-ani", "log-length-ani", "matches"],
+           help_heading = "Basic filtering")]
+    scoring: String,
+
+    /// Minimum identity threshold (0-1 fraction, 1-100%, or "aniN" for Nth percentile)
+    #[clap(short = 'i', long = "min-identity", default_value = "0",
+           help_heading = "Basic filtering")]
+    min_identity: String,
+
+    /// Keep self-mappings (excluded by default)
+    #[clap(long = "self", help_heading = "Basic filtering")]
+    keep_self: bool,
+
+    /// Disable all filtering
+    #[clap(short = 'N', long = "no-filter", help_heading = "Basic filtering")]
+    no_filter: bool,
+
+    // ============================================================================
+    // Scaffolding and Chaining
+    // ============================================================================
+    /// Scaffold jump (gap) distance. 0 = disable scaffolding, >0 = enable (accepts k/m/g suffix)
+    #[clap(short = 'j', long = "scaffold-jump", default_value = "0", value_parser = parse_metric_number,
+           help_heading = "Scaffolding and chaining")]
+    scaffold_jump: u64,
+
+    /// Minimum scaffold chain length (accepts k/m/g suffix)
+    #[clap(short = 's', long = "scaffold-mass", default_value = "10k", value_parser = parse_metric_number,
+           help_heading = "Scaffolding and chaining")]
+    scaffold_mass: u64,
+
+    /// Scaffold filter mode: "1:1" (best), "M:N" (M per query, N per target), "many" (unbounded)
+    #[clap(short = 'm', long = "scaffold-filter", default_value = "many:many",
+           help_heading = "Scaffolding and chaining")]
+    scaffold_filter: String,
+
+    /// Scaffold chain overlap threshold for plane sweep filtering
+    #[clap(short = 'O', long = "scaffold-overlap", default_value = "0.5",
+           help_heading = "Scaffolding and chaining")]
+    scaffold_overlap: f64,
+
+    /// Maximum Euclidean distance from scaffold anchor for rescue (0 = no rescue, accepts k/m/g suffix)
+    #[clap(short = 'd', long = "scaffold-dist", default_value = "20k", value_parser = parse_metric_number,
+           help_heading = "Scaffolding and chaining")]
+    scaffold_dist: u64,
+
+    /// Minimum scaffold identity threshold (0-1 fraction, 1-100%, "aniN", or defaults to -i)
+    #[clap(short = 'Y', long = "min-scaffold-identity", default_value = "0",
+           help_heading = "Scaffolding and chaining")]
+    min_scaffold_identity: String,
+
+    /// Output scaffold chains only (for debugging)
+    #[clap(long = "scaffolds-only", help_heading = "Scaffolding and chaining")]
+    scaffolds_only: bool,
+
+    // ============================================================================
+    // Advanced Filtering
+    // ============================================================================
+    /// Keep this fraction or tree pattern (e.g., "0.5" or "tree:3" or "tree:3,2,0.1")
+    #[clap(short = 'x', long = "sparsify", default_value = "1.0",
+           help_heading = "Advanced filtering")]
+    sparsify: String,
+
+    /// Method for calculating ANI: all, orthogonal, nX[-sort] (e.g. n50, n90-identity, n100-score)
+    #[clap(long = "ani-method", default_value = "n100",
+           help_heading = "Advanced filtering")]
+    ani_method: String,
+
+    // ============================================================================
+    // General Options
+    // ============================================================================
+    /// Number of threads for parallel processing
+    #[clap(short = 't', long = "threads", default_value = "8",
+           help_heading = "General options")]
+    threads: usize,
+
+    /// Quiet mode (no progress output)
+    #[clap(long = "quiet", help_heading = "General options")]
+    quiet: bool,
 
     /// Temporary directory for intermediate files (defaults to TMPDIR env var, then /tmp)
-    #[clap(long = "tempdir")]
+    #[clap(long = "tempdir", help_heading = "General options")]
     tempdir: Option<String>,
+
+    /// Check FastGA binary locations and exit (diagnostic tool)
+    #[clap(long = "check-fastga", help_heading = "General options")]
+    check_fastga: bool,
 }
 
 fn parse_filter_mode(mode: &str, filter_type: &str) -> (FilterMode, Option<usize>, Option<usize>) {
