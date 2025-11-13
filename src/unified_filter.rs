@@ -44,9 +44,13 @@ pub fn extract_1aln_metadata<P: AsRef<Path>>(
     let mut metadata = Vec::new();
     let mut rank = 0;
 
-    // Note: We need to read X records manually since AlnReader doesn't expose them
-    // For now, use the mismatches field which comes from the 'D' record
-    // TODO: Sum X values if they differ from D
+    // Note: fastga-rs AlnReader correctly reads X records and calculates identity
+    // The matches field is calculated using the same ALNtoPAF formula:
+    //   - Reads X records (per-tracepoint edit distances) if present
+    //   - Falls back to D record (total diffs) if X records absent
+    //   - Calculates identity = 1 - divergence, where divergence = (sum(X) - del) / query_span / 2.0
+    //   - Derives matches = identity * query_span
+    // This ensures .1aln and PAF formats produce identical filtering results
 
     while let Some(aln) = reader.read_alignment()? {
         // Get actual sequence names (not numeric IDs)
@@ -76,18 +80,17 @@ pub fn extract_1aln_metadata<P: AsRef<Path>>(
             .to_string();
 
         // Calculate identity and matches from .1aln data
-        // The .1aln format (via fastga-rs AlnReader) provides:
-        // - aln.matches: Number of matching bases (calculated from X records)
-        //   matches = identity * query_span, where identity uses ALNtoPAF formula
-        // - aln.mismatches: Total diffs from X records (or D as fallback)
-        // - aln.block_len: Query span (query_end - query_start)
         //
-        // Note: fastga-rs now correctly reads X records and calculates matches
-        // using the same formula as ALNtoPAF: (sum(X) - del) / query_span / 2.0
+        // The fastga-rs AlnReader (v0.1.1+) correctly implements X-field reading:
+        // 1. Reads 'X' records (INT_LIST of per-tracepoint edit distances)
+        // 2. Calculates identity using ALNtoPAF formula: 1 - (sum(X) - del) / query_span / 2.0
+        // 3. Derives matches = identity * query_span
+        // 4. Falls back to 'D' record (total diffs) if X records absent
         //
         // IMPORTANT: Do NOT use aln.identity() method! It recalculates identity
         // as matches/(matches+mismatches+gaps) which is NOT compatible with
-        // the ALNtoPAF formula. Instead, derive identity from matches field.
+        // the ALNtoPAF formula. Instead, derive identity from the matches field
+        // which is pre-calculated using the correct X-field formula.
 
         let query_span = (aln.query_end - aln.query_start) as u64;
         let target_span = (aln.target_end - aln.target_start) as u64;

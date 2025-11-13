@@ -1,18 +1,47 @@
 use anyhow::Result;
 use crate::mapping::{Mapping, MappingAux, ChainStatus};
-use crate::filter::FilterConfig;
+use crate::filter::{FilterConfig, FilterMode};
+use crate::plane_sweep_scaffold::{ScaffoldLike, plane_sweep_scaffolds};
+use crate::paf_filter::ScoringFunction;
 use std::collections::HashMap;
 
 /// Represents a merged scaffold chain with its boundaries
 #[derive(Debug, Clone)]
 struct ScaffoldChain {
+    query_name: String,
+    ref_name: String,
     ref_seq_id: u32,
     query_start: u32,
     query_end: u32,
     ref_start: u32,
     ref_end: u32,
     total_length: u32,
+    identity: f64,
     is_reverse: bool,
+}
+
+impl ScaffoldLike for ScaffoldChain {
+    fn query_name(&self) -> &str {
+        &self.query_name
+    }
+    fn target_name(&self) -> &str {
+        &self.ref_name
+    }
+    fn query_start(&self) -> u64 {
+        self.query_start as u64
+    }
+    fn query_end(&self) -> u64 {
+        self.query_end as u64
+    }
+    fn target_start(&self) -> u64 {
+        self.ref_start as u64
+    }
+    fn target_end(&self) -> u64 {
+        self.ref_end as u64
+    }
+    fn identity(&self) -> f64 {
+        self.identity
+    }
 }
 
 /// Scaffold filtering implementation matching wfmash's algorithm
@@ -98,10 +127,23 @@ pub fn filter_by_scaffolds_with_rescue(
         eprintln!("[SCAFFOLD_TRACE] After length filter (min={}): {} scaffolds",
                   config.min_scaffold_length, scaffold_chains.len());
 
-        // Step 3: Apply plane sweep filter (simplified for now - TODO: implement properly)
-        let filtered_scaffolds = scaffold_chains; // TODO: implement plane sweep
+        // Step 3: Apply plane sweep filter to scaffolds
+        let kept_indices = plane_sweep_scaffolds(
+            &scaffold_chains,
+            config.filter_mode,
+            config.max_per_query,
+            config.max_per_target,
+            config.scaffold_overlap_threshold,
+            ScoringFunction::LogLengthIdentity, // Use standard scoring
+        )?;
 
-        eprintln!("[SCAFFOLD_TRACE] After plane sweep: {} chains", filtered_scaffolds.len());
+        let filtered_scaffolds: Vec<ScaffoldChain> = kept_indices
+            .iter()
+            .map(|&idx| scaffold_chains[idx].clone())
+            .collect();
+
+        eprintln!("[SCAFFOLD_TRACE] After plane sweep: {} -> {} chains",
+                  scaffold_chains.len(), filtered_scaffolds.len());
         for (i, chain) in filtered_scaffolds.iter().enumerate() {
             eprintln!("[SCAFFOLD_TRACE]   Scaffold[{}]: ref={} q={}-{} r={}-{} len={}",
                       i, chain.ref_seq_id, chain.query_start, chain.query_end,
@@ -242,18 +284,30 @@ fn merge_into_chains(
 
     let mut chains = Vec::new();
     let mut current_chain: Option<ScaffoldChain> = None;
+    let mut current_matches = 0u64;
+    let mut current_block_length = 0u64;
 
-    for &(_, ref mapping, _) in mappings {
+    for &(_, ref mapping, ref aux) in mappings {
         match current_chain {
             None => {
                 // Start new chain
+                current_matches = mapping.matches as u64;
+                current_block_length = mapping.block_length as u64;
+                let identity = if current_block_length > 0 {
+                    current_matches as f64 / current_block_length as f64
+                } else {
+                    0.0
+                };
                 current_chain = Some(ScaffoldChain {
+                    query_name: aux.query_name.clone(),
+                    ref_name: aux.ref_name.clone(),
                     ref_seq_id: mapping.ref_seq_id,
                     query_start: mapping.query_start_pos,
                     query_end: mapping.query_end_pos(),
                     ref_start: mapping.ref_start_pos,
                     ref_end: mapping.ref_end_pos(),
                     total_length: mapping.block_length,
+                    identity,
                     is_reverse: mapping.is_reverse(),
                 });
             }
@@ -271,19 +325,36 @@ fn merge_into_chains(
                    ref_gap >= -allowed_overlap && ref_gap <= max_gap as i64 &&
                    query_gap >= -allowed_overlap && query_gap <= max_gap as i64 {
                     // Extend chain
+                    current_matches += mapping.matches as u64;
+                    current_block_length += mapping.block_length as u64;
                     chain.query_end = mapping.query_end_pos();
                     chain.ref_end = mapping.ref_end_pos();
                     chain.total_length = chain.ref_end - chain.ref_start;
+                    chain.identity = if current_block_length > 0 {
+                        current_matches as f64 / current_block_length as f64
+                    } else {
+                        0.0
+                    };
                 } else {
                     // Save current chain and start new one
                     chains.push(chain.clone());
+                    current_matches = mapping.matches as u64;
+                    current_block_length = mapping.block_length as u64;
+                    let identity = if current_block_length > 0 {
+                        current_matches as f64 / current_block_length as f64
+                    } else {
+                        0.0
+                    };
                     *chain = ScaffoldChain {
+                        query_name: aux.query_name.clone(),
+                        ref_name: aux.ref_name.clone(),
                         ref_seq_id: mapping.ref_seq_id,
                         query_start: mapping.query_start_pos,
                         query_end: mapping.query_end_pos(),
                         ref_start: mapping.ref_start_pos,
                         ref_end: mapping.ref_end_pos(),
                         total_length: mapping.block_length,
+                        identity,
                         is_reverse: mapping.is_reverse(),
                     };
                 }

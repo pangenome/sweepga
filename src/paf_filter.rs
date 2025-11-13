@@ -7,25 +7,11 @@ use std::path::Path;
 use crate::mapping::ChainStatus;
 use crate::paf::open_paf_input;
 use crate::plane_sweep_exact::PlaneSweepMapping;
+use crate::plane_sweep_scaffold::{ScaffoldLike, plane_sweep_scaffolds};
 use crate::sequence_index::SequenceIndex;
 
-/// Scoring function for plane sweep
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub enum ScoringFunction {
-    Identity,          // Identity only
-    Length,            // Length only
-    LengthIdentity,    // Length * Identity
-    LogLengthIdentity, // log(Length) * Identity (default)
-    Matches,           // Total matches only (gap-neutral)
-}
-
-/// Filtering mode
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub enum FilterMode {
-    OneToOne,   // 1:1 - best mapping per query AND per target
-    OneToMany,  // 1:N - best mapping per query, N per target
-    ManyToMany, // N:N - N mappings per query and per target
-}
+// Re-export filter types for backwards compatibility
+pub use crate::filter_types::{ScoringFunction, FilterMode};
 
 /// Filter configuration
 #[derive(Clone)]
@@ -196,6 +182,30 @@ impl MergedChain {
                 self.sum_matches as f64
             }
         }
+    }
+}
+
+impl ScaffoldLike for MergedChain {
+    fn query_name(&self) -> &str {
+        &self.query_name
+    }
+    fn target_name(&self) -> &str {
+        &self.target_name
+    }
+    fn query_start(&self) -> u64 {
+        self.query_start
+    }
+    fn query_end(&self) -> u64 {
+        self.query_end
+    }
+    fn target_start(&self) -> u64 {
+        self.target_start
+    }
+    fn target_end(&self) -> u64 {
+        self.target_end
+    }
+    fn identity(&self) -> f64 {
+        self.weighted_identity
     }
 }
 
@@ -1083,6 +1093,27 @@ impl PafFilter {
 
     /// Apply scaffold plane sweep - SAME ALGORITHM as regular mappings, just different params
     fn apply_scaffold_plane_sweep(&self, chains: Vec<MergedChain>) -> Result<Vec<MergedChain>> {
+        if chains.is_empty() || chains.len() <= 1 {
+            return Ok(chains);
+        }
+
+        // Use shared plane sweep module
+        let kept_indices = plane_sweep_scaffolds(
+            &chains,
+            self.config.scaffold_filter_mode,
+            self.config.scaffold_max_per_query,
+            self.config.scaffold_max_per_target,
+            self.config.scaffold_overlap_threshold,
+            self.config.scoring_function,
+        )?;
+
+        // Return the filtered chains
+        Ok(kept_indices.iter().map(|&idx| chains[idx].clone()).collect())
+    }
+
+    // Original implementation kept for reference - can be deleted after testing
+    #[allow(dead_code)]
+    fn apply_scaffold_plane_sweep_original(&self, chains: Vec<MergedChain>) -> Result<Vec<MergedChain>> {
         if chains.is_empty() || chains.len() <= 1 {
             return Ok(chains);
         }
