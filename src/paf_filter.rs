@@ -345,9 +345,9 @@ impl PafFilter {
             if !checked_cigar && self.config.scoring_function == ScoringFunction::Matches {
                 checked_cigar = true;
                 if !has_cigar {
-                    eprintln!("[sweepga] WARNING: Using 'matches' scoring but input lacks CIGAR strings (cg:Z: tags).");
-                    eprintln!("[sweepga] WARNING: Match counts will be estimated from PAF matches field (column 10).");
-                    eprintln!("[sweepga] WARNING: For exact match counts, use aligners that output extended CIGAR (e.g., wfmash).");
+                    // eprintln!("[sweepga] WARNING: Using 'matches' scoring but input lacks CIGAR strings (cg:Z: tags).");
+                    // eprintln!("[sweepga] WARNING: Match counts will be estimated from PAF matches field (column 10).");
+                    // eprintln!("[sweepga] WARNING: For exact match counts, use aligners that output extended CIGAR (e.g., wfmash).");
                 }
             }
 
@@ -401,33 +401,11 @@ impl PafFilter {
 
         // Report plane sweep if it filtered anything
         if before_plane_sweep != after_plane_sweep {
-            eprintln!("[sweepga] Plane sweep: {before_plane_sweep} → {after_plane_sweep} mappings");
+            // eprintln!("[sweepga] Plane sweep: {before_plane_sweep} → {after_plane_sweep} mappings");
         }
 
         // If no scaffolding (scaffold_gap == 0), we're done - return the plane-swept mappings
         if self.config.scaffold_gap == 0 {
-            // Calculate statistics for plane sweep output
-            let total_kept_bases: u64 = metadata.iter().map(|m| m.block_length).sum();
-            let total_kept_matches: u64 = metadata.iter().map(|m| m.matches).sum();
-            let avg_kept_identity = if total_kept_bases > 0 {
-                total_kept_matches as f64 / total_kept_bases as f64
-            } else {
-                0.0
-            };
-
-            eprintln!("[sweepga] Plane sweep filtering (no scaffolding)");
-            eprintln!(
-                "[sweepga] Summary: {} → {} mappings ({:.1}% kept)",
-                all_original_mappings.len(),
-                metadata.len(),
-                (metadata.len() as f64 / all_original_mappings.len().max(1) as f64) * 100.0
-            );
-            eprintln!(
-                "[sweepga]   Output: {:.1} Mb total, {:.1}% avg identity",
-                total_kept_bases as f64 / 1_000_000.0,
-                avg_kept_identity * 100.0
-            );
-
             let mut result = HashMap::new();
             for m in metadata {
                 result.insert(m.rank, m);
@@ -439,32 +417,15 @@ impl PafFilter {
         // According to CLAUDE.md: create scaffolds from the PLANE-SWEPT mappings,
         // then rescue from ALL ORIGINAL mappings
 
-        // Calculate input statistics
-        let total_mapped_bases: u64 = metadata.iter().map(|m| m.block_length).sum();
-        let avg_identity = if !metadata.is_empty() {
-            metadata.iter().map(|m| m.identity).sum::<f64>() / metadata.len() as f64
-        } else {
-            0.0
-        };
-
-        eprintln!("[sweepga] Scaffold creation");
-        eprintln!(
-            "[sweepga]   Input: {} mappings, {:.1} Mb total, {:.1}% avg identity",
-            metadata.len(),
-            total_mapped_bases as f64 / 1_000_000.0,
-            avg_identity * 100.0
-        );
-
         // Use scaffold_gap for merging into scaffolds
         let merged_chains = self.merge_mappings_into_chains(&metadata, self.config.scaffold_gap)?;
-        eprintln!(
-            "[sweepga]   Merged into {} chains (gap ≤ {})",
-            merged_chains.len(),
-            self.config.scaffold_gap
-        );
+        // eprintln!(
+        //     "[sweepga]   Merged into {} chains (gap ≤ {})",
+        //     merged_chains.len(),
+        //     self.config.scaffold_gap
+        // );
 
         // Step 2: Filter chains by minimum scaffold length and identity
-        let before_filter = merged_chains.len();
         let mut filtered_chains: Vec<MergedChain> = merged_chains
             .into_iter()
             .filter(|chain| {
@@ -472,24 +433,20 @@ impl PafFilter {
                     && chain.weighted_identity >= self.config.min_scaffold_identity
             })
             .collect();
-        let filtered_out = before_filter - filtered_chains.len();
-        eprintln!(
-            "[sweepga]   Length/identity filter: {} chains kept, {} removed",
-            filtered_chains.len(),
-            filtered_out
-        );
+        // eprintln!(
+        //     "[sweepga]   Length/identity filter: {} chains kept, {} removed",
+        //     filtered_chains.len(),
+        //     filtered_out
+        // );
         if self.config.min_scaffold_length > 0 || self.config.min_scaffold_identity > 0.0 {
-            eprintln!(
-                "[sweepga]   Min length: {}, min identity: {:.1}%",
-                self.config.min_scaffold_length,
-                self.config.min_scaffold_identity * 100.0
-            );
+            // eprintln!(
+            //     "[sweepga]   Min length: {}, min identity: {:.1}%",
+            //     self.config.min_scaffold_length,
+            //     self.config.min_scaffold_identity * 100.0
+            // );
         }
 
         // Step 3: Apply plane sweep to scaffolds
-        eprintln!("[sweepga] Scaffold sweep");
-        let before_sweep = filtered_chains.len();
-
         // Track which mappings are in scaffolds BEFORE plane sweep
         let mut pre_sweep_scaffold_members: HashSet<usize> = HashSet::new();
         for chain in &filtered_chains {
@@ -499,11 +456,11 @@ impl PafFilter {
         }
 
         filtered_chains = self.apply_scaffold_plane_sweep(filtered_chains)?;
-        eprintln!(
-            "[sweepga]   Scaffold sweep: {} → {} scaffolds",
-            before_sweep,
-            filtered_chains.len()
-        );
+        // eprintln!(
+        //     "[sweepga]   Scaffold sweep: {} → {} scaffolds",
+        //     before_sweep,
+        //     filtered_chains.len()
+        // );
 
         // If scaffolds_only mode, return the actual mappings that form scaffolds
         if self.scaffolds_only {
@@ -557,12 +514,12 @@ impl PafFilter {
             .copied()
             .collect();
 
-        eprintln!("[sweepga] Rescue phase");
-        eprintln!(
-            "[sweepga]   Anchors: {} mappings in {} scaffolds",
-            anchor_ranks.len(),
-            filtered_chains.len()
-        );
+        // eprintln!("[sweepga] Rescue phase");
+        // eprintln!(
+        //     "[sweepga]   Anchors: {} mappings in {} scaffolds",
+        //     anchor_ranks.len(),
+        //     filtered_chains.len()
+        // );
 
         // Map ranks to indices in all_original_mappings
         let mut rank_to_idx = HashMap::new();
@@ -682,32 +639,6 @@ impl PafFilter {
                 // If max_deviation == 0 and not an anchor, mapping is not kept
             }
         }
-
-        // Count anchors vs rescued
-        let anchor_count = anchor_ranks.len();
-        let rescued_count = kept_mappings.len() - anchor_count;
-        let total_kept_bases: u64 = kept_mappings.iter().map(|m| m.block_length).sum();
-        let avg_kept_identity = if !kept_mappings.is_empty() {
-            kept_mappings.iter().map(|m| m.identity).sum::<f64>() / kept_mappings.len() as f64
-        } else {
-            0.0
-        };
-
-        eprintln!(
-            "[sweepga]   Rescued: {} mappings within {}bp of anchors",
-            rescued_count, self.config.scaffold_max_deviation
-        );
-        eprintln!(
-            "[sweepga] Summary: {} → {} mappings ({:.1}% kept)",
-            all_original_mappings.len(),
-            kept_mappings.len(),
-            (kept_mappings.len() as f64 / all_original_mappings.len().max(1) as f64) * 100.0
-        );
-        eprintln!(
-            "[sweepga]   Output: {:.1} Mb total, {:.1}% avg identity",
-            total_kept_bases as f64 / 1_000_000.0,
-            avg_kept_identity * 100.0
-        );
 
         // Build result map directly from kept mappings
         let mut passing = HashMap::new();

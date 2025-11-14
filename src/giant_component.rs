@@ -106,14 +106,14 @@ pub fn apply_giant_component_filter_to_paf(
     let n_genomes = genomes.len();
     let edge_prob = compute_connectivity_probability(n_genomes, connectivity_prob);
 
-    eprintln!(
-        "[sweepga] Giant component filtering: {} genomes, connectivity_prob={:.3}, edge_prob={:.4}",
-        n_genomes, connectivity_prob, edge_prob
-    );
-    eprintln!(
-        "[sweepga] Giant component filtering: {} total alignments",
-        total_alignments
-    );
+    // eprintln!(
+    //     "[sweepga] Giant component filtering: {} genomes, connectivity_prob={:.3}, edge_prob={:.4}",
+    //     n_genomes, connectivity_prob, edge_prob
+    // );
+    // eprintln!(
+    //     "[sweepga] Giant component filtering: {} total alignments",
+    //     total_alignments
+    // );
 
     // Re-read and filter with random sampling
     let input_file = File::open(input_path)?;
@@ -139,11 +139,11 @@ pub fn apply_giant_component_filter_to_paf(
         }
     }
 
-    eprintln!(
-        "[sweepga] Giant component filtering: keeping {} alignments ({:.2}%)",
-        kept,
-        (kept as f64 / total_alignments as f64) * 100.0
-    );
+    // eprintln!(
+    //     "[sweepga] Giant component filtering: keeping {} alignments ({:.2}%)",
+    //     kept,
+    //     (kept as f64 / total_alignments as f64) * 100.0
+    // );
 
     Ok(kept)
 }

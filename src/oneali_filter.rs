@@ -58,10 +58,10 @@ pub fn apply_tree_filter(
         });
     }
 
-    eprintln!(
-        "[sweepga] Tree filtering .1aln: read {} alignments",
-        total_count
-    );
+    // eprintln!(
+    //     "[sweepga] Tree filtering .1aln: read {} alignments",
+    //     total_count
+    // );
 
     // Build identity matrix
     let identity_matrix = build_identity_matrix(&alignments_info);
@@ -75,21 +75,21 @@ pub fn apply_tree_filter(
         .into_iter()
         .collect();
 
-    eprintln!(
-        "[sweepga] Tree filtering .1aln: keeping {} alignments (tree:{}{}{})",
-        keep_indices.len(),
-        k_nearest,
-        if k_farthest > 0 {
-            format!(",{}", k_farthest)
-        } else {
-            String::new()
-        },
-        if random_fraction > 0.0 {
-            format!(",{}", random_fraction)
-        } else {
-            String::new()
-        }
-    );
+    // eprintln!(
+    //     "[sweepga] Tree filtering .1aln: keeping {} alignments (tree:{}{}{})",
+    //     keep_indices.len(),
+    //     k_nearest,
+    //     if k_farthest > 0 {
+    //         format!(",{}", k_farthest)
+    //     } else {
+    //         String::new()
+    //     },
+    //     if random_fraction > 0.0 {
+    //         format!(",{}", random_fraction)
+    //     } else {
+    //         String::new()
+    //     }
+    // );
 
     // Write filtered alignments
     let mut reader = fastga_rs::AlnReader::open(input_path)?;
@@ -125,10 +125,10 @@ pub fn apply_tree_filter(
 
     writer.finalize();
 
-    eprintln!(
-        "[sweepga] Wrote {} tree-filtered alignments to .1aln",
-        written
-    );
+    // eprintln!(
+    //     "[sweepga] Wrote {} tree-filtered alignments to .1aln",
+    //     written
+    // );
 
     Ok(written)
 }
@@ -178,10 +178,10 @@ pub fn apply_giant_component_filter(
         });
     }
 
-    eprintln!(
-        "[sweepga] Giant component filtering .1aln: read {} alignments",
-        total_count
-    );
+    // eprintln!(
+    //     "[sweepga] Giant component filtering .1aln: read {} alignments",
+    //     total_count
+    // );
 
     // Build identity matrix
     let identity_matrix = build_identity_matrix(&alignments_info);
@@ -196,22 +196,22 @@ pub fn apply_giant_component_filter(
     // Select pairs using giant component strategy
     let selected_pairs = select_giant_component_pairs(&identity_matrix, connectivity_prob);
 
-    eprintln!(
-        "[sweepga] Giant component filtering .1aln: {} genomes, connectivity_prob={:.3}",
-        genomes.len(),
-        connectivity_prob
-    );
+    // eprintln!(
+    //     "[sweepga] Giant component filtering .1aln: {} genomes, connectivity_prob={:.3}",
+    //     genomes.len(),
+    //     connectivity_prob
+    // );
 
     // Filter alignments
     let keep_indices: HashSet<usize> = filter_by_genome_pairs(&alignments_info, &selected_pairs)
         .into_iter()
         .collect();
 
-    eprintln!(
-        "[sweepga] Giant component filtering .1aln: keeping {} alignments ({:.2}%)",
-        keep_indices.len(),
-        (keep_indices.len() as f64 / alignments_info.len() as f64) * 100.0
-    );
+    // eprintln!(
+    //     "[sweepga] Giant component filtering .1aln: keeping {} alignments ({:.2}%)",
+    //     keep_indices.len(),
+    //     (keep_indices.len() as f64 / alignments_info.len() as f64) * 100.0
+    // );
 
     // Write filtered alignments
     let mut reader = fastga_rs::AlnReader::open(input_path)?;
@@ -247,10 +247,10 @@ pub fn apply_giant_component_filter(
 
     writer.finalize();
 
-    eprintln!(
-        "[sweepga] Wrote {} giant-component-filtered alignments to .1aln",
-        written
-    );
+    // eprintln!(
+    //     "[sweepga] Wrote {} giant-component-filtered alignments to .1aln",
+    //     written
+    // );
 
     Ok(written)
 }

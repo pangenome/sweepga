@@ -63,10 +63,9 @@ impl TimingContext {
         (elapsed, cpu_ratio)
     }
 
-    /// Log message with timing in minimap2 format
-    fn log(&self, phase: &str, message: &str) {
-        let (elapsed, cpu_ratio) = self.stats();
-        eprintln!("[sweepga::{phase}::{elapsed:.3}*{cpu_ratio:.2}] {message}");
+    /// Log message with timing in minimap2 format (currently disabled)
+    fn log(&self, _phase: &str, _message: &str) {
+        // Logging disabled - eprintln statements commented out
     }
 }
 
@@ -374,7 +373,7 @@ struct Args {
     check_fastga: bool,
 }
 
-fn parse_filter_mode(mode: &str, filter_type: &str) -> (FilterMode, Option<usize>, Option<usize>) {
+fn parse_filter_mode(mode: &str, _filter_type: &str) -> (FilterMode, Option<usize>, Option<usize>) {
     // Handle various ways to specify "no filtering"
     let lower = mode.to_lowercase();
     match lower.as_str() {
@@ -406,20 +405,20 @@ fn parse_filter_mode(mode: &str, filter_type: &str) -> (FilterMode, Option<usize
                 };
                 return (mode, per_query, per_target);
             }
-            eprintln!("Warning: Invalid {filter_type} filter '{s}', using default 1:1");
+            // eprintln!("Warning: Invalid {filter_type} filter '{s}', using default 1:1");
             (FilterMode::OneToOne, Some(1), Some(1))
         }
         _ => {
             // Try parsing as a single number
             if let Ok(n) = mode.parse::<usize>() {
                 if n == 0 {
-                    eprintln!("Error: 0 is not a valid filter value. Use 1 for best mapping only.");
+                    // eprintln!("Error: 0 is not a valid filter value. Use 1 for best mapping only.");
                     std::process::exit(1);
                 }
                 // Single number means filter on query axis only
                 return (FilterMode::OneToMany, Some(n), None);
             }
-            eprintln!("Warning: Invalid {filter_type} filter '{mode}', using default 1:1");
+            // eprintln!("Warning: Invalid {filter_type} filter '{mode}', using default 1:1");
             (FilterMode::OneToOne, Some(1), Some(1))
         }
     }
@@ -494,9 +493,9 @@ fn parse_identity_value(value: &str, ani_percentile: Option<f64>) -> Result<f64>
             // For now we only support ani50 (median), ignore the percentile number
             // Could extend to support ani25, ani75, etc. in future
             if !percentile_str.is_empty() && percentile_str != "50" {
-                eprintln!(
-                    "[sweepga] WARNING: Only ani50 (median) currently supported, using median"
-                );
+                // eprintln!(
+                //     "[sweepga] WARNING: Only ani50 (median) currently supported, using median"
+                // );
             }
 
             // Apply offset if provided
@@ -540,7 +539,7 @@ fn calculate_ani_stats(input_path: &str, method: AniMethod, quiet: bool) -> Resu
         AniMethod::Orthogonal => {
             // First pass: Filter to get best 1:1 mappings only
             if !quiet {
-                eprintln!("[sweepga] Calculating ANI from best 1:1 mappings (min length: 1kb)");
+                // eprintln!("[sweepga] Calculating ANI from best 1:1 mappings (min length: 1kb)");
             }
             let temp_filtered = NamedTempFile::new()?;
             let filtered_path = temp_filtered.path().to_str().unwrap().to_string();
@@ -654,7 +653,7 @@ fn calculate_ani_stats(input_path: &str, method: AniMethod, quiet: bool) -> Resu
     }
 
     if genome_pairs.is_empty() {
-        eprintln!("[sweepga] WARNING: No inter-genome alignments found for ANI calculation");
+        // eprintln!("[sweepga] WARNING: No inter-genome alignments found for ANI calculation");
         return Ok(0.0); // Default to no filtering
     }
 
@@ -681,16 +680,16 @@ fn calculate_ani_stats(input_path: &str, method: AniMethod, quiet: bool) -> Resu
         ani_values[median_idx]
     };
 
-    eprintln!(
-        "[sweepga] ANI statistics from {} genome pairs:",
-        genome_pairs.len()
-    );
-    eprintln!(
-        "[sweepga]   Min: {:.1}%, Median: {:.1}%, Max: {:.1}%",
-        ani_values.first().unwrap_or(&0.0) * 100.0,
-        ani50 * 100.0,
-        ani_values.last().unwrap_or(&0.0) * 100.0
-    );
+    // eprintln!(
+    //     "[sweepga] ANI statistics from {} genome pairs:",
+    //     genome_pairs.len()
+    // );
+    // eprintln!(
+    //     "[sweepga]   Min: {:.1}%, Median: {:.1}%, Max: {:.1}%",
+    //     ani_values.first().unwrap_or(&0.0) * 100.0,
+    //     ani50 * 100.0,
+    //     ani_values.last().unwrap_or(&0.0) * 100.0
+    // );
 
     Ok(ani50)
 }
@@ -702,20 +701,7 @@ fn calculate_ani_n_percentile(
     sort_method: NSort,
     quiet: bool,
 ) -> Result<f64> {
-    if !quiet {
-        let method_name = match sort_method {
-            NSort::Length => format!("longest alignments (N{} by length)", percentile as i32),
-            NSort::Identity => format!(
-                "highest identity alignments (N{} by identity)",
-                percentile as i32
-            ),
-            NSort::Score => format!(
-                "best scoring alignments (N{} by identity × log(length))",
-                percentile as i32
-            ),
-        };
-        eprintln!("[sweepga] Calculating ANI from {method_name}");
-    }
+    // Quiet mode or logging disabled
 
     let file = File::open(input_path)?;
     let reader = BufReader::new(file);
@@ -809,7 +795,7 @@ fn calculate_ani_n_percentile(
     }
 
     if alignments.is_empty() {
-        eprintln!("[sweepga] WARNING: No inter-genome alignments found for ANI calculation");
+        // eprintln!("[sweepga] WARNING: No inter-genome alignments found for ANI calculation");
         return Ok(0.0);
     }
 
@@ -841,12 +827,12 @@ fn calculate_ani_n_percentile(
     let n_threshold = total_genome_size * (percentile / 100.0);
 
     if !quiet {
-        eprintln!(
-            "[sweepga] Total genome size: {:.1} Mb, N{} threshold: {:.1} Mb",
-            total_genome_size / 1_000_000.0,
-            percentile as i32,
-            n_threshold / 1_000_000.0
-        );
+        // eprintln!(
+        //     "[sweepga] Total genome size: {:.1} Mb, N{} threshold: {:.1} Mb",
+        //     total_genome_size / 1_000_000.0,
+        //     percentile as i32,
+        //     n_threshold / 1_000_000.0
+        // );
     }
 
     // Take alignments until we reach N-percentile threshold
@@ -892,33 +878,6 @@ fn calculate_ani_n_percentile(
     } else {
         ani_values[median_idx]
     };
-
-    // Calculate total alignment length included
-    let total_included: f64 = genome_pairs.values().map(|(_, len)| len).sum();
-    let coverage_pct = (total_included / total_genome_size) * 100.0;
-
-    let method_str = match sort_method {
-        NSort::Length => format!("N{} by length", percentile as i32),
-        NSort::Identity => format!("N{} by identity", percentile as i32),
-        NSort::Score => format!("N{} by score", percentile as i32),
-    };
-    eprintln!(
-        "[sweepga] ANI statistics from {} genome pairs ({}):",
-        genome_pairs.len(),
-        method_str
-    );
-    eprintln!(
-        "[sweepga]   Coverage: {:.1}% of genomes ({:.1} Mb aligned / {:.1} Mb sum of genome sizes)",
-        coverage_pct,
-        total_included / 1_000_000.0,
-        total_genome_size / 1_000_000.0
-    );
-    eprintln!(
-        "[sweepga]   Min: {:.1}%, Median: {:.1}%, Max: {:.1}%",
-        ani_values.first().unwrap_or(&0.0) * 100.0,
-        ani50 * 100.0,
-        ani_values.last().unwrap_or(&0.0) * 100.0
-    );
 
     Ok(ani50)
 }
@@ -1525,10 +1484,10 @@ fn main() -> Result<()> {
             } else if !input_file_types.is_empty() && input_file_types[0] == FileType::Fasta {
                 // FASTA input - use FastGA to produce .1aln
                 if args.files.len() > 1 {
-                    eprintln!(
-                        "[sweepga] ERROR: Multiple FASTA files not supported in .1aln workflow yet"
-                    );
-                    eprintln!("[sweepga] Use --paf flag to use PAF workflow for multiple files");
+                    // eprintln!(
+                    //     "[sweepga] ERROR: Multiple FASTA files not supported in .1aln workflow yet"
+                    // );
+                    // eprintln!("[sweepga] Use --paf flag to use PAF workflow for multiple files");
                     std::process::exit(1);
                 }
 
@@ -1555,7 +1514,7 @@ fn main() -> Result<()> {
                 let aln_path = temp_1aln.path().to_string_lossy().into_owned();
                 (Some(temp_1aln), aln_path)
             } else {
-                eprintln!("[sweepga] ERROR: No valid input provided");
+                // eprintln!("[sweepga] ERROR: No valid input provided");
                 std::process::exit(1);
             };
 
@@ -2086,10 +2045,10 @@ fn main() -> Result<()> {
     // Parse ANI calculation method
     let ani_method = parse_ani_method(&args.ani_method);
     if ani_method.is_none() {
-        eprintln!(
-            "[sweepga] WARNING: Unknown ANI method '{}', using 'n50-identity'",
-            args.ani_method
-        );
+        // eprintln!(
+        //     "[sweepga] WARNING: Unknown ANI method '{}', using 'n50-identity'",
+        //     args.ani_method
+        // );
     }
     let ani_method = ani_method.unwrap_or(AniMethod::NPercentile(50.0, NSort::Identity));
 
@@ -2234,18 +2193,18 @@ fn main() -> Result<()> {
         // Requires the original FASTA or .1aln file(s) for sequence metadata
         if input_file_types.is_empty() {
             if !args.quiet {
-                eprintln!(
-                    "[sweepga] WARNING: .1aln output requires FASTA or .1aln input (not PAF), falling back to PAF output"
-                );
+                // eprintln!(
+                //     "[sweepga] WARNING: .1aln output requires FASTA or .1aln input (not PAF), falling back to PAF output"
+                // );
             }
             (output_path.clone(), None::<tempfile::NamedTempFile>)
         } else {
             let first_type = input_file_types[0];
             if first_type != FileType::Fasta && first_type != FileType::Aln {
                 if !args.quiet {
-                    eprintln!(
-                        "[sweepga] WARNING: .1aln output requires FASTA or .1aln input (not PAF), falling back to PAF output"
-                    );
+                    // eprintln!(
+                    //     "[sweepga] WARNING: .1aln output requires FASTA or .1aln input (not PAF), falling back to PAF output"
+                    // );
                 }
                 (output_path.clone(), None::<tempfile::NamedTempFile>)
             } else {

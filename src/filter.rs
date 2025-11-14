@@ -378,7 +378,7 @@ impl FilterEngine {
         }
 
         // INSTRUMENTATION: Log input mappings
-        eprintln!("[SCAFFOLD_TRACE] Input: {} mappings", self.mappings.len());
+        // eprintln!("[SCAFFOLD_TRACE] Input: {} mappings", self.mappings.len());
 
         // Group mappings by query-ref pair at scaffold level
         let mut scaffold_groups: HashMap<(i32, u32), Vec<usize>> = HashMap::new();
@@ -428,8 +428,8 @@ impl FilterEngine {
             }
 
             // INSTRUMENTATION: Log chains formed
-            eprintln!("[SCAFFOLD_TRACE] After merging with gap={}: {} chains",
-                      self.config.scaffold_gap, chains.len());
+            // eprintln!("[SCAFFOLD_TRACE] After merging with gap={}: {} chains",
+            //           self.config.scaffold_gap, chains.len());
             for (i, chain) in chains.iter().enumerate() {
                 if chain.is_empty() { continue; }
                 let first = &self.mappings[chain[0]];
@@ -445,9 +445,9 @@ impl FilterEngine {
                 let q_end = last.query_end_pos();
                 let r_start = first.ref_start_pos;
                 let r_end = last.ref_end_pos();
-                eprintln!("[SCAFFOLD_TRACE]   Chain[{}]: ref={} q={}-{} r={}-{} len={} mappings={}",
-                          i, ref_id, q_start, q_end, r_start, r_end,
-                          chain_len, chain.len());
+                // eprintln!("[SCAFFOLD_TRACE]   Chain[{}]: ref={} q={}-{} r={}-{} len={} mappings={}",
+                //           i, ref_id, q_start, q_end, r_start, r_end,
+                //           chain_len, chain.len());
             }
 
             // Identify scaffold chains and rescued mappings
@@ -475,8 +475,8 @@ impl FilterEngine {
             }
 
             // INSTRUMENTATION: Log scaffold identification
-            eprintln!("[SCAFFOLD_TRACE] After length filter (min={}): {} -> {} scaffolds",
-                      self.config.min_scaffold_length, before_length_filter, scaffold_chains.len());
+            // eprintln!("[SCAFFOLD_TRACE] After length filter (min={}): {} -> {} scaffolds",
+            //           self.config.min_scaffold_length, before_length_filter, scaffold_chains.len());
             for &chain_idx in &scaffold_chains {
                 let chain = &chains[chain_idx];
                 let first = &self.mappings[chain[0]];
@@ -492,9 +492,9 @@ impl FilterEngine {
                 let q_end = last.query_end_pos();
                 let r_start = first.ref_start_pos;
                 let r_end = last.ref_end_pos();
-                eprintln!("[SCAFFOLD_TRACE]   Scaffold[{}]: ref={} q={}-{} r={}-{} len={}",
-                          chain_idx, ref_id, q_start, q_end, r_start, r_end,
-                          scaffold_len);
+                // eprintln!("[SCAFFOLD_TRACE]   Scaffold[{}]: ref={} q={}-{} r={}-{} len={}",
+                //           chain_idx, ref_id, q_start, q_end, r_start, r_end,
+                //           scaffold_len);
             }
 
             // Process scaffold chains
@@ -512,7 +512,7 @@ impl FilterEngine {
                     anchor_count += 1;
                 }
             }
-            eprintln!("[SCAFFOLD_TRACE] Anchors identified: {} mappings", anchor_count);
+            // eprintln!("[SCAFFOLD_TRACE] Anchors identified: {} mappings", anchor_count);
 
             // Process rescued mappings (calculate distance to nearest scaffold)
             let mut rescued_count = 0;
@@ -557,10 +557,10 @@ impl FilterEngine {
                     let m_q_end = mapping.query_end_pos();
                     let m_r_start = mapping.ref_start_pos;
                     let m_r_end = mapping.ref_end_pos();
-                    eprintln!("[SCAFFOLD_TRACE] Mapping[{}] distance={} to anchor q={}-{} r={}-{} (mapping: q={}-{} r={}-{})",
-                              idx, min_distance,
-                              s_q_start, s_q_end, s_r_start, s_r_end,
-                              m_q_start, m_q_end, m_r_start, m_r_end);
+                    // eprintln!("[SCAFFOLD_TRACE] Mapping[{}] distance={} to anchor q={}-{} r={}-{} (mapping: q={}-{} r={}-{})",
+                    //           idx, min_distance,
+                    //           s_q_start, s_q_end, s_r_start, s_r_end,
+                    //           m_q_start, m_q_end, m_r_start, m_r_end);
                 }
 
                 aux.chain_status = crate::mapping::ChainStatus::Rescued;
@@ -568,14 +568,14 @@ impl FilterEngine {
                 keep_aux.push(aux);
                 rescued_count += 1;
             }
-            eprintln!("[SCAFFOLD_TRACE] Rescued: {} mappings", rescued_count);
+            // eprintln!("[SCAFFOLD_TRACE] Rescued: {} mappings", rescued_count);
         }
 
         // INSTRUMENTATION: Final summary
         let anchors = keep_aux.iter().filter(|a| matches!(a.chain_status, crate::mapping::ChainStatus::Scaffold)).count();
         let rescued = keep_aux.iter().filter(|a| matches!(a.chain_status, crate::mapping::ChainStatus::Rescued)).count();
-        eprintln!("[SCAFFOLD_TRACE] Final: {} -> {} (anchors={}, rescued={})",
-                  self.mappings.len(), keep.len(), anchors, rescued);
+        // eprintln!("[SCAFFOLD_TRACE] Final: {} -> {} (anchors={}, rescued={})",
+        //           self.mappings.len(), keep.len(), anchors, rescued);
 
         self.mappings = keep;
         self.aux_data = keep_aux;

@@ -35,10 +35,10 @@ pub fn extract_1aln_metadata<P: AsRef<Path>>(
         name_to_id.insert(name.clone(), *id);
     }
 
-    eprintln!(
-        "[unified_filter] Loaded {} sequence names from .1aln",
-        id_to_name.len()
-    );
+    // eprintln!(
+    //     "[unified_filter] Loaded {} sequence names from .1aln",
+    //     id_to_name.len()
+    // );
 
     // Read all alignments and create RecordMeta
     let mut metadata = Vec::new();
@@ -133,10 +133,10 @@ pub fn extract_1aln_metadata<P: AsRef<Path>>(
         rank += 1;
     }
 
-    eprintln!(
-        "[unified_filter] Read {} alignments from .1aln",
-        metadata.len()
-    );
+    // eprintln!(
+    //     "[unified_filter] Read {} alignments from .1aln",
+    //     metadata.len()
+    // );
 
     Ok((metadata, name_to_id))
 }
@@ -167,31 +167,11 @@ pub fn write_1aln_filtered<P1: AsRef<Path>, P2: AsRef<Path>>(
     let mut reader = fastga_rs::AlnReader::open(path_str)?;
 
     let mut rank = 0;
-    let mut written = 0;
-
-    eprintln!("[DEBUG] Reading alignments using high-level API...");
 
     while let Some(aln) = reader.read_alignment()? {
-        eprintln!(
-            "[DEBUG] Read alignment {}: {}[{}-{}] -> {}[{}-{}]",
-            rank,
-            aln.query_name,
-            aln.query_start,
-            aln.query_end,
-            aln.target_name,
-            aln.target_start,
-            aln.target_end
-        );
-
         if passing_ranks.contains_key(&rank) {
-            eprintln!("[DEBUG] Rank {rank} PASSED, writing...");
             writer.write_alignment(&aln)?;
-            written += 1;
-            eprintln!("[DEBUG] Wrote alignment {rank}, total written = {written}");
-        } else {
-            eprintln!("[DEBUG] Rank {rank} SKIPPED");
         }
-
         rank += 1;
     }
 
@@ -275,14 +255,8 @@ pub fn write_1aln_filtered<P1: AsRef<Path>, P2: AsRef<Path>>(
     */
     // END OLD CODE
 
-    // Explicitly finalize the output file
-    eprintln!("[DEBUG] About to finalize writer after writing {written} alignments");
+    // Finalize the output file
     writer.finalize();
-    eprintln!("[DEBUG] Writer finalized");
-
-    eprintln!(
-        "[unified_filter] Wrote {written} alignments to .1aln (GDB and trace data preserved)"
-    );
 
     // Ensure file is fully flushed to disk before returning
     std::thread::sleep(std::time::Duration::from_millis(10));
@@ -321,18 +295,18 @@ pub fn filter_file<P1: AsRef<Path>, P2: AsRef<Path>>(
 
     if is_1aln {
         // .1aln input workflow
-        eprintln!("[unified_filter] Reading .1aln metadata...");
+        // eprintln!("[unified_filter] Reading .1aln metadata...");
         let (metadata, name_to_id) = extract_1aln_metadata(&input_path)?;
 
         // Use SAME filtering logic as PAF!
-        eprintln!("[unified_filter] Applying filters...");
+        // eprintln!("[unified_filter] Applying filters...");
         let filter = PafFilter::new(config.clone()).with_keep_self(keep_self);
         let passing_ranks = filter.apply_filters(metadata)?;
 
-        eprintln!(
-            "[unified_filter] {} records passed filtering",
-            passing_ranks.len()
-        );
+        // eprintln!(
+        //     "[unified_filter] {} records passed filtering",
+        //     passing_ranks.len()
+        // );
 
         // Determine output format
         let output_str = output_path
@@ -369,7 +343,7 @@ mod tests {
     fn test_unified_1aln_filtering() {
         // Skip test if test_output.1aln doesn't exist
         if !std::path::Path::new("test_output.1aln").exists() {
-            eprintln!("Skipping test - test_output.1aln not found");
+            // eprintln!("Skipping test - test_output.1aln not found");
             return;
         }
 
@@ -409,7 +383,7 @@ mod tests {
         // Verify output exists
         assert!(std::path::Path::new("test_filtered_result.1aln").exists());
 
-        eprintln!("✓ Test passed - filtered output created successfully");
+        // eprintln!("✓ Test passed - filtered output created successfully");
 
         // Clean up
         let _ = std::fs::remove_file("test_filtered_result.1aln");
