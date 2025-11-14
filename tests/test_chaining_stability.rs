@@ -148,12 +148,19 @@ fn test_chain_identity_stability() {
 fn test_nearest_neighbor_chaining() {
     // Test that mappings chain to their nearest neighbors, not distant ones
     use std::fs;
+    use std::io::Write;
     use sweepga::paf_filter::{FilterConfig, FilterMode, PafFilter, ScoringFunction};
+    use tempfile::NamedTempFile;
 
-    // Test PAF has three collinear mappings:
+    // Create synthetic test data with three collinear mappings:
     // Mapping A: query 0-1000, target 0-1000
     // Mapping B: query 1100-2100, target 1100-2100 (100bp gap from A - NEAREST)
     // Mapping C: query 5000-6000, target 5000-6000 (3900bp gap from B)
+    let mut test_input = NamedTempFile::new().expect("Failed to create temp file");
+    writeln!(test_input, "querySeq\t10000\t0\t1000\t+\ttargetSeq\t10000\t0\t1000\t950\t1000\t60").unwrap();
+    writeln!(test_input, "querySeq\t10000\t1100\t2100\t+\ttargetSeq\t10000\t1100\t2100\t950\t1000\t60").unwrap();
+    writeln!(test_input, "querySeq\t10000\t5000\t6000\t+\ttargetSeq\t10000\t5000\t6000\t950\t1000\t60").unwrap();
+    test_input.flush().unwrap();
 
     let config = FilterConfig {
         chain_gap: 0,
@@ -184,7 +191,7 @@ fn test_nearest_neighbor_chaining() {
 
     filter
         .filter_paf(
-            "tests/test_data_nearest_neighbor.paf",
+            test_input.path().to_str().unwrap(),
             temp_out.to_str().unwrap(),
         )
         .expect("Failed to filter PAF");
@@ -231,12 +238,19 @@ fn test_nearest_neighbor_chaining() {
 fn test_overlap_penalty() {
     // Test that overlapping mappings are penalized correctly
     use std::fs;
+    use std::io::Write;
     use sweepga::paf_filter::{FilterConfig, FilterMode, PafFilter, ScoringFunction};
+    use tempfile::NamedTempFile;
 
-    // Test PAF has three mappings:
+    // Create synthetic test data with three mappings:
     // Mapping A: query 0-1000, target 0-1000
     // Mapping B: query 900-1900, target 900-1900 (100bp OVERLAP with A)
     // Mapping C: query 1100-2100, target 1100-2100 (100bp GAP from A)
+    let mut test_input = NamedTempFile::new().expect("Failed to create temp file");
+    writeln!(test_input, "querySeq\t10000\t0\t1000\t+\ttargetSeq\t10000\t0\t1000\t950\t1000\t60").unwrap();
+    writeln!(test_input, "querySeq\t10000\t900\t1900\t+\ttargetSeq\t10000\t900\t1900\t950\t1000\t60").unwrap();
+    writeln!(test_input, "querySeq\t10000\t1100\t2100\t+\ttargetSeq\t10000\t1100\t2100\t950\t1000\t60").unwrap();
+    test_input.flush().unwrap();
 
     let config = FilterConfig {
         chain_gap: 0,
@@ -267,7 +281,7 @@ fn test_overlap_penalty() {
 
     filter
         .filter_paf(
-            "tests/test_data_overlapping.paf",
+            test_input.path().to_str().unwrap(),
             temp_out.to_str().unwrap(),
         )
         .expect("Failed to filter PAF");
