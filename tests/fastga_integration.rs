@@ -62,7 +62,7 @@ fn test_fastga_self_alignment() {
         "-n",
         "N", // No mapping filter
         "-j",
-        "0", // No scaffolding
+        "0",     // No scaffolding
         "--paf", // Output PAF format (with extended CIGAR)
     ]);
 
@@ -130,7 +130,7 @@ fn test_fastga_pairwise_alignment() {
         "-t",
         "1",
         "-i",
-        "0", // Disable identity threshold to avoid filtering test alignment
+        "0",     // Disable identity threshold to avoid filtering test alignment
         "--paf", // Output PAF format
     ]);
 
