@@ -157,9 +157,21 @@ fn test_nearest_neighbor_chaining() {
     // Mapping B: query 1100-2100, target 1100-2100 (100bp gap from A - NEAREST)
     // Mapping C: query 5000-6000, target 5000-6000 (3900bp gap from B)
     let mut test_input = NamedTempFile::new().expect("Failed to create temp file");
-    writeln!(test_input, "querySeq\t10000\t0\t1000\t+\ttargetSeq\t10000\t0\t1000\t950\t1000\t60").unwrap();
-    writeln!(test_input, "querySeq\t10000\t1100\t2100\t+\ttargetSeq\t10000\t1100\t2100\t950\t1000\t60").unwrap();
-    writeln!(test_input, "querySeq\t10000\t5000\t6000\t+\ttargetSeq\t10000\t5000\t6000\t950\t1000\t60").unwrap();
+    writeln!(
+        test_input,
+        "querySeq\t10000\t0\t1000\t+\ttargetSeq\t10000\t0\t1000\t950\t1000\t60"
+    )
+    .unwrap();
+    writeln!(
+        test_input,
+        "querySeq\t10000\t1100\t2100\t+\ttargetSeq\t10000\t1100\t2100\t950\t1000\t60"
+    )
+    .unwrap();
+    writeln!(
+        test_input,
+        "querySeq\t10000\t5000\t6000\t+\ttargetSeq\t10000\t5000\t6000\t950\t1000\t60"
+    )
+    .unwrap();
     test_input.flush().unwrap();
 
     let config = FilterConfig {
@@ -247,9 +259,21 @@ fn test_overlap_penalty() {
     // Mapping B: query 900-1900, target 900-1900 (100bp OVERLAP with A)
     // Mapping C: query 1100-2100, target 1100-2100 (100bp GAP from A)
     let mut test_input = NamedTempFile::new().expect("Failed to create temp file");
-    writeln!(test_input, "querySeq\t10000\t0\t1000\t+\ttargetSeq\t10000\t0\t1000\t950\t1000\t60").unwrap();
-    writeln!(test_input, "querySeq\t10000\t900\t1900\t+\ttargetSeq\t10000\t900\t1900\t950\t1000\t60").unwrap();
-    writeln!(test_input, "querySeq\t10000\t1100\t2100\t+\ttargetSeq\t10000\t1100\t2100\t950\t1000\t60").unwrap();
+    writeln!(
+        test_input,
+        "querySeq\t10000\t0\t1000\t+\ttargetSeq\t10000\t0\t1000\t950\t1000\t60"
+    )
+    .unwrap();
+    writeln!(
+        test_input,
+        "querySeq\t10000\t900\t1900\t+\ttargetSeq\t10000\t900\t1900\t950\t1000\t60"
+    )
+    .unwrap();
+    writeln!(
+        test_input,
+        "querySeq\t10000\t1100\t2100\t+\ttargetSeq\t10000\t1100\t2100\t950\t1000\t60"
+    )
+    .unwrap();
     test_input.flush().unwrap();
 
     let config = FilterConfig {
