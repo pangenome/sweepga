@@ -166,21 +166,21 @@ impl FastGAIntegration {
     fn ensure_fastga_in_path() -> Result<()> {
         // Try to find FastGA using our binary_paths module
         if let Ok(fastga_path) = crate::binary_paths::get_embedded_binary_path("FastGA") {
-            eprintln!(
-                "[FastGA] Found embedded binary at: {}",
-                fastga_path.display()
-            );
+            // eprintln!(
+            //     "[FastGA] Found embedded binary at: {}",
+            //     fastga_path.display()
+            // );
             if let Some(fastga_dir) = fastga_path.parent() {
                 // Set ISOLATED PATH so FastGA can ONLY find its own utilities
                 // This prevents FastGA from accidentally using system binaries
-                eprintln!(
-                    "[FastGA] Setting ISOLATED PATH to: {}",
-                    fastga_dir.display()
-                );
+                // eprintln!(
+                //     "[FastGA] Setting ISOLATED PATH to: {}",
+                //     fastga_dir.display()
+                // );
                 std::env::set_var("PATH", fastga_dir.to_str().unwrap());
             }
         } else {
-            eprintln!("[FastGA] WARNING: Could not find embedded FastGA binary");
+            // eprintln!("[FastGA] WARNING: Could not find embedded FastGA binary");
         }
         Ok(())
     }
@@ -270,7 +270,7 @@ impl FastGAIntegration {
             freq as i32
         } else {
             let num_haplotypes = Self::count_haplotypes(queries)?;
-            eprintln!("[FastGA] Auto-setting frequency threshold to {num_haplotypes} (number of haplotypes from PanSN naming)");
+            // eprintln!("[FastGA] Auto-setting frequency threshold to {num_haplotypes} (number of haplotypes from PanSN naming)");
             num_haplotypes as i32
         };
 
@@ -314,12 +314,12 @@ impl FastGAIntegration {
 
         if std::path::Path::new(&gdb_path).exists() {
             std::fs::copy(&gdb_path, &temp_gdb_path).context("Failed to copy .1gdb to temp")?;
-            eprintln!(
-                "[fastga] Preserved .1gdb with {} sequence names",
-                std::fs::metadata(&temp_gdb_path)?.len()
-            );
+            // eprintln!(
+            //     "[fastga] Preserved .1gdb with {} sequence names",
+            //     std::fs::metadata(&temp_gdb_path)?.len()
+            // );
         } else {
-            eprintln!("[fastga] WARNING: No .1gdb file found at {gdb_path}");
+            // eprintln!("[fastga] WARNING: No .1gdb file found at {gdb_path}");
         }
 
         // Clean up originals
@@ -342,7 +342,7 @@ impl FastGAIntegration {
             freq as i32
         } else {
             let num_haplotypes = Self::count_haplotypes(queries)?;
-            eprintln!("[FastGA] Auto-setting frequency threshold to {num_haplotypes} (number of haplotypes from PanSN naming)");
+            // eprintln!("[FastGA] Auto-setting frequency threshold to {num_haplotypes} (number of haplotypes from PanSN naming)");
             num_haplotypes as i32
         };
 
@@ -360,11 +360,11 @@ impl FastGAIntegration {
             .align_with_existing_indices(queries, targets)
             .map_err(|e| anyhow::anyhow!("Failed to run FastGA alignment: {e}"))?;
 
-        eprintln!(
-            "[sweepga] PAF output: {} bytes, {} lines",
-            paf_output.len(),
-            String::from_utf8_lossy(&paf_output).lines().count()
-        );
+        // eprintln!(
+        //     "[sweepga] PAF output: {} bytes, {} lines",
+        //     paf_output.len(),
+        //     String::from_utf8_lossy(&paf_output).lines().count()
+        // );
 
         // Write to temporary file
         let mut temp_file = NamedTempFile::new().context("Failed to create temporary PAF file")?;

@@ -2,6 +2,7 @@ mod aln_filter;
 mod binary_paths;
 mod compact_mapping;
 mod fastga_integration;
+mod filter_types;
 mod grouped_mappings;
 mod mapping;
 mod paf;
@@ -9,6 +10,7 @@ mod paf_filter;
 mod plane_sweep;
 mod plane_sweep_core;
 mod plane_sweep_exact;
+mod plane_sweep_scaffold;
 mod sequence_index;
 mod tree_sparsify;
 mod unified_filter;
@@ -61,10 +63,9 @@ impl TimingContext {
         (elapsed, cpu_ratio)
     }
 
-    /// Log message with timing in minimap2 format
-    fn log(&self, phase: &str, message: &str) {
-        let (elapsed, cpu_ratio) = self.stats();
-        eprintln!("[sweepga::{phase}::{elapsed:.3}*{cpu_ratio:.2}] {message}");
+    /// Log message with timing in minimap2 format (currently disabled)
+    fn log(&self, _phase: &str, _message: &str) {
+        // Logging disabled - eprintln statements commented out
     }
 }
 
@@ -192,6 +193,9 @@ fn parse_metric_number(s: &str) -> Result<u64, String> {
 #[derive(Parser, Debug)]
 #[clap(author, version, about, long_about = None)]
 struct Args {
+    // ============================================================================
+    // Input/Output
+    // ============================================================================
     /// PAF (filter) or FASTA (align & filter). Multiple FASTAs for all-pairs alignment
     #[clap(value_name = "FILE", num_args = 0..,
            long_help = "Input files: FASTA (1+) or PAF (1 only), auto-detected\n\
@@ -202,124 +206,174 @@ struct Args {
                         stdin: auto-detect and process")]
     files: Vec<String>,
 
+    /// Output file path (auto-detects format from extension: .paf or .1aln)
+    #[clap(long = "output-file")]
+    output_file: Option<String>,
+
+    /// Output PAF format instead of default .1aln (text instead of binary)
+    #[clap(long = "paf")]
+    output_paf: bool,
+
+    // ============================================================================
+    // Alignment (FASTA input only)
+    // ============================================================================
     /// Aligner to use for FASTA input
-    #[clap(long = "aligner", default_value = "fastga", value_parser = ["fastga"])]
+    #[clap(long = "aligner", default_value = "fastga", value_parser = ["fastga"],
+           help_heading = "Alignment options")]
     aligner: String,
 
     /// FastGA k-mer frequency threshold (use k-mers occurring ≤ N times)
-    #[clap(short = 'f', long = "frequency")]
+    #[clap(short = 'f', long = "frequency", help_heading = "Alignment options")]
     frequency: Option<usize>,
 
     /// Align all genome pairs separately (slower, uses more memory, but handles many genomes)
-    #[clap(long = "all-pairs")]
+    #[clap(long = "all-pairs", help_heading = "Alignment options")]
     all_pairs: bool,
 
+    // ============================================================================
+    // Basic Filtering
+    // ============================================================================
     /// Minimum block length
-    #[clap(short = 'b', long = "block-length", default_value = "0", value_parser = parse_metric_number)]
+    #[clap(short = 'b', long = "block-length", default_value = "0", value_parser = parse_metric_number,
+           help_heading = "Basic filtering")]
     block_length: u64,
 
-    /// Maximum overlap ratio for plane sweep filtering
-    #[clap(short = 'o', long = "overlap", default_value = "0.95")]
-    overlap: f64,
-
-    /// Keep this fraction or tree pattern (e.g., "0.5" or "tree:3" or "tree:3,2,0.1")
-    #[clap(short = 'x', long = "sparsify", default_value = "1.0")]
-    sparsify: String,
-
     /// n:m-best mappings kept in query:target dimensions. 1:1 (orthogonal), use ∞/many for unbounded
-    #[clap(short = 'n', long = "num-mappings", default_value = "1:1")]
+    #[clap(
+        short = 'n',
+        long = "num-mappings",
+        default_value = "1:1",
+        help_heading = "Basic filtering"
+    )]
     num_mappings: String,
 
-    /// Scaffold filter: "1:1" (best), "M:N" (top M per query, N per target; ∞/many for unbounded)
+    /// Maximum overlap ratio for plane sweep filtering
+    #[clap(
+        short = 'o',
+        long = "overlap",
+        default_value = "0.95",
+        help_heading = "Basic filtering"
+    )]
+    overlap: f64,
+
+    /// Scoring function for plane sweep
+    #[clap(long = "scoring", default_value = "log-length-ani",
+           value_parser = ["ani", "length", "length-ani", "log-length-ani", "matches"],
+           help_heading = "Basic filtering")]
+    scoring: String,
+
+    /// Minimum identity threshold (0-1 fraction, 1-100%, or "aniN" for Nth percentile)
+    #[clap(
+        short = 'i',
+        long = "min-identity",
+        default_value = "0",
+        help_heading = "Basic filtering"
+    )]
+    min_identity: String,
+
+    /// Keep self-mappings (excluded by default)
+    #[clap(long = "self", help_heading = "Basic filtering")]
+    keep_self: bool,
+
+    /// Disable all filtering
+    #[clap(short = 'N', long = "no-filter", help_heading = "Basic filtering")]
+    no_filter: bool,
+
+    // ============================================================================
+    // Scaffolding and Chaining
+    // ============================================================================
+    /// Scaffold jump (gap) distance. 0 = disable scaffolding, >0 = enable (accepts k/m/g suffix)
+    #[clap(short = 'j', long = "scaffold-jump", default_value = "10k", value_parser = parse_metric_number,
+           help_heading = "Scaffolding and chaining")]
+    scaffold_jump: u64,
+
+    /// Minimum scaffold chain length (accepts k/m/g suffix)
+    #[clap(short = 's', long = "scaffold-mass", default_value = "10k", value_parser = parse_metric_number,
+           help_heading = "Scaffolding and chaining")]
+    scaffold_mass: u64,
+
+    /// Scaffold filter mode: "1:1" (best), "M:N" (M per query, N per target), "many" (unbounded)
     #[clap(
         short = 'm',
         long = "scaffold-filter",
         default_value = "many:many",
-        hide = true
+        help_heading = "Scaffolding and chaining"
     )]
     scaffold_filter: String,
 
-    /// Scaffold jump (gap) distance. 0 = disable scaffolding (plane sweep only), >0 = enable scaffolding
-    #[clap(short = 'j', long = "scaffold-jump", default_value = "0", value_parser = parse_metric_number, hide = true)]
-    scaffold_jump: u64,
-
-    /// Minimum scaffold length when scaffolding is enabled
-    #[clap(short = 's', long = "scaffold-mass", default_value = "10k", value_parser = parse_metric_number, hide = true)]
-    scaffold_mass: u64,
-
-    /// Scaffold chain overlap threshold
+    /// Scaffold chain overlap threshold for plane sweep filtering
     #[clap(
         short = 'O',
         long = "scaffold-overlap",
         default_value = "0.5",
-        hide = true
+        help_heading = "Scaffolding and chaining"
     )]
     scaffold_overlap: f64,
 
-    /// Maximum distance from scaffold anchor (0 = no rescue, only keep scaffold members)
-    #[clap(short = 'd', long = "scaffold-dist", default_value = "20k", value_parser = parse_metric_number, hide = true)]
+    /// Maximum Euclidean distance from scaffold anchor for rescue (0 = no rescue, accepts k/m/g suffix)
+    #[clap(short = 'd', long = "scaffold-dist", default_value = "20k", value_parser = parse_metric_number,
+           help_heading = "Scaffolding and chaining")]
     scaffold_dist: u64,
-
-    /// Scoring function for plane sweep
-    #[clap(long = "scoring", default_value = "log-length-ani",
-           value_parser = ["ani", "length", "length-ani", "log-length-ani", "matches"])]
-    scoring: String,
-
-    /// Method for calculating ANI: all, orthogonal, nX[-sort] (e.g. n50, n90-identity, n100-score)
-    #[clap(long = "ani-method", default_value = "n100")]
-    ani_method: String,
-
-    /// Minimum identity threshold (0-1 fraction, 1-100%, or "aniN" for Nth percentile)
-    #[clap(short = 'i', long = "min-identity", default_value = "0")]
-    min_identity: String,
 
     /// Minimum scaffold identity threshold (0-1 fraction, 1-100%, "aniN", or defaults to -i)
     #[clap(
         short = 'Y',
         long = "min-scaffold-identity",
         default_value = "0",
-        hide = true
+        help_heading = "Scaffolding and chaining"
     )]
     min_scaffold_identity: String,
 
-    /// Disable all filtering
-    #[clap(short = 'N', long = "no-filter")]
-    no_filter: bool,
-
-    /// Keep self-mappings (excluded by default)
-    #[clap(long = "self")]
-    keep_self: bool,
-
     /// Output scaffold chains only (for debugging)
-    #[clap(long = "scaffolds-only", hide = true)]
+    #[clap(long = "scaffolds-only", help_heading = "Scaffolding and chaining")]
     scaffolds_only: bool,
 
-    /// Quiet mode (no progress output)
-    #[clap(long = "quiet")]
-    quiet: bool,
+    // ============================================================================
+    // Advanced Filtering
+    // ============================================================================
+    /// Keep this fraction or tree pattern (e.g., "0.5" or "tree:3" or "tree:3,2,0.1")
+    #[clap(
+        short = 'x',
+        long = "sparsify",
+        default_value = "1.0",
+        help_heading = "Advanced filtering"
+    )]
+    sparsify: String,
 
+    /// Method for calculating ANI: all, orthogonal, nX[-sort] (e.g. n50, n90-identity, n100-score)
+    #[clap(
+        long = "ani-method",
+        default_value = "n100",
+        help_heading = "Advanced filtering"
+    )]
+    ani_method: String,
+
+    // ============================================================================
+    // General Options
+    // ============================================================================
     /// Number of threads for parallel processing
-    #[clap(short = 't', long = "threads", default_value = "8")]
+    #[clap(
+        short = 't',
+        long = "threads",
+        default_value = "8",
+        help_heading = "General options"
+    )]
     threads: usize,
 
-    /// Output PAF format instead of default .1aln (text instead of binary)
-    #[clap(long = "paf")]
-    output_paf: bool,
-
-    /// Output file path (auto-detects format from extension: .paf or .1aln)
-    #[clap(long = "output-file")]
-    output_file: Option<String>,
-
-    /// Check FastGA binary locations and exit (diagnostic tool)
-    #[clap(long = "check-fastga")]
-    check_fastga: bool,
+    /// Quiet mode (no progress output)
+    #[clap(long = "quiet", help_heading = "General options")]
+    quiet: bool,
 
     /// Temporary directory for intermediate files (defaults to TMPDIR env var, then /tmp)
-    #[clap(long = "tempdir")]
+    #[clap(long = "tempdir", help_heading = "General options")]
     tempdir: Option<String>,
+
+    /// Check FastGA binary locations and exit (diagnostic tool)
+    #[clap(long = "check-fastga", help_heading = "General options")]
+    check_fastga: bool,
 }
 
-fn parse_filter_mode(mode: &str, filter_type: &str) -> (FilterMode, Option<usize>, Option<usize>) {
+fn parse_filter_mode(mode: &str, _filter_type: &str) -> (FilterMode, Option<usize>, Option<usize>) {
     // Handle various ways to specify "no filtering"
     let lower = mode.to_lowercase();
     match lower.as_str() {
@@ -351,20 +405,20 @@ fn parse_filter_mode(mode: &str, filter_type: &str) -> (FilterMode, Option<usize
                 };
                 return (mode, per_query, per_target);
             }
-            eprintln!("Warning: Invalid {filter_type} filter '{s}', using default 1:1");
+            // eprintln!("Warning: Invalid {filter_type} filter '{s}', using default 1:1");
             (FilterMode::OneToOne, Some(1), Some(1))
         }
         _ => {
             // Try parsing as a single number
             if let Ok(n) = mode.parse::<usize>() {
                 if n == 0 {
-                    eprintln!("Error: 0 is not a valid filter value. Use 1 for best mapping only.");
+                    // eprintln!("Error: 0 is not a valid filter value. Use 1 for best mapping only.");
                     std::process::exit(1);
                 }
                 // Single number means filter on query axis only
                 return (FilterMode::OneToMany, Some(n), None);
             }
-            eprintln!("Warning: Invalid {filter_type} filter '{mode}', using default 1:1");
+            // eprintln!("Warning: Invalid {filter_type} filter '{mode}', using default 1:1");
             (FilterMode::OneToOne, Some(1), Some(1))
         }
     }
@@ -439,9 +493,9 @@ fn parse_identity_value(value: &str, ani_percentile: Option<f64>) -> Result<f64>
             // For now we only support ani50 (median), ignore the percentile number
             // Could extend to support ani25, ani75, etc. in future
             if !percentile_str.is_empty() && percentile_str != "50" {
-                eprintln!(
-                    "[sweepga] WARNING: Only ani50 (median) currently supported, using median"
-                );
+                // eprintln!(
+                //     "[sweepga] WARNING: Only ani50 (median) currently supported, using median"
+                // );
             }
 
             // Apply offset if provided
@@ -485,7 +539,7 @@ fn calculate_ani_stats(input_path: &str, method: AniMethod, quiet: bool) -> Resu
         AniMethod::Orthogonal => {
             // First pass: Filter to get best 1:1 mappings only
             if !quiet {
-                eprintln!("[sweepga] Calculating ANI from best 1:1 mappings (min length: 1kb)");
+                // eprintln!("[sweepga] Calculating ANI from best 1:1 mappings (min length: 1kb)");
             }
             let temp_filtered = NamedTempFile::new()?;
             let filtered_path = temp_filtered.path().to_str().unwrap().to_string();
@@ -599,7 +653,7 @@ fn calculate_ani_stats(input_path: &str, method: AniMethod, quiet: bool) -> Resu
     }
 
     if genome_pairs.is_empty() {
-        eprintln!("[sweepga] WARNING: No inter-genome alignments found for ANI calculation");
+        // eprintln!("[sweepga] WARNING: No inter-genome alignments found for ANI calculation");
         return Ok(0.0); // Default to no filtering
     }
 
@@ -626,16 +680,16 @@ fn calculate_ani_stats(input_path: &str, method: AniMethod, quiet: bool) -> Resu
         ani_values[median_idx]
     };
 
-    eprintln!(
-        "[sweepga] ANI statistics from {} genome pairs:",
-        genome_pairs.len()
-    );
-    eprintln!(
-        "[sweepga]   Min: {:.1}%, Median: {:.1}%, Max: {:.1}%",
-        ani_values.first().unwrap_or(&0.0) * 100.0,
-        ani50 * 100.0,
-        ani_values.last().unwrap_or(&0.0) * 100.0
-    );
+    // eprintln!(
+    //     "[sweepga] ANI statistics from {} genome pairs:",
+    //     genome_pairs.len()
+    // );
+    // eprintln!(
+    //     "[sweepga]   Min: {:.1}%, Median: {:.1}%, Max: {:.1}%",
+    //     ani_values.first().unwrap_or(&0.0) * 100.0,
+    //     ani50 * 100.0,
+    //     ani_values.last().unwrap_or(&0.0) * 100.0
+    // );
 
     Ok(ani50)
 }
@@ -647,20 +701,7 @@ fn calculate_ani_n_percentile(
     sort_method: NSort,
     quiet: bool,
 ) -> Result<f64> {
-    if !quiet {
-        let method_name = match sort_method {
-            NSort::Length => format!("longest alignments (N{} by length)", percentile as i32),
-            NSort::Identity => format!(
-                "highest identity alignments (N{} by identity)",
-                percentile as i32
-            ),
-            NSort::Score => format!(
-                "best scoring alignments (N{} by identity × log(length))",
-                percentile as i32
-            ),
-        };
-        eprintln!("[sweepga] Calculating ANI from {method_name}");
-    }
+    // Quiet mode or logging disabled
 
     let file = File::open(input_path)?;
     let reader = BufReader::new(file);
@@ -754,7 +795,7 @@ fn calculate_ani_n_percentile(
     }
 
     if alignments.is_empty() {
-        eprintln!("[sweepga] WARNING: No inter-genome alignments found for ANI calculation");
+        // eprintln!("[sweepga] WARNING: No inter-genome alignments found for ANI calculation");
         return Ok(0.0);
     }
 
@@ -786,12 +827,12 @@ fn calculate_ani_n_percentile(
     let n_threshold = total_genome_size * (percentile / 100.0);
 
     if !quiet {
-        eprintln!(
-            "[sweepga] Total genome size: {:.1} Mb, N{} threshold: {:.1} Mb",
-            total_genome_size / 1_000_000.0,
-            percentile as i32,
-            n_threshold / 1_000_000.0
-        );
+        // eprintln!(
+        //     "[sweepga] Total genome size: {:.1} Mb, N{} threshold: {:.1} Mb",
+        //     total_genome_size / 1_000_000.0,
+        //     percentile as i32,
+        //     n_threshold / 1_000_000.0
+        // );
     }
 
     // Take alignments until we reach N-percentile threshold
@@ -837,33 +878,6 @@ fn calculate_ani_n_percentile(
     } else {
         ani_values[median_idx]
     };
-
-    // Calculate total alignment length included
-    let total_included: f64 = genome_pairs.values().map(|(_, len)| len).sum();
-    let coverage_pct = (total_included / total_genome_size) * 100.0;
-
-    let method_str = match sort_method {
-        NSort::Length => format!("N{} by length", percentile as i32),
-        NSort::Identity => format!("N{} by identity", percentile as i32),
-        NSort::Score => format!("N{} by score", percentile as i32),
-    };
-    eprintln!(
-        "[sweepga] ANI statistics from {} genome pairs ({}):",
-        genome_pairs.len(),
-        method_str
-    );
-    eprintln!(
-        "[sweepga]   Coverage: {:.1}% of genomes ({:.1} Mb aligned / {:.1} Mb sum of genome sizes)",
-        coverage_pct,
-        total_included / 1_000_000.0,
-        total_genome_size / 1_000_000.0
-    );
-    eprintln!(
-        "[sweepga]   Min: {:.1}%, Median: {:.1}%, Max: {:.1}%",
-        ani_values.first().unwrap_or(&0.0) * 100.0,
-        ani50 * 100.0,
-        ani_values.last().unwrap_or(&0.0) * 100.0
-    );
 
     Ok(ani50)
 }
@@ -1470,10 +1484,10 @@ fn main() -> Result<()> {
             } else if !input_file_types.is_empty() && input_file_types[0] == FileType::Fasta {
                 // FASTA input - use FastGA to produce .1aln
                 if args.files.len() > 1 {
-                    eprintln!(
-                        "[sweepga] ERROR: Multiple FASTA files not supported in .1aln workflow yet"
-                    );
-                    eprintln!("[sweepga] Use --paf flag to use PAF workflow for multiple files");
+                    // eprintln!(
+                    //     "[sweepga] ERROR: Multiple FASTA files not supported in .1aln workflow yet"
+                    // );
+                    // eprintln!("[sweepga] Use --paf flag to use PAF workflow for multiple files");
                     std::process::exit(1);
                 }
 
@@ -1500,7 +1514,7 @@ fn main() -> Result<()> {
                 let aln_path = temp_1aln.path().to_string_lossy().into_owned();
                 (Some(temp_1aln), aln_path)
             } else {
-                eprintln!("[sweepga] ERROR: No valid input provided");
+                // eprintln!("[sweepga] ERROR: No valid input provided");
                 std::process::exit(1);
             };
 
@@ -2031,10 +2045,10 @@ fn main() -> Result<()> {
     // Parse ANI calculation method
     let ani_method = parse_ani_method(&args.ani_method);
     if ani_method.is_none() {
-        eprintln!(
-            "[sweepga] WARNING: Unknown ANI method '{}', using 'n50-identity'",
-            args.ani_method
-        );
+        // eprintln!(
+        //     "[sweepga] WARNING: Unknown ANI method '{}', using 'n50-identity'",
+        //     args.ani_method
+        // );
     }
     let ani_method = ani_method.unwrap_or(AniMethod::NPercentile(50.0, NSort::Identity));
 
@@ -2179,18 +2193,18 @@ fn main() -> Result<()> {
         // Requires the original FASTA or .1aln file(s) for sequence metadata
         if input_file_types.is_empty() {
             if !args.quiet {
-                eprintln!(
-                    "[sweepga] WARNING: .1aln output requires FASTA or .1aln input (not PAF), falling back to PAF output"
-                );
+                // eprintln!(
+                //     "[sweepga] WARNING: .1aln output requires FASTA or .1aln input (not PAF), falling back to PAF output"
+                // );
             }
             (output_path.clone(), None::<tempfile::NamedTempFile>)
         } else {
             let first_type = input_file_types[0];
             if first_type != FileType::Fasta && first_type != FileType::Aln {
                 if !args.quiet {
-                    eprintln!(
-                        "[sweepga] WARNING: .1aln output requires FASTA or .1aln input (not PAF), falling back to PAF output"
-                    );
+                    // eprintln!(
+                    //     "[sweepga] WARNING: .1aln output requires FASTA or .1aln input (not PAF), falling back to PAF output"
+                    // );
                 }
                 (output_path.clone(), None::<tempfile::NamedTempFile>)
             } else {

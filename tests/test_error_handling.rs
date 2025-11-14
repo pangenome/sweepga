@@ -244,6 +244,8 @@ seq5\t500\t0\t150\t+\tseq6\t600\t0\t150\t140\t150\t60
             "--bin",
             "sweepga",
             "--",
+            "-j",
+            "0", // Disable scaffolding to avoid filtering small test alignments
             mixed_paf.to_str().unwrap(),
         ])
         .output()?;

@@ -151,9 +151,9 @@ impl StreamFilter {
         // 2. Apply plane sweep ONLY if scaffold filtering is disabled
         // When scaffold filtering is enabled, it handles all the filtering
         if self.config.min_scaffold_length == 0 && self.config.filter_mode != FilterMode::ManyToMany {
-            eprintln!("[PLANE_SWEEP_TRACE] Before plane sweep: {} mappings", metadata.len());
+            // eprintln!("[PLANE_SWEEP_TRACE] Before plane sweep: {} mappings", metadata.len());
             let plane_swept = self.apply_plane_sweep_to_mappings(&metadata)?;
-            eprintln!("[PLANE_SWEEP_TRACE] After plane sweep: {} mappings", plane_swept.len());
+            // eprintln!("[PLANE_SWEEP_TRACE] After plane sweep: {} mappings", plane_swept.len());
             metadata = plane_swept;
         }
 

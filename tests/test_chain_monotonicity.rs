@@ -6,6 +6,15 @@
 use std::io::Write;
 use tempfile::NamedTempFile;
 
+/// Helper to get the correct sweepga binary path based on build mode
+fn sweepga_bin() -> &'static str {
+    if cfg!(debug_assertions) {
+        "./target/debug/sweepga"
+    } else {
+        "./target/release/sweepga"
+    }
+}
+
 /// Create a PAF with collinear high-identity alignments
 fn create_simple_collinear_paf() -> NamedTempFile {
     let mut file = NamedTempFile::new().unwrap();
@@ -115,7 +124,7 @@ fn extract_chains(output: &str) -> Vec<Vec<String>> {
 }
 
 #[test]
-#[ignore] // Requires sweepga binary
+// Sweepga binary is available via sweepga_bin()
 fn test_simple_collinear_chaining() {
     let paf_file = create_simple_collinear_paf();
     let paf_path = paf_file.path();
@@ -124,7 +133,7 @@ fn test_simple_collinear_chaining() {
     let gaps = vec![2_000, 10_000, 30_000, 100_000];
 
     for gap in &gaps {
-        let output = std::process::Command::new("./target/release/sweepga")
+        let output = std::process::Command::new(sweepga_bin())
             .arg(paf_path)
             .arg("-j")
             .arg(gap.to_string())
@@ -154,7 +163,7 @@ fn test_simple_collinear_chaining() {
 }
 
 #[test]
-#[ignore] // Requires sweepga binary
+// Sweepga binary is available via sweepga_bin()
 fn test_mixed_identity_chaining() {
     let paf_file = create_mixed_identity_paf();
     let paf_path = paf_file.path();
@@ -168,7 +177,7 @@ fn test_mixed_identity_chaining() {
     ];
 
     for (gap, threshold, expected) in test_cases {
-        let output = std::process::Command::new("./target/release/sweepga")
+        let output = std::process::Command::new(sweepga_bin())
             .arg(paf_path)
             .arg("-j")
             .arg(gap.to_string())
@@ -199,7 +208,7 @@ fn test_mixed_identity_chaining() {
 }
 
 #[test]
-#[ignore] // Requires sweepga binary
+// Sweepga binary is available via sweepga_bin()
 fn test_fragmented_chaining_coverage() {
     let paf_file = create_fragmented_paf();
     let paf_path = paf_file.path();
@@ -209,7 +218,7 @@ fn test_fragmented_chaining_coverage() {
     let gaps = vec![5_000, 50_000, 500_000];
 
     for gap in &gaps {
-        let output = std::process::Command::new("./target/release/sweepga")
+        let output = std::process::Command::new(sweepga_bin())
             .arg(paf_path)
             .arg("-j")
             .arg(gap.to_string())
@@ -239,7 +248,7 @@ fn test_fragmented_chaining_coverage() {
 
 /// Test that low-identity chains (like centromeric inversions) are correctly filtered
 #[test]
-#[ignore] // Requires sweepga binary
+// Sweepga binary is available via sweepga_bin()
 fn test_centromere_inversion_filtering() {
     use std::io::Write;
     use tempfile::NamedTempFile;
@@ -261,7 +270,7 @@ fn test_centromere_inversion_filtering() {
     paf.flush().unwrap();
 
     // Test 1: With Y=0.80 (80%), chain should be filtered (76% < 80%)
-    let output_80 = std::process::Command::new("./target/release/sweepga")
+    let output_80 = std::process::Command::new(sweepga_bin())
         .arg(paf.path())
         .arg("-i")
         .arg("0.80")
@@ -287,7 +296,7 @@ fn test_centromere_inversion_filtering() {
     );
 
     // Test 2: With Y=0.75 (75%), chain should pass (76% >= 75%)
-    let output_75 = std::process::Command::new("./target/release/sweepga")
+    let output_75 = std::process::Command::new(sweepga_bin())
         .arg(paf.path())
         .arg("-i")
         .arg("0.75")
@@ -313,7 +322,7 @@ fn test_centromere_inversion_filtering() {
     );
 
     // Test 3: With Y=0 (no filter), chain should definitely pass
-    let output_0 = std::process::Command::new("./target/release/sweepga")
+    let output_0 = std::process::Command::new(sweepga_bin())
         .arg(paf.path())
         .arg("-i")
         .arg("0")

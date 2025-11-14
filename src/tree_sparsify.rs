@@ -306,29 +306,29 @@ pub fn apply_tree_filter_to_paf(
         paf_lines.push(line);
     }
 
-    eprintln!(
-        "[sweepga] Tree filtering: {} total alignments",
-        alignments.len()
-    );
+    // eprintln!(
+    //     "[sweepga] Tree filtering: {} total alignments",
+    //     alignments.len()
+    // );
 
     // Apply tree filtering
     let keep_indices = filter_tree_based(&alignments, k_nearest, k_farthest, random_fraction);
 
-    eprintln!(
-        "[sweepga] Tree filtering: keeping {} alignments (tree:{}{}{})",
-        keep_indices.len(),
-        k_nearest,
-        if k_farthest > 0 {
-            format!(",{k_farthest}")
-        } else {
-            String::new()
-        },
-        if random_fraction > 0.0 {
-            format!(",{random_fraction}")
-        } else {
-            String::new()
-        }
-    );
+    // eprintln!(
+    //     "[sweepga] Tree filtering: keeping {} alignments (tree:{}{}{})",
+    //     keep_indices.len(),
+    //     k_nearest,
+    //     if k_farthest > 0 {
+    //         format!(",{k_farthest}")
+    //     } else {
+    //         String::new()
+    //     },
+    //     if random_fraction > 0.0 {
+    //         format!(",{random_fraction}")
+    //     } else {
+    //         String::new()
+    //     }
+    // );
 
     // Write filtered PAF
     let mut output = File::create(output_path)?;
@@ -380,10 +380,10 @@ pub fn apply_tree_filter_to_1aln(
     }
 
     if !quiet {
-        eprintln!(
-            "[sweepga] Tree filtering: read {} alignments from .1aln",
-            all_alignments.len()
-        );
+        // eprintln!(
+        //     "[sweepga] Tree filtering: read {} alignments from .1aln",
+        //     all_alignments.len()
+        // );
     }
 
     // Step 2: Build identity matrix
@@ -432,21 +432,21 @@ pub fn apply_tree_filter_to_1aln(
         .collect();
 
     if !quiet {
-        eprintln!(
-            "[sweepga] Tree filtering: keeping {} alignments (tree:{}{}{})",
-            passing_ranks.len(),
-            k_nearest,
-            if k_farthest > 0 {
-                format!(",{k_farthest}")
-            } else {
-                String::new()
-            },
-            if random_fraction > 0.0 {
-                format!(",{random_fraction}")
-            } else {
-                String::new()
-            }
-        );
+        // eprintln!(
+        //     "[sweepga] Tree filtering: keeping {} alignments (tree:{}{}{})",
+        //     passing_ranks.len(),
+        //     k_nearest,
+        //     if k_farthest > 0 {
+        //         format!(",{k_farthest}")
+        //     } else {
+        //         String::new()
+        //     },
+        //     if random_fraction > 0.0 {
+        //         format!(",{random_fraction}")
+        //     } else {
+        //         String::new()
+        //     }
+        // );
     }
 
     // Step 6: Write filtered .1aln using unified_filter's rank-based copying
@@ -458,7 +458,6 @@ pub fn apply_tree_filter_to_1aln(
     )?;
 
     let mut rank = 0;
-    let mut written = 0;
     let input_file = &mut reader.file;
 
     // Read through input file, copying only alignments that passed tree filtering
@@ -472,7 +471,6 @@ pub fn apply_tree_filter_to_1aln(
             if passing_ranks.contains(&rank) {
                 // This alignment passed tree filtering - copy it with trace data
                 writer.copy_alignment_record_from_file(input_file)?;
-                written += 1;
             } else {
                 // Skip this alignment and its trace data
                 loop {
@@ -496,10 +494,6 @@ pub fn apply_tree_filter_to_1aln(
     }
 
     writer.finalize();
-
-    if !quiet {
-        eprintln!("[sweepga] Wrote {written} tree-filtered alignments to .1aln");
-    }
 
     Ok(())
 }

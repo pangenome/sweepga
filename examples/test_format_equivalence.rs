@@ -5,7 +5,7 @@
 /// 2. Applies 1:1 filtering to both
 /// 3. Compares results to ensure they're identical
 use anyhow::Result;
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 use std::path::Path;
 
 fn main() -> Result<()> {

@@ -1,18 +1,47 @@
 use anyhow::Result;
 use crate::mapping::{Mapping, MappingAux, ChainStatus};
-use crate::filter::FilterConfig;
+use crate::filter::{FilterConfig, FilterMode};
+use crate::plane_sweep_scaffold::{ScaffoldLike, plane_sweep_scaffolds};
+use crate::paf_filter::ScoringFunction;
 use std::collections::HashMap;
 
 /// Represents a merged scaffold chain with its boundaries
 #[derive(Debug, Clone)]
 struct ScaffoldChain {
+    query_name: String,
+    ref_name: String,
     ref_seq_id: u32,
     query_start: u32,
     query_end: u32,
     ref_start: u32,
     ref_end: u32,
     total_length: u32,
+    identity: f64,
     is_reverse: bool,
+}
+
+impl ScaffoldLike for ScaffoldChain {
+    fn query_name(&self) -> &str {
+        &self.query_name
+    }
+    fn target_name(&self) -> &str {
+        &self.ref_name
+    }
+    fn query_start(&self) -> u64 {
+        self.query_start as u64
+    }
+    fn query_end(&self) -> u64 {
+        self.query_end as u64
+    }
+    fn target_start(&self) -> u64 {
+        self.ref_start as u64
+    }
+    fn target_end(&self) -> u64 {
+        self.ref_end as u64
+    }
+    fn identity(&self) -> f64 {
+        self.identity
+    }
 }
 
 /// Scaffold filtering implementation matching wfmash's algorithm
@@ -39,8 +68,8 @@ pub fn filter_by_scaffolds_with_rescue(
         return Ok((raw_mappings.to_vec(), raw_aux.to_vec()));
     }
 
-    eprintln!("[SCAFFOLD_TRACE] Identifying scaffolds from {} filtered mappings, rescuing from {} raw mappings",
-              filtered_mappings.len(), raw_mappings.len());
+    // eprintln!("[SCAFFOLD_TRACE] Identifying scaffolds from {} filtered mappings, rescuing from {} raw mappings",
+    //           filtered_mappings.len(), raw_mappings.len());
 
     // Group FILTERED mappings by query-ref CHROMOSOME pair to identify scaffolds
     let mut groups: HashMap<(i32, u32), Vec<usize>> = HashMap::new();
@@ -49,7 +78,7 @@ pub fn filter_by_scaffolds_with_rescue(
         groups.entry(key).or_insert_with(Vec::new).push(i);
     }
 
-    eprintln!("[SCAFFOLD_TRACE] Grouped into {} chromosome pairs", groups.len());
+    // eprintln!("[SCAFFOLD_TRACE] Grouped into {} chromosome pairs", groups.len());
 
     let mut all_kept_indices = Vec::new();
     let mut all_kept_aux = Vec::new();
@@ -68,8 +97,8 @@ pub fn filter_by_scaffolds_with_rescue(
             "unknown"
         };
 
-        eprintln!("[SCAFFOLD_TRACE] Processing {} (id={}) vs {} (id={}): {} filtered mappings",
-                  query_name, query_id, ref_name, ref_id, indices.len());
+        // eprintln!("[SCAFFOLD_TRACE] Processing {} (id={}) vs {} (id={}): {} filtered mappings",
+        //           query_name, query_id, ref_name, ref_id, indices.len());
 
         // Sort by position
         indices.sort_by_key(|&i| (filtered_mappings[i].ref_start_pos, filtered_mappings[i].query_start_pos));
@@ -82,12 +111,12 @@ pub fn filter_by_scaffolds_with_rescue(
         // Step 1: Build merged chains FROM FILTERED MAPPINGS
         let merged_chains = merge_into_chains(&filtered_for_scaffolds, config.scaffold_gap);
 
-        eprintln!("[SCAFFOLD_TRACE] After merging with gap={}: {} chains",
-                  config.scaffold_gap, merged_chains.len());
+        // eprintln!("[SCAFFOLD_TRACE] After merging with gap={}: {} chains",
+        //           config.scaffold_gap, merged_chains.len());
         for (i, chain) in merged_chains.iter().enumerate() {
-            eprintln!("[SCAFFOLD_TRACE]   Chain[{}]: ref={} q={}-{} r={}-{} len={}",
-                      i, chain.ref_seq_id, chain.query_start, chain.query_end,
-                      chain.ref_start, chain.ref_end, chain.total_length);
+            // eprintln!("[SCAFFOLD_TRACE]   Chain[{}]: ref={} q={}-{} r={}-{} len={}",
+            //           i, chain.ref_seq_id, chain.query_start, chain.query_end,
+            //           chain.ref_start, chain.ref_end, chain.total_length);
         }
 
         // Step 2: Filter by minimum scaffold length
@@ -95,17 +124,30 @@ pub fn filter_by_scaffolds_with_rescue(
             .filter(|chain| chain.total_length >= config.min_scaffold_length)
             .collect();
 
-        eprintln!("[SCAFFOLD_TRACE] After length filter (min={}): {} scaffolds",
-                  config.min_scaffold_length, scaffold_chains.len());
+        // eprintln!("[SCAFFOLD_TRACE] After length filter (min={}): {} scaffolds",
+        //           config.min_scaffold_length, scaffold_chains.len());
 
-        // Step 3: Apply plane sweep filter (simplified for now - TODO: implement properly)
-        let filtered_scaffolds = scaffold_chains; // TODO: implement plane sweep
+        // Step 3: Apply plane sweep filter to scaffolds
+        let kept_indices = plane_sweep_scaffolds(
+            &scaffold_chains,
+            config.filter_mode,
+            config.max_per_query,
+            config.max_per_target,
+            config.scaffold_overlap_threshold,
+            ScoringFunction::LogLengthIdentity, // Use standard scoring
+        )?;
 
-        eprintln!("[SCAFFOLD_TRACE] After plane sweep: {} chains", filtered_scaffolds.len());
+        let filtered_scaffolds: Vec<ScaffoldChain> = kept_indices
+            .iter()
+            .map(|&idx| scaffold_chains[idx].clone())
+            .collect();
+
+        // eprintln!("[SCAFFOLD_TRACE] After plane sweep: {} -> {} chains",
+        //           scaffold_chains.len(), filtered_scaffolds.len());
         for (i, chain) in filtered_scaffolds.iter().enumerate() {
-            eprintln!("[SCAFFOLD_TRACE]   Scaffold[{}]: ref={} q={}-{} r={}-{} len={}",
-                      i, chain.ref_seq_id, chain.query_start, chain.query_end,
-                      chain.ref_start, chain.ref_end, chain.total_length);
+            // eprintln!("[SCAFFOLD_TRACE]   Scaffold[{}]: ref={} q={}-{} r={}-{} len={}",
+            //           i, chain.ref_seq_id, chain.query_start, chain.query_end,
+            //           chain.ref_start, chain.ref_end, chain.total_length);
         }
 
         // Step 4: Identify anchors - FILTERED mappings within scaffold bounds
@@ -124,7 +166,7 @@ pub fn filter_by_scaffolds_with_rescue(
             }
         }
 
-        eprintln!("[SCAFFOLD_TRACE] Anchors identified: {} mappings from filtered set", anchor_indices.len());
+        // eprintln!("[SCAFFOLD_TRACE] Anchors identified: {} mappings from filtered set", anchor_indices.len());
 
         // Step 5: NOW RESCUE FROM RAW MAPPINGS
         // Collect all raw mappings for this chromosome pair
@@ -135,8 +177,8 @@ pub fn filter_by_scaffolds_with_rescue(
             }
         }
 
-        eprintln!("[SCAFFOLD_TRACE] Found {} raw mappings for this chromosome pair to consider for rescue",
-                  raw_indices_for_pair.len());
+        // eprintln!("[SCAFFOLD_TRACE] Found {} raw mappings for this chromosome pair to consider for rescue",
+        //           raw_indices_for_pair.len());
 
         // Collect anchor mappings from FILTERED set for distance calculation
         let anchor_mappings: Vec<&Mapping> = anchor_indices.iter()
@@ -202,14 +244,14 @@ pub fn filter_by_scaffolds_with_rescue(
                 kept_aux.push(aux);
                 rescued_count += 1;
 
-                eprintln!("[SCAFFOLD_TRACE] Mapping[{}] distance={:.0} rescued",
-                          raw_idx, min_distance);
+                // eprintln!("[SCAFFOLD_TRACE] Mapping[{}] distance={:.0} rescued",
+                //           raw_idx, min_distance);
             }
         }
 
-        eprintln!("[SCAFFOLD_TRACE] Final for group: {} -> {} (anchors={}, rescued={})",
-                  raw_indices_for_pair.len(), kept_indices.len(),
-                  anchor_count, rescued_count);
+        // eprintln!("[SCAFFOLD_TRACE] Final for group: {} -> {} (anchors={}, rescued={})",
+        //           raw_indices_for_pair.len(), kept_indices.len(),
+        //           anchor_count, rescued_count);
 
         all_kept_indices.extend(kept_indices);
         all_kept_aux.extend(kept_aux);
@@ -225,8 +267,8 @@ pub fn filter_by_scaffolds_with_rescue(
         result_aux.push(aux);
     }
 
-    eprintln!("[SCAFFOLD_TRACE] Final: {} raw -> {} kept mappings",
-              raw_mappings.len(), result_mappings.len());
+    // eprintln!("[SCAFFOLD_TRACE] Final: {} raw -> {} kept mappings",
+    //           raw_mappings.len(), result_mappings.len());
 
     Ok((result_mappings, result_aux))
 }
@@ -242,18 +284,30 @@ fn merge_into_chains(
 
     let mut chains = Vec::new();
     let mut current_chain: Option<ScaffoldChain> = None;
+    let mut current_matches = 0u64;
+    let mut current_block_length = 0u64;
 
-    for &(_, ref mapping, _) in mappings {
+    for &(_, ref mapping, ref aux) in mappings {
         match current_chain {
             None => {
                 // Start new chain
+                current_matches = mapping.matches as u64;
+                current_block_length = mapping.block_length as u64;
+                let identity = if current_block_length > 0 {
+                    current_matches as f64 / current_block_length as f64
+                } else {
+                    0.0
+                };
                 current_chain = Some(ScaffoldChain {
+                    query_name: aux.query_name.clone(),
+                    ref_name: aux.ref_name.clone(),
                     ref_seq_id: mapping.ref_seq_id,
                     query_start: mapping.query_start_pos,
                     query_end: mapping.query_end_pos(),
                     ref_start: mapping.ref_start_pos,
                     ref_end: mapping.ref_end_pos(),
                     total_length: mapping.block_length,
+                    identity,
                     is_reverse: mapping.is_reverse(),
                 });
             }
@@ -271,19 +325,36 @@ fn merge_into_chains(
                    ref_gap >= -allowed_overlap && ref_gap <= max_gap as i64 &&
                    query_gap >= -allowed_overlap && query_gap <= max_gap as i64 {
                     // Extend chain
+                    current_matches += mapping.matches as u64;
+                    current_block_length += mapping.block_length as u64;
                     chain.query_end = mapping.query_end_pos();
                     chain.ref_end = mapping.ref_end_pos();
                     chain.total_length = chain.ref_end - chain.ref_start;
+                    chain.identity = if current_block_length > 0 {
+                        current_matches as f64 / current_block_length as f64
+                    } else {
+                        0.0
+                    };
                 } else {
                     // Save current chain and start new one
                     chains.push(chain.clone());
+                    current_matches = mapping.matches as u64;
+                    current_block_length = mapping.block_length as u64;
+                    let identity = if current_block_length > 0 {
+                        current_matches as f64 / current_block_length as f64
+                    } else {
+                        0.0
+                    };
                     *chain = ScaffoldChain {
+                        query_name: aux.query_name.clone(),
+                        ref_name: aux.ref_name.clone(),
                         ref_seq_id: mapping.ref_seq_id,
                         query_start: mapping.query_start_pos,
                         query_end: mapping.query_end_pos(),
                         ref_start: mapping.ref_start_pos,
                         ref_end: mapping.ref_end_pos(),
                         total_length: mapping.block_length,
+                        identity,
                         is_reverse: mapping.is_reverse(),
                     };
                 }

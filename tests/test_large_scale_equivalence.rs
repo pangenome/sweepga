@@ -4,7 +4,7 @@
 /// at scale (10K+ alignments). Uses real yeast genome data to ensure
 /// coordinate conversion and filtering logic is stable under load.
 use anyhow::Result;
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 use std::fs;
 use std::path::Path;
 use std::process::Command;
@@ -55,6 +55,7 @@ struct PafRecord {
 }
 
 impl PafRecord {
+    #[allow(dead_code)]
     fn identity(&self) -> f64 {
         if self.block_len == 0 {
             0.0
@@ -63,10 +64,12 @@ impl PafRecord {
         }
     }
 
+    #[allow(dead_code)]
     fn query_span(&self) -> u64 {
         self.query_end.saturating_sub(self.query_start)
     }
 
+    #[allow(dead_code)]
     fn target_span(&self) -> u64 {
         self.target_end.saturating_sub(self.target_start)
     }
@@ -398,6 +401,8 @@ fn test_b3106_paf_output() -> Result<()> {
             "--bin",
             "sweepga",
             "--",
+            "-j",
+            "0", // Disable scaffolding for small test data
             temp_input.to_str().unwrap(),
             "--paf",
         ])
@@ -444,6 +449,8 @@ fn test_b3106_filtering_behavior() -> Result<()> {
             "--bin",
             "sweepga",
             "--",
+            "-j",
+            "0", // Disable scaffolding for small test data
             temp_input.to_str().unwrap(),
             "--paf",
             "-n",
@@ -462,6 +469,8 @@ fn test_b3106_filtering_behavior() -> Result<()> {
             "--bin",
             "sweepga",
             "--",
+            "-j",
+            "0", // Disable scaffolding for small test data
             nn_paf.to_str().unwrap(),
             "-n",
             "1:1",
@@ -508,6 +517,8 @@ fn test_b3106_coordinate_determinism() -> Result<()> {
             "--bin",
             "sweepga",
             "--",
+            "-j",
+            "0", // Disable scaffolding for small test data
             temp_input.to_str().unwrap(),
             "--paf",
         ])
@@ -523,6 +534,8 @@ fn test_b3106_coordinate_determinism() -> Result<()> {
             "--bin",
             "sweepga",
             "--",
+            "-j",
+            "0", // Disable scaffolding for small test data
             temp_input.to_str().unwrap(),
             "--paf",
         ])

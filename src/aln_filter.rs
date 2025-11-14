@@ -1,25 +1,23 @@
-//! Pure .1aln filtering module
+//! .1aln reader for tree-based sparsification
 //!
-//! This module implements direct .1aln → filter → .1aln pipeline,
-//! avoiding the wasteful .1aln→PAF→filter→PAF→.1aln conversion.
+//! This module provides .1aln file reading functionality specifically for
+//! tree-based sparsification (see tree_sparsify.rs).
 //!
 //! Key features:
-//! - Reads .1aln files using onecode-rs
-//! - Computes identity from X field (edit distance per trace interval)
-//! - Applies sweepga filtering logic
-//! - Writes filtered .1aln using fastga-rs AlnWriter
+//! - Reads .1aln files using fastga-rs AlnReader
+//! - Extracts alignments with identity calculation for building genome-pair matrices
+//! - Used exclusively by tree_sparsify module for identity-based filtering
 //!
-//! NOTE: Still uses PAF representation internally for filtering (temp files),
-//! but avoids external format conversions (ALNtoPAF/PAFtoALN).
+//! NOTE: For general .1aln filtering (applying plane sweep, scaffolding, etc.),
+//! use the unified_filter module instead, which preserves .1aln format without conversion.
 
 use anyhow::{Context, Result};
 use std::path::Path;
 
-use crate::paf_filter::{FilterConfig, PafFilter};
-
-/// Alignment record from .1aln with X-field based identity
+/// Alignment record from .1aln with identity calculation
+/// Used by tree_sparsify for building genome-pair identity matrices
 #[derive(Debug, Clone)]
-#[allow(dead_code)] // TODO: Remove once integrated into main workflow
+#[allow(dead_code)] // Some fields only used in tests or for future functionality
 pub struct AlnAlignment {
     pub query_id: i64,
     pub query_name: String,
@@ -99,6 +97,7 @@ impl AlnFilterReader {
     }
 
     /// Read all alignments from the file
+    #[allow(dead_code)] // Kept for convenience, though not currently used
     pub fn read_all(&mut self) -> Result<Vec<AlnAlignment>> {
         let mut alignments = Vec::new();
 
@@ -112,6 +111,7 @@ impl AlnFilterReader {
 
 impl AlnAlignment {
     /// Convert to PAF format line (with X-based identity in dv:f: tag)
+    #[allow(dead_code)] // Kept for potential future use
     pub fn to_paf_line(&self) -> String {
         let divergence = 1.0 - self.identity;
         let strand = if self.reverse { '-' } else { '+' };
@@ -140,166 +140,8 @@ impl AlnAlignment {
     }
 }
 
-/// STREAMING FILTER: Read .1aln → filter records → emit passing records from original file
-/// This preserves the exact original format without any conversions!
-#[allow(dead_code)] // Backup implementation, unified_filter is now used
-pub fn filter_1aln_streaming<P1: AsRef<Path>, P2: AsRef<Path>>(
-    input_path: P1,
-    output_path: P2,
-    filter_config: &FilterConfig,
-) -> Result<()> {
-    use std::collections::HashSet;
-    use std::io::{BufWriter, Write};
-    use tempfile::NamedTempFile;
-
-    eprintln!("[filter_1aln] Phase 1: Reading and filtering alignments...");
-
-    // Phase 1: Read .1aln, convert to PAF for filtering (in-memory), get kept IDs
-    let mut reader = AlnFilterReader::open(&input_path)?;
-    let alignments = reader.read_all()?;
-    eprintln!(
-        "[filter_1aln] Read {} alignments from .1aln",
-        alignments.len()
-    );
-
-    // Convert to PAF and filter
-    let temp_paf_input = NamedTempFile::new()?;
-    {
-        let file = std::fs::File::create(temp_paf_input.path())?;
-        let mut writer = BufWriter::new(file);
-        for aln in &alignments {
-            writeln!(writer, "{}", aln.to_paf_line())?;
-        }
-        writer.flush()?;
-    }
-
-    let temp_paf_output = NamedTempFile::new()?;
-    let filter = PafFilter::new(filter_config.clone());
-    filter.filter_paf(temp_paf_input.path(), temp_paf_output.path())?;
-
-    // Build map: PAF line → original index
-    // This lets us figure out which original records to keep
-    use std::collections::HashMap;
-    use std::io::{BufRead, BufReader};
-
-    let mut paf_to_index: HashMap<String, usize> = HashMap::new();
-    for (i, aln) in alignments.iter().enumerate() {
-        let paf_line = aln.to_paf_line();
-        paf_to_index.insert(paf_line, i);
-    }
-
-    // Read filtered PAF and determine which indices to keep
-    let file = std::fs::File::open(temp_paf_output.path())?;
-    let reader_paf = BufReader::new(file);
-    let mut kept_indices = HashSet::new();
-
-    for line in reader_paf.lines() {
-        let line = line?;
-        if line.is_empty() || line.starts_with('#') {
-            continue;
-        }
-        // Look up which original record this corresponds to
-        if let Some(&idx) = paf_to_index.get(&line) {
-            kept_indices.insert(idx);
-        }
-    }
-
-    eprintln!(
-        "[filter_1aln] Kept {} / {} alignments",
-        kept_indices.len(),
-        alignments.len()
-    );
-
-    // Phase 2: Emit passing records by index
-    eprintln!("[filter_1aln] Phase 2: Emitting passing records to output...");
-
-    use fastga_rs::AlnWriter;
-    let mut writer = AlnWriter::create(output_path.as_ref(), true)?;
-
-    let mut written = 0;
-    for (i, aln) in alignments.iter().enumerate() {
-        if kept_indices.contains(&i) {
-            let block_length = (aln.query_end - aln.query_start) as usize;
-            let alignment = fastga_rs::Alignment {
-                query_name: aln.query_name.clone(),
-                query_len: aln.query_len as usize,
-                query_start: aln.query_start as usize,
-                query_end: aln.query_end as usize,
-                target_name: aln.target_name.clone(),
-                target_len: aln.target_len as usize,
-                target_start: aln.target_start as usize,
-                target_end: aln.target_end as usize,
-                strand: if aln.reverse { '-' } else { '+' },
-                matches: aln.matches as usize,
-                block_len: block_length,
-                mapping_quality: aln.mapping_quality as u8,
-                cigar: String::new(),
-                tags: vec![],
-                mismatches: (block_length - aln.matches as usize),
-                gap_opens: 0,
-                gap_len: 0,
-            };
-            writer.write_alignment(&alignment)?;
-            written += 1;
-        }
-    }
-
-    eprintln!("[filter_1aln] Wrote {written} alignments to output");
-    Ok(())
-}
-
-/// Convert .1aln to PAF format (with X-based identity), then filter using PAF pipeline
-/// This ensures 100% identical filtering logic
-#[allow(dead_code)] // TODO: Remove once integrated into main workflow
-pub fn filter_1aln_file_to_paf<P1: AsRef<Path>, P2: AsRef<Path>>(
-    input_path: P1,
-    output_path: P2,
-    filter_config: &FilterConfig,
-) -> Result<()> {
-    use std::io::{BufWriter, Write};
-    use tempfile::NamedTempFile;
-
-    // Step 1: Read .1aln and convert to PAF with X-based identity
-    let mut reader = AlnFilterReader::open(&input_path)?;
-    let alignments = reader.read_all()?;
-
-    eprintln!(
-        "[filter_1aln] Read {} alignments from .1aln",
-        alignments.len()
-    );
-
-    // Create temporary PAF file
-    let temp_paf = NamedTempFile::new()?;
-    let temp_paf_path = temp_paf.path();
-
-    {
-        let file = std::fs::File::create(temp_paf_path)?;
-        let mut writer = BufWriter::new(file);
-
-        for (i, aln) in alignments.iter().enumerate() {
-            let paf_line = aln.to_paf_line();
-            if i < 3 {
-                eprintln!("[filter_1aln] Sample PAF line: {paf_line}");
-            }
-            writeln!(writer, "{paf_line}")?;
-        }
-        writer.flush()?;
-    }
-
-    eprintln!(
-        "[filter_1aln] Converted to PAF: {}",
-        temp_paf_path.display()
-    );
-
-    // Step 2: Apply PAF filtering using EXACT same code as PAF input
-    let filter = PafFilter::new(filter_config.clone());
-    filter.filter_paf(temp_paf_path, output_path.as_ref())?;
-
-    Ok(())
-}
-
-// Note: write_1aln_file removed - will be reimplemented once onecode-rs
-// supports sequence name extraction from embedded GDB
+// NOTE: General .1aln filtering functions have been moved to unified_filter.rs
+// This module now only contains the reader needed for tree_sparsify
 
 #[cfg(test)]
 mod tests {
@@ -355,55 +197,7 @@ mod tests {
         assert!(count > 0, "Should have read at least one alignment");
     }
 
-    #[test]
-    #[ignore] // Requires .1aln test file
-    fn test_pure_1aln_filtering_pipeline() {
-        use tempfile::NamedTempFile;
-
-        // Create temporary output file
-        let output_file = NamedTempFile::new().unwrap();
-        let output_path = output_file.path();
-
-        // Create filter config for 1:1 filtering (same as default sweepga)
-        let config = FilterConfig {
-            chain_gap: 0,
-            min_block_length: 0,
-            mapping_filter_mode: crate::paf_filter::FilterMode::ManyToMany,
-            mapping_max_per_query: None,
-            mapping_max_per_target: None,
-            plane_sweep_secondaries: 1,
-            scaffold_filter_mode: crate::paf_filter::FilterMode::OneToOne,
-            scaffold_max_per_query: Some(1),
-            scaffold_max_per_target: Some(1),
-            overlap_threshold: 0.95,
-            sparsity: 1.0,
-            no_merge: true,
-            scaffold_gap: 10000,
-            min_scaffold_length: 10000,
-            scaffold_overlap_threshold: 0.95,
-            scaffold_max_deviation: 20000,
-            prefix_delimiter: '#',
-            skip_prefix: false,
-            scoring_function: crate::paf_filter::ScoringFunction::LogLengthIdentity,
-            min_identity: 0.0,
-            min_scaffold_identity: 0.0,
-        };
-
-        // Run the filtering pipeline using PAF filtering (100% same code)
-        filter_1aln_file_to_paf("test.1aln", output_path, &config).unwrap();
-
-        // Read PAF output and count
-        use std::io::{BufRead, BufReader};
-        let file = std::fs::File::open(output_path).unwrap();
-        let reader = BufReader::new(file);
-        let count = reader.lines().map_while(Result::ok).count();
-
-        println!("Filtered to {count} alignments from test.1aln");
-        assert!(
-            count > 0 && count < 30000,
-            "Should filter to reasonable number"
-        );
-    }
+    // NOTE: Test for filtering pipeline removed - use unified_filter module for .1aln filtering
 
     #[test]
     #[ignore] // Requires .1aln test file

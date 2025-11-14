@@ -95,12 +95,12 @@ pub fn get_embedded_binary_path(binary_name: &str) -> Result<PathBuf> {
 
             // Warn if using system binary
             if !path.to_string_lossy().contains("/build/fastga-rs-") {
-                eprintln!(
-                    "WARNING: Using system binary for {}: {}",
-                    binary_name,
-                    path.display()
-                );
-                eprintln!("         This may cause compatibility issues. Consider running 'cargo build' again.");
+                // eprintln!(
+                //     "WARNING: Using system binary for {}: {}",
+                //     binary_name,
+                //     path.display()
+                // );
+                // eprintln!("         This may cause compatibility issues. Consider running 'cargo build' again.");
             }
 
             return Ok(path);
