@@ -401,6 +401,8 @@ fn test_b3106_paf_output() -> Result<()> {
             "--bin",
             "sweepga",
             "--",
+            "-j",
+            "0", // Disable scaffolding for small test data
             temp_input.to_str().unwrap(),
             "--paf",
         ])
@@ -447,6 +449,8 @@ fn test_b3106_filtering_behavior() -> Result<()> {
             "--bin",
             "sweepga",
             "--",
+            "-j",
+            "0", // Disable scaffolding for small test data
             temp_input.to_str().unwrap(),
             "--paf",
             "-n",
@@ -465,6 +469,8 @@ fn test_b3106_filtering_behavior() -> Result<()> {
             "--bin",
             "sweepga",
             "--",
+            "-j",
+            "0", // Disable scaffolding for small test data
             nn_paf.to_str().unwrap(),
             "-n",
             "1:1",
@@ -511,6 +517,8 @@ fn test_b3106_coordinate_determinism() -> Result<()> {
             "--bin",
             "sweepga",
             "--",
+            "-j",
+            "0", // Disable scaffolding for small test data
             temp_input.to_str().unwrap(),
             "--paf",
         ])
@@ -526,6 +534,8 @@ fn test_b3106_coordinate_determinism() -> Result<()> {
             "--bin",
             "sweepga",
             "--",
+            "-j",
+            "0", // Disable scaffolding for small test data
             temp_input.to_str().unwrap(),
             "--paf",
         ])
