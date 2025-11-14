@@ -4,7 +4,7 @@
 /// at scale (10K+ alignments). Uses real yeast genome data to ensure
 /// coordinate conversion and filtering logic is stable under load.
 use anyhow::Result;
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 use std::fs;
 use std::path::Path;
 use std::process::Command;
@@ -55,6 +55,7 @@ struct PafRecord {
 }
 
 impl PafRecord {
+    #[allow(dead_code)]
     fn identity(&self) -> f64 {
         if self.block_len == 0 {
             0.0
@@ -63,10 +64,12 @@ impl PafRecord {
         }
     }
 
+    #[allow(dead_code)]
     fn query_span(&self) -> u64 {
         self.query_end.saturating_sub(self.query_start)
     }
 
+    #[allow(dead_code)]
     fn target_span(&self) -> u64 {
         self.target_end.saturating_sub(self.target_start)
     }

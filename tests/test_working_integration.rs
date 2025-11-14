@@ -20,7 +20,6 @@ fn test_fastga_alignment_with_b3106() {
     }
 
     let temp_dir = TempDir::new().unwrap();
-    let output = temp_dir.path().join("b3106_self.1aln");
 
     // Use the FastGA integration module directly
     let integration = sweepga::fastga_integration::FastGAIntegration::new(None, 1);
