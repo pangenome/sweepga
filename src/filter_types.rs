@@ -2,7 +2,7 @@
 ///
 /// This module contains common types to avoid circular dependencies between
 /// paf_filter, plane_sweep_scaffold, and other filtering modules.
-
+///
 /// Scoring function for plane sweep
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum ScoringFunction {
