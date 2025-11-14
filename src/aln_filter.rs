@@ -17,6 +17,7 @@ use std::path::Path;
 /// Alignment record from .1aln with identity calculation
 /// Used by tree_sparsify for building genome-pair identity matrices
 #[derive(Debug, Clone)]
+#[allow(dead_code)] // Some fields only used in tests or for future functionality
 pub struct AlnAlignment {
     pub query_id: i64,
     pub query_name: String,
@@ -96,6 +97,7 @@ impl AlnFilterReader {
     }
 
     /// Read all alignments from the file
+    #[allow(dead_code)] // Kept for convenience, though not currently used
     pub fn read_all(&mut self) -> Result<Vec<AlnAlignment>> {
         let mut alignments = Vec::new();
 
@@ -109,6 +111,7 @@ impl AlnFilterReader {
 
 impl AlnAlignment {
     /// Convert to PAF format line (with X-based identity in dv:f: tag)
+    #[allow(dead_code)] // Kept for potential future use
     pub fn to_paf_line(&self) -> String {
         let divergence = 1.0 - self.identity;
         let strand = if self.reverse { '-' } else { '+' };
