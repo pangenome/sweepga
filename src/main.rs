@@ -284,7 +284,7 @@ struct Args {
     // Scaffolding and Chaining
     // ============================================================================
     /// Scaffold jump (gap) distance. 0 = disable scaffolding, >0 = enable (accepts k/m/g suffix)
-    #[clap(short = 'j', long = "scaffold-jump", default_value = "0", value_parser = parse_metric_number,
+    #[clap(short = 'j', long = "scaffold-jump", default_value = "10k", value_parser = parse_metric_number,
            help_heading = "Scaffolding and chaining")]
     scaffold_jump: u64,
 

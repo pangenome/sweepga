@@ -10,7 +10,9 @@ SweepGA can:
 3. **Apply scaffolding/chaining** to merge nearby alignments into syntenic regions
 4. **Output multiple formats**: PAF (text) or .1aln (binary ONE format)
 
-By default, it applies plane sweep filtering with configurable multiplicity (1:1, 1:∞, N:N).
+By default, it applies a two-stage filtering approach:
+- **Stage 1**: Removes duplicate mappings (1:1 plane sweep)
+- **Stage 2**: Creates scaffolds, keeps all non-overlapping scaffold chains (N:N), and rescues nearby mappings
 
 ## Tools Included
 
@@ -187,9 +189,9 @@ sweepga alignments.paf -j 50k -m N:N > filtered.paf
 
 ### Scaffolding and Chaining
 
-**`-j/--scaffold-jump`** - Gap distance for merging alignments into scaffolds (default: `0` = disabled)
-- `0` - Scaffolding disabled (default)
-- `10000` or `10k` - Merge alignments within 10kb gaps
+**`-j/--scaffold-jump`** - Gap distance for merging alignments into scaffolds (default: `10k`)
+- `0` - Scaffolding disabled
+- `10000` or `10k` - Merge alignments within 10kb gaps (default, moderate)
 - Higher values create longer scaffold chains
 - Accepts k/m/g suffix (e.g., `50k`, `1m`)
 
@@ -253,24 +255,26 @@ sweepga alignments.paf -j 50k -m N:N > filtered.paf
 
 ## How Scaffolding Works
 
-When scaffolding is enabled (`-j > 0`), the filtering process follows these steps:
+When scaffolding is enabled (default: `-j 10k`), the filtering process follows these steps:
 
 1. **Input Processing** - Filter by minimum block length, exclude self-mappings
-2. **Pre-scaffold Filter** (optional) - Apply plane sweep filter before scaffolding (`-n`)
+2. **Pre-scaffold Filter** - Apply plane sweep filter to individual mappings (`-n`, default: `1:1`)
+   - Removes duplicate/overlapping mappings
+   - Keeps best mapping per query-target pair
 3. **Scaffold Creation** - Merge nearby alignments into chains using union-find algorithm
    - Alignments within `-j` gap distance on both query and target are merged
    - Chains shorter than `-s` minimum length are discarded
-4. **Scaffold Filter** - Apply plane sweep filter to scaffold chains (`-m`)
-   - `1:1` mode: Keep single best scaffold per chromosome pair
-   - `N:N` mode: Keep all non-overlapping scaffolds
-5. **Rescue Phase** - Recover alignments near kept scaffolds
-   - Alignments within `-d` Euclidean distance of scaffold anchors are rescued
+4. **Scaffold Filter** - Apply plane sweep filter to scaffold chains (`-m`, default: `N:N`)
+   - `1:1` mode: Keep single best scaffold per chromosome pair (aggressive)
+   - `N:N` mode: Keep all non-overlapping scaffolds (moderate, default)
+5. **Rescue Phase** - Recover alignments near kept scaffolds (`-d`, default: `20k`)
+   - Alignments within Euclidean distance of scaffold anchors are rescued
    - Works per chromosome pair only
 
 **Example effects** (514k input alignments):
-- No scaffolding: 476k alignments (7% reduction from basic filtering)
-- Default scaffolding (`-j 10k -m 1:1 -d 20k`): 13k alignments (97% reduction)
-- Permissive scaffolding (`-j 10k -m N:N -d 20k`): 180k alignments (65% reduction)
+- **Default** (`-n 1:1 -j 10k -m N:N -d 20k`): 180k alignments (65% reduction, moderate)
+- **Aggressive** (`-n 1:1 -j 10k -m 1:1 -d 20k`): 13k alignments (97% reduction)
+- **No scaffolding** (`-n 1:1 -j 0`): 476k alignments (7% reduction from 1:1 plane sweep only)
 
 ## How Plane Sweep Works
 
