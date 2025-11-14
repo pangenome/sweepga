@@ -19,7 +19,7 @@ fn test_fastga_alignment_with_b3106() {
         return;
     }
 
-    let temp_dir = TempDir::new().unwrap();
+    let _temp_dir = TempDir::new().unwrap();
 
     // Use the FastGA integration module directly
     let integration = sweepga::fastga_integration::FastGAIntegration::new(None, 1);

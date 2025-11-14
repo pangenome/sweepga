@@ -5,6 +5,15 @@
 /// never shrink. If two mappings are 50kb apart, they should chain with both -j 100k and -j 1m.
 use std::collections::HashMap;
 
+/// Helper to get the correct sweepga binary path based on build mode
+fn sweepga_bin() -> &'static str {
+    if cfg!(debug_assertions) {
+        "./target/debug/sweepga"
+    } else {
+        "./target/release/sweepga"
+    }
+}
+
 /// Parse chain membership from PAF output
 fn parse_chains(output: &str) -> HashMap<String, Vec<String>> {
     let mut chains: HashMap<String, Vec<String>> = HashMap::new();
@@ -39,7 +48,7 @@ fn parse_chains(output: &str) -> HashMap<String, Vec<String>> {
 }
 
 #[test]
-#[ignore] // Requires sweepga binary and yeast data
+// Sweepga binary and yeast data available
 fn test_chaining_monotonicity() {
     // Test that larger gap values create supersets of chains from smaller gaps
 
@@ -48,7 +57,7 @@ fn test_chaining_monotonicity() {
     let mut all_chains = Vec::new();
 
     for gap in &gaps {
-        let output = std::process::Command::new("./target/release/sweepga")
+        let output = std::process::Command::new(sweepga_bin())
             .arg("data/scerevisiae8.fa.gz")
             .arg("-j")
             .arg(gap.to_string())
@@ -83,19 +92,20 @@ fn test_chaining_monotonicity() {
 }
 
 #[test]
-#[ignore] // Requires sweepga binary and yeast data
+#[ignore] // Output format has changed - needs updating to parse new format
 fn test_chain_identity_stability() {
     // Test that chain identities remain reasonable with large gaps
 
     let gaps = vec![10_000, 100_000, 1_000_000];
 
     for gap in gaps {
-        let output = std::process::Command::new("./target/release/sweepga")
+        let output = std::process::Command::new(sweepga_bin())
             .arg("data/scerevisiae8.fa.gz")
             .arg("-j")
             .arg(gap.to_string())
             .arg("-i")
             .arg("0.90") // 90% identity threshold
+            .arg("--paf") // Output PAF format
             .output()
             .expect("Failed to run sweepga");
 

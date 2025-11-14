@@ -7,8 +7,17 @@
 use std::io::Write;
 use tempfile::NamedTempFile;
 
+/// Helper to get the correct sweepga binary path based on build mode
+fn sweepga_bin() -> &'static str {
+    if cfg!(debug_assertions) {
+        "./target/debug/sweepga"
+    } else {
+        "./target/release/sweepga"
+    }
+}
+
 #[test]
-#[ignore] // Requires sweepga binary to be built first
+// Sweepga binary is available via sweepga_bin()
 fn test_reverse_strand_scaffold_plane_sweep() {
     // Create synthetic mappings based on real HG002 chr1 centromere data
     // Forward strand: 129-133Mb region, ~3.8Mb, 76% identity
@@ -26,7 +35,7 @@ fn test_reverse_strand_scaffold_plane_sweep() {
     paf.flush().unwrap();
 
     // With Y=0 (no identity filter) and scaffolding enabled
-    let output = std::process::Command::new("./target/release/sweepga")
+    let output = std::process::Command::new(sweepga_bin())
         .arg(paf.path())
         .arg("-i")
         .arg("0")
@@ -73,7 +82,7 @@ fn test_reverse_strand_scaffold_plane_sweep() {
 }
 
 #[test]
-#[ignore] // Requires sweepga binary to be built first
+// Sweepga binary is available via sweepga_bin()
 fn test_reverse_vs_forward_scaffold_scoring() {
     // Simpler test: two overlapping scaffolds, reverse is larger
     let mut paf = NamedTempFile::new().unwrap();
@@ -87,7 +96,7 @@ fn test_reverse_vs_forward_scaffold_scoring() {
 
     paf.flush().unwrap();
 
-    let output = std::process::Command::new("./target/release/sweepga")
+    let output = std::process::Command::new(sweepga_bin())
         .arg(paf.path())
         .arg("-i")
         .arg("0")
