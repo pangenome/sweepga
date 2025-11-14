@@ -447,7 +447,10 @@ fn test_performance_regression() {
     let duration = start.elapsed();
 
     if result.is_err() {
-        eprintln!("Performance test skipped - FastGA error: {:?}", result.err());
+        eprintln!(
+            "Performance test skipped - FastGA error: {:?}",
+            result.err()
+        );
         return;
     }
 
