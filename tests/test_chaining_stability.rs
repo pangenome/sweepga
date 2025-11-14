@@ -157,7 +157,7 @@ fn test_nearest_neighbor_chaining() {
         scaffold_max_per_target: None,
         overlap_threshold: 0.0,
         sparsity: 1.0,
-        no_merge: false, // Enable chaining
+        no_merge: false,      // Enable chaining
         scaffold_gap: 10_000, // 10kb gap allows all three to chain
         min_scaffold_length: 0,
         scaffold_overlap_threshold: 0.0,
@@ -240,7 +240,7 @@ fn test_overlap_penalty() {
         scaffold_max_per_target: None,
         overlap_threshold: 0.0,
         sparsity: 1.0,
-        no_merge: false, // Enable chaining
+        no_merge: false,      // Enable chaining
         scaffold_gap: 10_000, // Large enough to allow chaining
         min_scaffold_length: 0,
         scaffold_overlap_threshold: 0.0,
@@ -271,10 +271,7 @@ fn test_overlap_penalty() {
     // The key property: A should NOT chain to B (overlap) when C (gap) is available
 
     // At minimum, there should be at least one chain
-    assert!(
-        !chains.is_empty(),
-        "Expected at least one chain, got zero"
-    );
+    assert!(!chains.is_empty(), "Expected at least one chain, got zero");
 
     // Check that if A and C exist in output, they're in the same chain
     let mut a_chain_id = None;

@@ -7,11 +7,11 @@ use std::path::Path;
 use crate::mapping::ChainStatus;
 use crate::paf::open_paf_input;
 use crate::plane_sweep_exact::PlaneSweepMapping;
-use crate::plane_sweep_scaffold::{ScaffoldLike, plane_sweep_scaffolds};
+use crate::plane_sweep_scaffold::{plane_sweep_scaffolds, ScaffoldLike};
 use crate::sequence_index::SequenceIndex;
 
 // Re-export filter types for backwards compatibility
-pub use crate::filter_types::{ScoringFunction, FilterMode};
+pub use crate::filter_types::{FilterMode, ScoringFunction};
 
 /// Filter configuration
 #[derive(Clone)]
@@ -1108,12 +1108,18 @@ impl PafFilter {
         )?;
 
         // Return the filtered chains
-        Ok(kept_indices.iter().map(|&idx| chains[idx].clone()).collect())
+        Ok(kept_indices
+            .iter()
+            .map(|&idx| chains[idx].clone())
+            .collect())
     }
 
     // Original implementation kept for reference - can be deleted after testing
     #[allow(dead_code)]
-    fn apply_scaffold_plane_sweep_original(&self, chains: Vec<MergedChain>) -> Result<Vec<MergedChain>> {
+    fn apply_scaffold_plane_sweep_original(
+        &self,
+        chains: Vec<MergedChain>,
+    ) -> Result<Vec<MergedChain>> {
         if chains.is_empty() || chains.len() <= 1 {
             return Ok(chains);
         }

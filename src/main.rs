@@ -240,13 +240,21 @@ struct Args {
     block_length: u64,
 
     /// n:m-best mappings kept in query:target dimensions. 1:1 (orthogonal), use ∞/many for unbounded
-    #[clap(short = 'n', long = "num-mappings", default_value = "1:1",
-           help_heading = "Basic filtering")]
+    #[clap(
+        short = 'n',
+        long = "num-mappings",
+        default_value = "1:1",
+        help_heading = "Basic filtering"
+    )]
     num_mappings: String,
 
     /// Maximum overlap ratio for plane sweep filtering
-    #[clap(short = 'o', long = "overlap", default_value = "0.95",
-           help_heading = "Basic filtering")]
+    #[clap(
+        short = 'o',
+        long = "overlap",
+        default_value = "0.95",
+        help_heading = "Basic filtering"
+    )]
     overlap: f64,
 
     /// Scoring function for plane sweep
@@ -256,8 +264,12 @@ struct Args {
     scoring: String,
 
     /// Minimum identity threshold (0-1 fraction, 1-100%, or "aniN" for Nth percentile)
-    #[clap(short = 'i', long = "min-identity", default_value = "0",
-           help_heading = "Basic filtering")]
+    #[clap(
+        short = 'i',
+        long = "min-identity",
+        default_value = "0",
+        help_heading = "Basic filtering"
+    )]
     min_identity: String,
 
     /// Keep self-mappings (excluded by default)
@@ -282,13 +294,21 @@ struct Args {
     scaffold_mass: u64,
 
     /// Scaffold filter mode: "1:1" (best), "M:N" (M per query, N per target), "many" (unbounded)
-    #[clap(short = 'm', long = "scaffold-filter", default_value = "many:many",
-           help_heading = "Scaffolding and chaining")]
+    #[clap(
+        short = 'm',
+        long = "scaffold-filter",
+        default_value = "many:many",
+        help_heading = "Scaffolding and chaining"
+    )]
     scaffold_filter: String,
 
     /// Scaffold chain overlap threshold for plane sweep filtering
-    #[clap(short = 'O', long = "scaffold-overlap", default_value = "0.5",
-           help_heading = "Scaffolding and chaining")]
+    #[clap(
+        short = 'O',
+        long = "scaffold-overlap",
+        default_value = "0.5",
+        help_heading = "Scaffolding and chaining"
+    )]
     scaffold_overlap: f64,
 
     /// Maximum Euclidean distance from scaffold anchor for rescue (0 = no rescue, accepts k/m/g suffix)
@@ -297,8 +317,12 @@ struct Args {
     scaffold_dist: u64,
 
     /// Minimum scaffold identity threshold (0-1 fraction, 1-100%, "aniN", or defaults to -i)
-    #[clap(short = 'Y', long = "min-scaffold-identity", default_value = "0",
-           help_heading = "Scaffolding and chaining")]
+    #[clap(
+        short = 'Y',
+        long = "min-scaffold-identity",
+        default_value = "0",
+        help_heading = "Scaffolding and chaining"
+    )]
     min_scaffold_identity: String,
 
     /// Output scaffold chains only (for debugging)
@@ -309,21 +333,32 @@ struct Args {
     // Advanced Filtering
     // ============================================================================
     /// Keep this fraction or tree pattern (e.g., "0.5" or "tree:3" or "tree:3,2,0.1")
-    #[clap(short = 'x', long = "sparsify", default_value = "1.0",
-           help_heading = "Advanced filtering")]
+    #[clap(
+        short = 'x',
+        long = "sparsify",
+        default_value = "1.0",
+        help_heading = "Advanced filtering"
+    )]
     sparsify: String,
 
     /// Method for calculating ANI: all, orthogonal, nX[-sort] (e.g. n50, n90-identity, n100-score)
-    #[clap(long = "ani-method", default_value = "n100",
-           help_heading = "Advanced filtering")]
+    #[clap(
+        long = "ani-method",
+        default_value = "n100",
+        help_heading = "Advanced filtering"
+    )]
     ani_method: String,
 
     // ============================================================================
     // General Options
     // ============================================================================
     /// Number of threads for parallel processing
-    #[clap(short = 't', long = "threads", default_value = "8",
-           help_heading = "General options")]
+    #[clap(
+        short = 't',
+        long = "threads",
+        default_value = "8",
+        help_heading = "General options"
+    )]
     threads: usize,
 
     /// Quiet mode (no progress output)

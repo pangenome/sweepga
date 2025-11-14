@@ -1,11 +1,10 @@
+use crate::filter_types::{FilterMode, ScoringFunction};
+use crate::plane_sweep_exact::{plane_sweep_query, plane_sweep_target, PlaneSweepMapping};
 /// Plane sweep filtering for scaffold chains
 ///
 /// This module provides reusable plane sweep logic that works on any chain-like structure.
 /// It's used by both filter_scaffold.rs and paf_filter.rs to deduplicate overlapping scaffolds.
-
 use anyhow::Result;
-use crate::plane_sweep_exact::{PlaneSweepMapping, plane_sweep_query, plane_sweep_target};
-use crate::filter_types::{ScoringFunction, FilterMode};
 use std::collections::{HashMap, HashSet};
 
 /// Trait for any structure that can be converted to plane sweep coordinates
@@ -68,15 +67,13 @@ pub fn plane_sweep_scaffolds<T: ScaffoldLike>(
         FilterMode::OneToOne => {
             apply_one_to_one_sweep(&plane_sweep_mappings, overlap_threshold, scoring_function)?
         }
-        FilterMode::OneToMany | FilterMode::ManyToMany => {
-            apply_many_sweep(
-                &plane_sweep_mappings,
-                max_per_query,
-                max_per_target,
-                overlap_threshold,
-                scoring_function,
-            )?
-        }
+        FilterMode::OneToMany | FilterMode::ManyToMany => apply_many_sweep(
+            &plane_sweep_mappings,
+            max_per_query,
+            max_per_target,
+            overlap_threshold,
+            scoring_function,
+        )?,
     };
 
     Ok(kept_indices)
@@ -97,10 +94,8 @@ fn apply_one_to_one_sweep(
     }
 
     for (_q_chr, indices) in by_query {
-        let mut query_mappings: Vec<_> = indices
-            .iter()
-            .map(|&i| plane_sweep_mappings[i].0)
-            .collect();
+        let mut query_mappings: Vec<_> =
+            indices.iter().map(|&i| plane_sweep_mappings[i].0).collect();
 
         let kept = plane_sweep_query(
             &mut query_mappings,
@@ -122,10 +117,8 @@ fn apply_one_to_one_sweep(
     }
 
     for (_t_chr, indices) in by_target {
-        let mut target_mappings: Vec<_> = indices
-            .iter()
-            .map(|&i| plane_sweep_mappings[i].0)
-            .collect();
+        let mut target_mappings: Vec<_> =
+            indices.iter().map(|&i| plane_sweep_mappings[i].0).collect();
 
         let kept = plane_sweep_target(
             &mut target_mappings,
@@ -165,10 +158,8 @@ fn apply_many_sweep(
     }
 
     for (_q_chr, indices) in by_query {
-        let mut query_mappings: Vec<_> = indices
-            .iter()
-            .map(|&i| plane_sweep_mappings[i].0)
-            .collect();
+        let mut query_mappings: Vec<_> =
+            indices.iter().map(|&i| plane_sweep_mappings[i].0).collect();
 
         let kept = plane_sweep_query(
             &mut query_mappings,
@@ -190,10 +181,8 @@ fn apply_many_sweep(
     }
 
     for (_t_chr, indices) in by_target {
-        let mut target_mappings: Vec<_> = indices
-            .iter()
-            .map(|&i| plane_sweep_mappings[i].0)
-            .collect();
+        let mut target_mappings: Vec<_> =
+            indices.iter().map(|&i| plane_sweep_mappings[i].0).collect();
 
         let kept = plane_sweep_target(
             &mut target_mappings,
@@ -304,7 +293,7 @@ mod tests {
             TestChain {
                 query_name: "chr1".to_string(),
                 target_name: "chr1".to_string(),
-                query_start: 900,  // Increased overlap to 95%
+                query_start: 900, // Increased overlap to 95%
                 query_end: 1900,
                 target_start: 900,
                 target_end: 1900,
@@ -317,7 +306,7 @@ mod tests {
             FilterMode::OneToOne,
             Some(1),
             Some(1),
-            0.95,  // Use default wfmash overlap threshold
+            0.95, // Use default wfmash overlap threshold
             ScoringFunction::LogLengthIdentity,
         )
         .unwrap();
