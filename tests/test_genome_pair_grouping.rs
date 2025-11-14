@@ -29,9 +29,11 @@ A#1#chr1\t1000\t0\t500\t+\tD#1#chr1\t1000\t0\t500\t350\t500\t60\tcg:Z:500M
 
     fs::write(&input_paf, paf_content).unwrap();
 
-    // Run sweepga with 1:1 filtering
+    // Run sweepga with 1:1 filtering (disable scaffolding for small test data)
     let result = std::process::Command::new("cargo")
         .args(["run", "--release", "--bin", "sweepga", "--quiet", "--"])
+        .arg("-j")
+        .arg("0") // Disable scaffolding to avoid filtering small test alignments
         .arg(&input_paf)
         .output()
         .expect("Failed to run sweepga");
@@ -78,9 +80,11 @@ A#1#chr2\t1000\t0\t500\t+\tB#1#chr1\t1000\t0\t500\t350\t500\t60\tcg:Z:500M
 
     fs::write(&input_paf, paf_content).unwrap();
 
-    // Run sweepga with 1:1 filtering
+    // Run sweepga with 1:1 filtering (disable scaffolding for small test data)
     let result = std::process::Command::new("cargo")
         .args(["run", "--release", "--bin", "sweepga", "--quiet", "--"])
+        .arg("-j")
+        .arg("0") // Disable scaffolding to avoid filtering small test alignments
         .arg(&input_paf)
         .output()
         .expect("Failed to run sweepga");
@@ -135,6 +139,8 @@ fn test_yeast_genome_pairs_preserved() {
     // Run sweepga with 1:1 filtering
     let result = std::process::Command::new("cargo")
         .args(["run", "--release", "--bin", "sweepga", "--quiet", "--"])
+        .arg("-j")
+        .arg("0") // Disable scaffolding for consistent comparison
         .arg("z.paf")
         .output()
         .expect("Failed to run sweepga");
