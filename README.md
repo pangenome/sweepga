@@ -10,9 +10,7 @@ SweepGA can:
 3. **Apply scaffolding/chaining** to merge nearby alignments into syntenic regions
 4. **Output multiple formats**: PAF (text) or .1aln (binary ONE format)
 
-By default, it applies a two-stage filtering approach:
-- **Stage 1**: Removes duplicate mappings (1:1 plane sweep)
-- **Stage 2**: Creates scaffolds, keeps all non-overlapping scaffold chains (N:N), and rescues nearby mappings
+By default, it applies 1:1 plane sweep filtering to remove duplicate mappings. Scaffolding/chaining is disabled by default but can be enabled with `-j` to merge nearby alignments into syntenic regions.
 
 ## Tools Included
 
@@ -146,17 +144,17 @@ sweepga alignments.1aln --paf > output.paf
 
 ### Scaffolding and chaining
 
-Scaffolding merges nearby alignments into syntenic chains, then filters and rescues alignments:
+Scaffolding is disabled by default. Enable it with `-j` to merge nearby alignments into syntenic chains:
 
 ```bash
 # Enable scaffolding with 10kb gap distance
-sweepga genome.fa.gz -j 10000 > output.paf
+sweepga genome.fa.gz -j 10k > output.paf
 
 # Aggressive scaffolding with 1:1 filtering and rescue
 sweepga alignments.paf -j 10k -s 10k -m 1:1 -d 20k > filtered.paf
 
 # Permissive: keep all scaffolds without filtering
-sweepga alignments.paf -j 50k -m N:N > filtered.paf
+sweepga alignments.paf -j 50k -m many:many > filtered.paf
 ```
 
 ## Parameters
@@ -189,9 +187,9 @@ sweepga alignments.paf -j 50k -m N:N > filtered.paf
 
 ### Scaffolding and Chaining
 
-**`-j/--scaffold-jump`** - Gap distance for merging alignments into scaffolds (default: `10k`)
-- `0` - Scaffolding disabled
-- `10000` or `10k` - Merge alignments within 10kb gaps (default, moderate)
+**`-j/--scaffold-jump`** - Gap distance for merging alignments into scaffolds (default: `0` = disabled)
+- `0` - Scaffolding disabled (default)
+- `10000` or `10k` - Merge alignments within 10kb gaps (moderate)
 - Higher values create longer scaffold chains
 - Accepts k/m/g suffix (e.g., `50k`, `1m`)
 
@@ -207,11 +205,12 @@ sweepga alignments.paf -j 50k -m N:N > filtered.paf
 
 **`-O/--scaffold-overlap`** - Overlap threshold for scaffold filtering (default: 0.5)
 
-**`-d/--scaffold-dist`** - Maximum distance for rescuing alignments near scaffolds (default: `20k`)
-- `0` - No rescue (most aggressive)
+**`-d/--scaffold-dist`** - Maximum distance for rescuing alignments near scaffolds (default: `0` = disabled)
+- `0` - No rescue (default)
 - `20000` or `20k` - Rescue alignments within 20kb of scaffold anchors
 - Higher values rescue more alignments
 - Distance is Euclidean: `sqrt((q_dist)² + (t_dist)²)`
+- Only active when scaffolding is enabled (`-j > 0`)
 
 **`-Y/--min-scaffold-identity`** - Minimum scaffold identity threshold (defaults to `-i` value)
 
@@ -255,7 +254,7 @@ sweepga alignments.paf -j 50k -m N:N > filtered.paf
 
 ## How Scaffolding Works
 
-When scaffolding is enabled (default: `-j 10k`), the filtering process follows these steps:
+When scaffolding is enabled (with `-j > 0`), the filtering process follows these steps:
 
 1. **Input Processing** - Filter by minimum block length, exclude self-mappings
 2. **Pre-scaffold Filter** - Apply plane sweep filter to individual mappings (`-n`, default: `1:1`)
@@ -267,14 +266,14 @@ When scaffolding is enabled (default: `-j 10k`), the filtering process follows t
 4. **Scaffold Filter** - Apply plane sweep filter to scaffold chains (`-m`, default: `N:N`)
    - `1:1` mode: Keep single best scaffold per chromosome pair (aggressive)
    - `N:N` mode: Keep all non-overlapping scaffolds (moderate, default)
-5. **Rescue Phase** - Recover alignments near kept scaffolds (`-d`, default: `20k`)
-   - Alignments within Euclidean distance of scaffold anchors are rescued
+5. **Rescue Phase** - Recover alignments near kept scaffolds (`-d`, default: `0` = disabled)
+   - When enabled, alignments within Euclidean distance of scaffold anchors are rescued
    - Works per chromosome pair only
 
 **Example effects** (514k input alignments):
-- **Default** (`-n 1:1 -j 10k -m N:N -d 20k`): 180k alignments (65% reduction, moderate)
-- **Aggressive** (`-n 1:1 -j 10k -m 1:1 -d 20k`): 13k alignments (97% reduction)
-- **No scaffolding** (`-n 1:1 -j 0`): 476k alignments (7% reduction from 1:1 plane sweep only)
+- **Default** (`-n 1:1 -j 0`): 476k alignments (7% reduction from 1:1 plane sweep only)
+- **Moderate scaffolding** (`-n 1:1 -j 10k -m many:many -d 20k`): 180k alignments (65% reduction)
+- **Aggressive scaffolding** (`-n 1:1 -j 10k -m 1:1 -d 20k`): 13k alignments (97% reduction)
 
 ## How Plane Sweep Works
 

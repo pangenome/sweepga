@@ -283,7 +283,7 @@ struct Args {
     // Scaffolding and Chaining
     // ============================================================================
     /// Scaffold jump (gap) distance. 0 = disable scaffolding, >0 = enable (accepts k/m/g suffix)
-    #[clap(short = 'j', long = "scaffold-jump", default_value = "10k", value_parser = parse_metric_number,
+    #[clap(short = 'j', long = "scaffold-jump", default_value = "0", value_parser = parse_metric_number,
            help_heading = "Scaffolding and chaining")]
     scaffold_jump: u64,
 
@@ -311,7 +311,7 @@ struct Args {
     scaffold_overlap: f64,
 
     /// Maximum Euclidean distance from scaffold anchor for rescue (0 = no rescue, accepts k/m/g suffix)
-    #[clap(short = 'd', long = "scaffold-dist", default_value = "20k", value_parser = parse_metric_number,
+    #[clap(short = 'd', long = "scaffold-dist", default_value = "0", value_parser = parse_metric_number,
            help_heading = "Scaffolding and chaining")]
     scaffold_dist: u64,
 
