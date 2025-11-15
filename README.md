@@ -129,8 +129,11 @@ sweepga genome.fa.gz --output-file output.1aln
 ### Filtering existing alignments
 
 ```bash
-# Filter PAF from stdin
+# Filter PAF from stdin (pipe)
 cat alignments.paf | sweepga > filtered.paf
+
+# Filter PAF from stdin (redirection)
+sweepga < alignments.paf > filtered.paf
 
 # Read PAF file directly
 sweepga alignments.paf > filtered.paf

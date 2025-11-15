@@ -1419,9 +1419,12 @@ fn main() -> Result<()> {
         }
     }
 
-    // Show help if no arguments provided
+    // Show help if no arguments provided and stdin is a terminal (interactive mode)
     if args.files.is_empty() {
-        Args::parse_from(["sweepga", "-h"]);
+        use std::io::IsTerminal;
+        if std::io::stdin().is_terminal() {
+            Args::parse_from(["sweepga", "-h"]);
+        }
     }
 
     let timing = TimingContext::new();
@@ -1458,8 +1461,9 @@ fn main() -> Result<()> {
     // - Input is .1aln or FASTA (not PAF)
     // - User hasn't explicitly requested PAF output with --paf flag
     // GDB is now preserved using AlnWriter::create_with_gdb (via open_write_from)
-    let input_is_paf =
-        !input_file_types.is_empty() && input_file_types.iter().all(|ft| *ft == FileType::Paf);
+    // When using stdin (no files), treat as PAF input
+    let input_is_paf = args.files.is_empty()
+        || (!input_file_types.is_empty() && input_file_types.iter().all(|ft| *ft == FileType::Paf));
     let want_paf_output = args.output_paf
         || args
             .output_file
@@ -1882,16 +1886,6 @@ fn main() -> Result<()> {
             }
         }
     } else {
-        // Check if stdin is available
-        use std::io::IsTerminal;
-        let stdin_available = !std::io::stdin().is_terminal();
-
-        if !stdin_available && !args.no_filter {
-            use clap::CommandFactory;
-            Args::command().print_help()?;
-            std::process::exit(0);
-        }
-
         // Read from stdin - save to temp file for auto-detection and two-pass processing
         let temp = tempfile::NamedTempFile::new()?;
         let temp_path = temp.path().to_str().unwrap().to_string();
@@ -1904,6 +1898,15 @@ fn main() -> Result<()> {
             for line in stdin.lock().lines() {
                 writeln!(temp_file, "{}", line?)?;
             }
+            temp_file.flush()?;
+        }
+
+        // Check if stdin had any content
+        let file_size = std::fs::metadata(&temp_path)?.len();
+        if file_size == 0 && !args.no_filter {
+            use clap::CommandFactory;
+            Args::command().print_help()?;
+            std::process::exit(0);
         }
 
         // Detect stdin type
