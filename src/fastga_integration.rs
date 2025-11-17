@@ -273,8 +273,8 @@ impl FastGAIntegration {
             freq as i32
         } else {
             let num_haplotypes = Self::count_haplotypes(queries)?;
-            // eprintln!("[FastGA] Auto-setting frequency threshold to {num_haplotypes} (number of haplotypes from PanSN naming)");
-            num_haplotypes as i32
+            // Use at least 10 (FastGA's default) to avoid over-filtering with small datasets
+            std::cmp::max(num_haplotypes, 10) as i32
         };
 
         // Create orchestrator to run FastGA binary directly
@@ -345,8 +345,8 @@ impl FastGAIntegration {
             freq as i32
         } else {
             let num_haplotypes = Self::count_haplotypes(queries)?;
-            // eprintln!("[FastGA] Auto-setting frequency threshold to {num_haplotypes} (number of haplotypes from PanSN naming)");
-            num_haplotypes as i32
+            // Use at least 10 (FastGA's default) to avoid over-filtering with small datasets
+            std::cmp::max(num_haplotypes, 10) as i32
         };
 
         // Create orchestrator to run FastGA binary directly
