@@ -923,17 +923,15 @@ impl PafFilter {
         // Helper function to extract genome prefix from sequence name
         // For "SGDref#1#chrI", returns "SGDref#1#"
         // For sequences without '#', behavior depends on filter mode:
-        // - OneToOne: empty string (global grouping)
-        // - Frequency filtering: full name (per-chromosome grouping)
-        let is_one_to_one = matches!(self.config.mapping_filter_mode, FilterMode::OneToOne);
+        // Extract genome prefix:
+        // - If PanSN format (has #): prefix up to and including last #
+        // - If no #: use full sequence name (treat as single-sequence genome)
         let extract_genome_prefix = |seq_name: &str| -> String {
             if let Some(last_pos) = seq_name.rfind('#') {
                 seq_name[..=last_pos].to_string()
-            } else if is_one_to_one {
-                // OneToOne mode: group all non-pangenome sequences together globally
-                String::new()
             } else {
-                // Frequency filtering: maintain separate (query_chr, target_chr) groups
+                // No # separator: treat full name as the group prefix
+                // This handles non-PanSN genomes (e.g., "genome_x" instead of "genome_x#1#chr1")
                 seq_name.to_string()
             }
         };
