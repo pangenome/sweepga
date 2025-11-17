@@ -86,7 +86,7 @@ jobs:
             cargo test --verbose -- --test-threads=1 --skip test_end_to_end_yeast_coverage --skip test_one_to_one_preserves_pairs --skip test_filtering_mode_comparison --skip test_golden --skip test_1aln_roundtrip
           else
             # Skip all end-to-end integration tests on macOS (FastGA has macOS-specific issues)
-            cargo test --verbose -- --skip test_end_to_end_yeast_coverage --skip test_one_to_one_preserves_pairs --skip test_filtering_mode_comparison --skip test_golden --skip test_1aln_roundtrip
+            cargo test --verbose -- --skip test_end_to_end_yeast_coverage --skip test_one_to_one_preserves_pairs --skip test_filtering_mode_comparison --skip test_golden --skip test_1aln_roundtrip --skip test_fastga_pairwise_alignment --skip test_large_sequence_handling
           fi
 
       - name: Check for forbidden files
