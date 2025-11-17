@@ -21,7 +21,7 @@ fn main() -> Result<()> {
     println!("Step 1: Generate alignments in both formats...");
 
     // Create FastGA integration
-    let fastga = sweepga::fastga_integration::FastGAIntegration::new(None, 1);
+    let fastga = sweepga::fastga_integration::FastGAIntegration::new(None, 1, 100);
 
     // Generate .1aln
     println!("  - Generating .1aln via FastGA...");
