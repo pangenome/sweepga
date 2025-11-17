@@ -1060,6 +1060,7 @@ fn align_multiple_fastas(
     tempdir: Option<&str>,
     timing: &TimingContext,
     quiet: bool,
+    min_alignment_length: u64,
 ) -> Result<tempfile::NamedTempFile> {
     // Detect genome groups from input files
     let mut num_genomes = 0;
@@ -1086,6 +1087,7 @@ fn align_multiple_fastas(
             tempdir,
             timing,
             quiet,
+            min_alignment_length,
         );
     }
 
@@ -1114,7 +1116,7 @@ fn align_multiple_fastas(
     }
 
     // Create FastGA integration with effective frequency
-    let fastga = create_fastga_integration(effective_frequency, threads)?;
+    let fastga = create_fastga_integration(effective_frequency, threads, min_alignment_length)?;
 
     // Run single FastGA alignment on the original input (all genomes together)
     // Use first file as both query and target for self-alignment
@@ -1145,6 +1147,7 @@ fn align_all_pairs_mode(
     tempdir: Option<&str>,
     timing: &TimingContext,
     quiet: bool,
+    min_alignment_length: u64,
 ) -> Result<tempfile::NamedTempFile> {
     use std::io::Write;
 
@@ -1220,7 +1223,7 @@ fn align_all_pairs_mode(
     }
 
     // Create FastGA integration
-    let fastga = create_fastga_integration(frequency, threads)?;
+    let fastga = create_fastga_integration(frequency, threads, min_alignment_length)?;
 
     // Step 1: Build GDB and GIX indices for all genomes (once each)
     for genome_prefix in &genome_prefixes {
@@ -1346,9 +1349,10 @@ fn align_all_pairs_mode(
 fn create_fastga_integration(
     frequency: Option<usize>,
     num_threads: usize,
+    min_alignment_length: u64,
 ) -> Result<fastga_integration::FastGAIntegration> {
     use crate::fastga_integration::FastGAIntegration;
-    Ok(FastGAIntegration::new(frequency, num_threads))
+    Ok(FastGAIntegration::new(frequency, num_threads, min_alignment_length))
 }
 
 fn main() -> Result<()> {
@@ -1499,7 +1503,7 @@ fn main() -> Result<()> {
                 // Canonicalize path to avoid empty parent directory issues in fastga-rs
                 let path = std::fs::canonicalize(&args.files[0])
                     .with_context(|| format!("Failed to resolve path: {}", args.files[0]))?;
-                let fastga = create_fastga_integration(args.frequency, args.threads)?;
+                let fastga = create_fastga_integration(args.frequency, args.threads, args.block_length)?;
 
                 if !args.quiet {
                     timing.log("align", &format!("Running FastGA on {}", args.files[0]));
@@ -1693,6 +1697,7 @@ fn main() -> Result<()> {
                         args.tempdir.as_deref(),
                         &timing,
                         args.quiet,
+                        args.block_length,
                     )?;
 
                     alignment_time = Some(alignment_start.elapsed().as_secs_f64());
@@ -1722,7 +1727,7 @@ fn main() -> Result<()> {
                         );
                     }
 
-                    let fastga = create_fastga_integration(args.frequency, args.threads)?;
+                    let fastga = create_fastga_integration(args.frequency, args.threads, args.block_length)?;
                     let temp_paf = fastga.align_to_temp_paf(&path, &path)?;
 
                     alignment_time = Some(alignment_start.elapsed().as_secs_f64());
@@ -1769,6 +1774,7 @@ fn main() -> Result<()> {
                         args.tempdir.as_deref(),
                         &timing,
                         args.quiet,
+                        args.block_length,
                     )?;
 
                     alignment_time = Some(alignment_start.elapsed().as_secs_f64());
@@ -1803,7 +1809,7 @@ fn main() -> Result<()> {
                         .with_context(|| format!("Failed to resolve path: {}", args.files[0]))?;
                     let query = std::fs::canonicalize(&args.files[1])
                         .with_context(|| format!("Failed to resolve path: {}", args.files[1]))?;
-                    let fastga = create_fastga_integration(args.frequency, args.threads)?;
+                    let fastga = create_fastga_integration(args.frequency, args.threads, args.block_length)?;
                     let temp_paf = fastga.align_to_temp_paf(&target, &query)?;
 
                     alignment_time = Some(alignment_start.elapsed().as_secs_f64());
@@ -1843,6 +1849,7 @@ fn main() -> Result<()> {
                     args.tempdir.as_deref(),
                     &timing,
                     args.quiet,
+                    args.block_length,
                 )?;
 
                 alignment_time = Some(alignment_start.elapsed().as_secs_f64());
@@ -1930,7 +1937,7 @@ fn main() -> Result<()> {
                 // Canonicalize path to avoid empty parent directory issues in fastga-rs
                 let path = std::fs::canonicalize(&temp_path)
                     .with_context(|| format!("Failed to resolve path: {temp_path}"))?;
-                let fastga = create_fastga_integration(args.frequency, args.threads)?;
+                let fastga = create_fastga_integration(args.frequency, args.threads, args.block_length)?;
                 let temp_paf = fastga.align_to_temp_paf(&path, &path)?;
 
                 alignment_time = Some(alignment_start.elapsed().as_secs_f64());

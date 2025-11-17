@@ -129,8 +129,11 @@ pub struct FastGAIntegration {
 impl FastGAIntegration {
     /// Create a new FastGA integration with optional frequency parameter
     /// If not provided, auto-detects from PanSN haplotype count during alignment
-    pub fn new(frequency: Option<usize>, num_threads: usize) -> Self {
-        let mut builder = Config::builder().num_threads(num_threads).verbose(true);
+    pub fn new(frequency: Option<usize>, num_threads: usize, min_alignment_length: u64) -> Self {
+        let mut builder = Config::builder()
+            .num_threads(num_threads)
+            .min_alignment_length(min_alignment_length as usize)
+            .verbose(true);
 
         // Only set frequency if explicitly provided
         // Otherwise, alignment methods will auto-detect from PanSN haplotype count
