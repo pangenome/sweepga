@@ -401,11 +401,30 @@ impl PafFilter {
 
         // Report plane sweep if it filtered anything
         if before_plane_sweep != after_plane_sweep {
-            // eprintln!("[sweepga] Plane sweep: {before_plane_sweep} → {after_plane_sweep} mappings");
+            eprintln!("[sweepga] Plane sweep: {before_plane_sweep} → {after_plane_sweep} mappings");
         }
 
         // If no scaffolding (scaffold_gap == 0), we're done - return the plane-swept mappings
         if self.config.scaffold_gap == 0 {
+            eprintln!("[sweepga] Plane sweep filtering (no scaffolding)");
+            let total_kept_bases: u64 = metadata.iter().map(|m| m.block_length).sum();
+            let avg_identity = if !metadata.is_empty() {
+                metadata.iter().map(|m| m.identity).sum::<f64>() / metadata.len() as f64
+            } else {
+                0.0
+            };
+            eprintln!(
+                "[sweepga] Summary: {} → {} mappings ({:.1}% kept)",
+                all_original_mappings.len(),
+                metadata.len(),
+                (metadata.len() as f64 / all_original_mappings.len().max(1) as f64) * 100.0
+            );
+            eprintln!(
+                "[sweepga]   Output: {:.1} Mb total, {:.1}% avg identity",
+                total_kept_bases as f64 / 1_000_000.0,
+                avg_identity * 100.0
+            );
+
             let mut result = HashMap::new();
             for m in metadata {
                 result.insert(m.rank, m);
