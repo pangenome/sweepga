@@ -190,9 +190,7 @@ fn test_end_to_end_yeast_coverage() -> Result<()> {
 
     // Check that we have coverage for pairs
     for (pair_name, aln_count, q_cov, t_cov) in &stats.pair_stats {
-        eprintln!(
-            "  {pair_name}: {aln_count} alns, {q_cov}bp q_cov, {t_cov}bp t_cov"
-        );
+        eprintln!("  {pair_name}: {aln_count} alns, {q_cov}bp q_cov, {t_cov}bp t_cov");
 
         assert!(
             *aln_count > 0,

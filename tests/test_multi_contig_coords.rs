@@ -45,7 +45,8 @@ fn test_forward_strand_multi_contig() {
         original_start: i64,
     }
 
-    let contigs = [ContigInfo {
+    let contigs = [
+        ContigInfo {
             scaffold_start: 0,
             scaffold_end: 4,
             original_start: 0,
@@ -59,7 +60,8 @@ fn test_forward_strand_multi_contig() {
             scaffold_start: 8,
             scaffold_end: 12,
             original_start: 13,
-        }];
+        },
+    ];
 
     // Test alignment in contig 1 (positions 5-7 in scaffold coords)
     let align_start = 5_i64;
@@ -93,7 +95,8 @@ fn test_reverse_strand_multi_contig() {
         original_start: i64,
     }
 
-    let contigs = [ContigInfo {
+    let contigs = [
+        ContigInfo {
             scaffold_start: 0,
             scaffold_end: 4,
             original_start: 0,
@@ -107,7 +110,8 @@ fn test_reverse_strand_multi_contig() {
             scaffold_start: 8,
             scaffold_end: 12,
             original_start: 13,
-        }];
+        },
+    ];
 
     // Test reverse alignment in contig 1 (positions 5-7 in scaffold coords)
     let align_start = 5_i64;

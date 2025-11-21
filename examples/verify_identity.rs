@@ -61,9 +61,7 @@ fn main() -> Result<()> {
     }
 
     println!("\n{}", "=".repeat(60));
-    println!(
-        "Result: {matches}/{total} records match (within 0.0001 tolerance)"
-    );
+    println!("Result: {matches}/{total} records match (within 0.0001 tolerance)");
     println!("Match rate: {:.1}%", 100.0 * matches as f64 / total as f64);
     println!("Maximum difference: {max_diff:.6}");
 

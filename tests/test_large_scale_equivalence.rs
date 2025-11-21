@@ -138,10 +138,7 @@ fn test_large_scale_paf_output() -> Result<()> {
             "Record {i}: matches > block_len"
         );
         assert!(!rec.query_name.is_empty(), "Record {i}: empty query_name");
-        assert!(
-            !rec.target_name.is_empty(),
-            "Record {i}: empty target_name"
-        );
+        assert!(!rec.target_name.is_empty(), "Record {i}: empty target_name");
     }
 
     eprintln!(
