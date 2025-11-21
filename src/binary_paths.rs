@@ -148,7 +148,7 @@ mod tests {
                     }
                 }
                 Err(e) => {
-                    panic!("{} binary not found: {}", bin, e);
+                    panic!("{bin} binary not found: {e}");
                 }
             }
         }

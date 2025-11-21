@@ -68,12 +68,12 @@ fi
 
 # Generate .1aln output (use binary directly to match test environment)
 echo "Generating .1aln golden file..."
-"$PROJECT_ROOT/target/release/sweepga" "$TEMP_DIR/test_input.fa" > "$GOLDEN_DIR/golden_output.1aln" 2>/dev/null || true
+"$PROJECT_ROOT/target/release/sweepga" "$TEMP_DIR/test_input.fa" --1aln > "$GOLDEN_DIR/golden_output.1aln" 2>/dev/null || true
 
 # Generate filtered .1aln (1:1 mode)
 echo "Generating filtered .1aln golden file..."
 if [ -f "$GOLDEN_DIR/golden_output.1aln" ]; then
-    "$PROJECT_ROOT/target/release/sweepga" "$GOLDEN_DIR/golden_output.1aln" -n 1:1 > "$GOLDEN_DIR/golden_filtered_1to1.1aln" 2>/dev/null || true
+    "$PROJECT_ROOT/target/release/sweepga" "$GOLDEN_DIR/golden_output.1aln" -n 1:1 --1aln > "$GOLDEN_DIR/golden_filtered_1to1.1aln" 2>/dev/null || true
 fi
 
 # Generate PAF output

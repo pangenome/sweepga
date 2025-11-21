@@ -19,8 +19,8 @@ fn main() -> Result<()> {
     std::fs::write(test_paf, &paf_output.stdout)?;
 
     println!("Input files:");
-    println!("  .1aln: {}", test_1aln);
-    println!("  PAF:   {}\n", test_paf);
+    println!("  .1aln: {test_1aln}");
+    println!("  PAF:   {test_paf}\n");
 
     // Read both into RecordMeta
     let (aln_records, _) = sweepga::unified_filter::extract_1aln_metadata(test_1aln)?;
@@ -97,14 +97,14 @@ fn main() -> Result<()> {
         if !in_aln_not_paf.is_empty() {
             println!("\nFirst 5 in .1aln but not PAF:");
             for sig in in_aln_not_paf.iter().take(5) {
-                println!("  {:?}", sig);
+                println!("  {sig:?}");
             }
         }
 
         if !in_paf_not_aln.is_empty() {
             println!("\nFirst 5 in PAF but not .1aln:");
             for sig in in_paf_not_aln.iter().take(5) {
-                println!("  {:?}", sig);
+                println!("  {sig:?}");
             }
         }
     }
@@ -119,7 +119,7 @@ fn find_binary(name: &str) -> Option<String> {
     let project_root = env::current_dir().ok()?;
 
     for build_type in &["debug", "release"] {
-        let build_dir = project_root.join(format!("target/{}/build", build_type));
+        let build_dir = project_root.join(format!("target/{build_type}/build"));
         if let Ok(entries) = fs::read_dir(&build_dir) {
             for entry in entries.flatten() {
                 let out_dir = entry.path().join("out");

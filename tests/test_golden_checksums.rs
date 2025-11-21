@@ -130,9 +130,8 @@ fn load_golden_checksums() -> Result<std::collections::HashMap<String, String>> 
 
     if !checksums_path.exists() {
         anyhow::bail!(
-            "Golden checksums file not found: {:?}\n\
-             Run: cd tests/golden_data && ./generate_golden.sh",
-            checksums_path
+            "Golden checksums file not found: {checksums_path:?}\n\
+             Run: cd tests/golden_data && ./generate_golden.sh"
         );
     }
 
@@ -189,6 +188,7 @@ fn test_golden_1aln_output() -> Result<()> {
 
     let result = Command::new(sweepga_bin)
         .arg(temp_input.to_str().unwrap())
+        .arg("--1aln")
         .output()?;
 
     if !result.status.success() {
@@ -210,8 +210,8 @@ fn test_golden_1aln_output() -> Result<()> {
          ❌ GOLDEN FILE REGRESSION DETECTED!\n\
          \n\
          File: golden_output.1aln\n\
-         Expected: {}\n\
-         Got:      {}\n\
+         Expected: {expected}\n\
+         Got:      {actual}\n\
          \n\
          This means the .1aln output format has changed.\n\
          \n\
@@ -223,8 +223,7 @@ fn test_golden_1aln_output() -> Result<()> {
          If this change was UNINTENTIONAL:\n\
          1. You have introduced a regression\n\
          2. Revert your changes and fix the bug\n\
-         ",
-        expected, actual
+         "
     );
 
     eprintln!("✓ golden_output.1aln checksum matches");
@@ -270,7 +269,7 @@ fn test_golden_paf_output() -> Result<()> {
     }
 
     let result = Command::new(sweepga_bin)
-        .args(&[temp_input.to_str().unwrap(), "--paf"])
+        .args([temp_input.to_str().unwrap(), "--paf"])
         .output()?;
 
     if !result.status.success() {
@@ -291,12 +290,11 @@ fn test_golden_paf_output() -> Result<()> {
          ❌ GOLDEN FILE REGRESSION DETECTED!\n\
          \n\
          File: golden_output.paf\n\
-         Expected: {}\n\
-         Got:      {}\n\
+         Expected: {expected}\n\
+         Got:      {actual}\n\
          \n\
          The PAF output format has changed. See above for next steps.\n\
-         ",
-        expected, actual
+         "
     );
 
     eprintln!("✓ golden_output.paf checksum matches");
@@ -344,6 +342,7 @@ fn test_golden_filtered_1to1() -> Result<()> {
     let unfiltered = temp_dir_path.join("unfiltered.1aln");
     let result = Command::new(sweepga_bin)
         .arg(temp_input.to_str().unwrap())
+        .arg("--1aln")
         .output()?;
 
     if !result.status.success() {
@@ -359,7 +358,7 @@ fn test_golden_filtered_1to1() -> Result<()> {
     // Then filter with 1:1
     let output = temp_dir_path.join("filtered.1aln");
     let result = Command::new(sweepga_bin)
-        .args(&[unfiltered.to_str().unwrap(), "-n", "1:1"])
+        .args([unfiltered.to_str().unwrap(), "-n", "1:1", "--1aln"])
         .output()?;
 
     if !result.status.success() {
@@ -381,12 +380,11 @@ fn test_golden_filtered_1to1() -> Result<()> {
          ❌ GOLDEN FILE REGRESSION DETECTED!\n\
          \n\
          File: golden_filtered_1to1.1aln\n\
-         Expected: {}\n\
-         Got:      {}\n\
+         Expected: {expected}\n\
+         Got:      {actual}\n\
          \n\
          The 1:1 filtering behavior has changed.\n\
-         ",
-        expected, actual
+         "
     );
 
     eprintln!("✓ golden_filtered_1to1.1aln checksum matches");
@@ -407,8 +405,7 @@ fn test_golden_files_complete() -> Result<()> {
     for filename in &required_files {
         assert!(
             checksums.contains_key(*filename),
-            "Checksum missing for: {}\nRun: cd tests/golden_data && ./generate_golden.sh",
-            filename
+            "Checksum missing for: {filename}\nRun: cd tests/golden_data && ./generate_golden.sh"
         );
     }
 

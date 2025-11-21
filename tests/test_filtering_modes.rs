@@ -66,7 +66,7 @@ fn generate_unfiltered_paf(temp_dir: &Path) -> Result<std::path::PathBuf> {
     let output = temp_dir.join("unfiltered.paf");
 
     Command::new("cargo")
-        .args(&[
+        .args([
             "run",
             "--release",
             "--quiet",
@@ -87,7 +87,7 @@ fn generate_unfiltered_paf(temp_dir: &Path) -> Result<std::path::PathBuf> {
 /// Apply filtering to PAF file
 fn filter_paf(input: &Path, output: &Path, filter_mode: &str) -> Result<()> {
     Command::new("cargo")
-        .args(&[
+        .args([
             "run",
             "--release",
             "--quiet",
@@ -304,7 +304,7 @@ fn test_filter_monotonicity() -> Result<()> {
     let mut prev_count = 0;
 
     for mode in &modes {
-        let output = temp_dir.path().join(format!("filtered_{}.paf", mode));
+        let output = temp_dir.path().join(format!("filtered_{mode}.paf"));
         filter_paf(&unfiltered, &output, mode)?;
 
         let stats = analyze_paf(&output)?;
@@ -347,7 +347,7 @@ fn test_filter_no_filtering() -> Result<()> {
 
     // Generate twice with N:N
     Command::new("cargo")
-        .args(&[
+        .args([
             "run",
             "--release",
             "--quiet",
@@ -448,11 +448,10 @@ fn test_filter_combinations() -> Result<()> {
         );
 
         // All filtering should produce valid output
-        assert!(stats.total_mappings > 0, "{} produced no mappings", mode);
+        assert!(stats.total_mappings > 0, "{mode} produced no mappings");
         assert!(
             stats.total_mappings <= unfiltered_stats.total_mappings,
-            "{} produced more mappings than unfiltered",
-            mode
+            "{mode} produced more mappings than unfiltered"
         );
     }
 

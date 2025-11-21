@@ -210,9 +210,13 @@ struct Args {
     #[clap(long = "output-file")]
     output_file: Option<String>,
 
-    /// Output PAF format instead of default .1aln (text instead of binary)
+    /// Output PAF format (default, kept for clarity and backwards compatibility)
     #[clap(long = "paf")]
     output_paf: bool,
+
+    /// Output .1aln binary format instead of default PAF
+    #[clap(long = "1aln")]
+    output_1aln: bool,
 
     // ============================================================================
     // Alignment (FASTA input only)
@@ -1466,18 +1470,19 @@ fn main() -> Result<()> {
     };
 
     // Enable .1aln workflow when:
+    // - User explicitly requested .1aln output with --1aln flag
     // - Input is .1aln or FASTA (not PAF)
-    // - User hasn't explicitly requested PAF output with --paf flag
+    // - OR output file extension is .1aln
     // GDB is now preserved using AlnWriter::create_with_gdb (via open_write_from)
     // When using stdin (no files), treat as PAF input
     let input_is_paf = args.files.is_empty()
         || (!input_file_types.is_empty() && input_file_types.iter().all(|ft| *ft == FileType::Paf));
-    let want_paf_output = args.output_paf
+    let want_1aln_output = args.output_1aln
         || args
             .output_file
             .as_ref()
-            .is_some_and(|f| f.ends_with(".paf"));
-    let use_1aln_workflow = !input_is_paf && !want_paf_output;
+            .is_some_and(|f| f.ends_with(".1aln"));
+    let use_1aln_workflow = !input_is_paf && want_1aln_output;
 
     if use_1aln_workflow {
         // PURE .1ALN WORKFLOW - FastGA produces .1aln, filter as .1aln, output .1aln
@@ -2112,24 +2117,13 @@ fn main() -> Result<()> {
     config.min_scaffold_identity = min_scaffold_identity;
 
     // Determine output format based on flags and file extensions
-    // Default: .1aln for FASTA/Aln input, PAF for PAF input
-    let output_1aln = if args.output_paf {
-        // User explicitly requested PAF output
-        false
-    } else if let Some(ref outfile) = args.output_file {
-        // Auto-detect from output file extension
-        !outfile.ends_with(".paf")
-    } else if !input_file_types.is_empty() && input_file_types[0] == FileType::Paf {
-        // PAF input → PAF output only
-        false
-    } else if !input_file_types.is_empty()
-        && (input_file_types[0] == FileType::Fasta || input_file_types[0] == FileType::Aln)
-    {
-        // FASTA or .1aln input → default to .1aln output
-        true
+    // Default: PAF output (unless --1aln flag or .1aln extension)
+    let output_1aln = if let Some(ref outfile) = args.output_file {
+        // Auto-detect from output file extension (.1aln → binary, .paf → text)
+        outfile.ends_with(".1aln")
     } else {
-        // Fallback: PAF output
-        false
+        // Use --1aln flag (default is false = PAF output)
+        args.output_1aln
     };
 
     // Apply filtering - always to temp file, then copy to stdout

@@ -6,7 +6,7 @@ fn main() -> Result<()> {
         .nth(1)
         .unwrap_or_else(|| "test_output.1aln".to_string());
 
-    eprintln!("Reading {}...\n", aln_path);
+    eprintln!("Reading {aln_path}...\n");
 
     let mut reader = fastga_rs::AlnReader::open(&aln_path)?;
 
@@ -27,7 +27,7 @@ fn main() -> Result<()> {
 
         let query_span = (aln.query_end - aln.query_start) as f64;
         let identity_from_matches = aln.matches as f64 / query_span;
-        eprintln!("  Identity from matches: {:.6}", identity_from_matches);
+        eprintln!("  Identity from matches: {identity_from_matches:.6}");
 
         // Calculate what we expect from PAF
         eprintln!("\nExpected from PAF dv:f:.0240:");

@@ -314,7 +314,7 @@ mod tests {
         // With 95% overlap threshold and 10% overlap, both might be kept
         // The actual behavior depends on plane_sweep_exact implementation
         // This test verifies the function runs without errors
-        assert!(kept.len() >= 1 && kept.len() <= 2);
+        assert!(!kept.is_empty() && kept.len() <= 2);
 
         // If only one kept, it should be the higher-scoring one
         if kept.len() == 1 {

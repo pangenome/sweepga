@@ -42,7 +42,7 @@ D Z 1 6 STRING
     sorted_contigs.sort_by_key(|(id, _)| **id);
 
     for (id, (sbeg, clen)) in sorted_contigs.iter().take(20) {
-        println!("  Contig {}: sbeg={}, clen={}", id, sbeg, clen);
+        println!("  Contig {id}: sbeg={sbeg}, clen={clen}");
     }
 
     Ok(())

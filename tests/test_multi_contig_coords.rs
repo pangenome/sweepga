@@ -11,7 +11,7 @@ fn test_scaffold_offsets_calculation() {
     // Simulate a sequence with Ns: ACGT[NNN]TGCA[NN]GGCC
     // This creates 3 contigs with different offsets
 
-    let contig_boundaries = vec![
+    let contig_boundaries = [
         (0, 4),   // Contig 0: positions 0-3 (ACGT)
         (7, 11),  // Contig 1: positions 7-10 (TGCA) - offset by 3 Ns
         (13, 17), // Contig 2: positions 13-16 (GGCC) - offset by 5 Ns total
@@ -45,7 +45,7 @@ fn test_forward_strand_multi_contig() {
         original_start: i64,
     }
 
-    let contigs = vec![
+    let contigs = [
         ContigInfo {
             scaffold_start: 0,
             scaffold_end: 4,
@@ -95,7 +95,7 @@ fn test_reverse_strand_multi_contig() {
         original_start: i64,
     }
 
-    let contigs = vec![
+    let contigs = [
         ContigInfo {
             scaffold_start: 0,
             scaffold_end: 4,
@@ -141,7 +141,7 @@ fn test_alignment_within_single_contig() {
     // Alignment should not span contig boundaries
     // If it does, it should be split into separate alignments
 
-    let contig_boundaries = vec![
+    let contig_boundaries = [
         (0, 100),   // Contig 0
         (150, 250), // Contig 1 (50 Ns gap)
         (300, 400), // Contig 2 (50 Ns gap)
@@ -222,7 +222,7 @@ fn test_variable_contig_sizes() {
     }
 
     // Simulate scaffold with variable-sized contigs
-    let contigs = vec![
+    let contigs = [
         Contig {
             length: 1000,
             offset_in_scaffold: 0,
@@ -306,14 +306,12 @@ fn test_n_region_detection() {
                 n_start = i;
                 in_n_region = true;
             }
-        } else {
-            if in_n_region {
-                let n_length = i - n_start;
-                if n_length >= n_threshold {
-                    n_regions.push((n_start, i));
-                }
-                in_n_region = false;
+        } else if in_n_region {
+            let n_length = i - n_start;
+            if n_length >= n_threshold {
+                n_regions.push((n_start, i));
             }
+            in_n_region = false;
         }
     }
 

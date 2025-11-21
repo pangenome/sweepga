@@ -11,22 +11,22 @@ fn main() -> Result<()> {
     let test_paf = "test_output_converted.paf";
 
     if !std::path::Path::new(test_1aln).exists() {
-        eprintln!("❌ Test file not found: {}", test_1aln);
+        eprintln!("❌ Test file not found: {test_1aln}");
         return Ok(());
     }
 
     if !std::path::Path::new(test_paf).exists() {
-        eprintln!("❌ Test file not found: {}", test_paf);
+        eprintln!("❌ Test file not found: {test_paf}");
         return Ok(());
     }
 
     println!("Using pre-generated test files:");
-    println!("  .1aln: {}", test_1aln);
-    println!("  PAF:   {}\n", test_paf);
+    println!("  .1aln: {test_1aln}");
+    println!("  PAF:   {test_paf}\n");
 
     // Count unfiltered alignments
     let unfiltered_paf_count = std::fs::read_to_string(test_paf)?.lines().count();
-    println!("Unfiltered: {} alignments\n", unfiltered_paf_count);
+    println!("Unfiltered: {unfiltered_paf_count} alignments\n");
 
     println!("Step 1: Apply 1:1 filtering to both formats...");
 
@@ -131,9 +131,9 @@ fn main() -> Result<()> {
 
     if in_paf_not_aln.is_empty() && in_aln_not_paf.is_empty() {
         println!("✅ SUCCESS: Filtered results are IDENTICAL!");
-        println!("");
+        println!();
         println!("Summary:");
-        println!("  - Input: {} alignments", unfiltered_paf_count);
+        println!("  - Input: {unfiltered_paf_count} alignments");
         println!(
             "  - After 1:1 filtering: {} alignments",
             paf_alignments.len()
@@ -143,7 +143,7 @@ fn main() -> Result<()> {
             100.0 * (1.0 - paf_alignments.len() as f64 / unfiltered_paf_count as f64)
         );
         println!("  - All alignment coordinates match exactly");
-        println!("");
+        println!();
         println!("✓ Format-agnostic filtering verified");
         println!("✓ Identity calculation fix working correctly");
         println!("✓ X record reading working correctly");
@@ -155,14 +155,14 @@ fn main() -> Result<()> {
         if !in_paf_not_aln.is_empty() {
             println!("\nFirst 3 in PAF but not .1aln:");
             for key in in_paf_not_aln.iter().take(3) {
-                println!("  {:?}", key);
+                println!("  {key:?}");
             }
         }
 
         if !in_aln_not_paf.is_empty() {
             println!("\nFirst 3 in .1aln but not PAF:");
             for key in in_aln_not_paf.iter().take(3) {
-                println!("  {:?}", key);
+                println!("  {key:?}");
             }
         }
     }

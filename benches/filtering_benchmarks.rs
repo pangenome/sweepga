@@ -23,8 +23,7 @@ fn generate_synthetic_paf(num_alignments: usize) -> String {
         let target_end = target_start + 1000;
 
         paf_lines.push(format!(
-            "{}\t100000\t{}\t{}\t+\t{}\t80000\t{}\t{}\t950\t1000\t60",
-            query_name, query_start, query_end, target_name, target_start, target_end
+            "{query_name}\t100000\t{query_start}\t{query_end}\t+\t{target_name}\t80000\t{target_start}\t{target_end}\t950\t1000\t60"
         ));
     }
 
@@ -54,7 +53,7 @@ fn bench_paf_filtering_pipeline(c: &mut Criterion) {
                 |(temp_dir, input_paf, output_paf)| {
                     // Benchmark: run the filtering binary
                     Command::new("cargo")
-                        .args(&[
+                        .args([
                             "run",
                             "--release",
                             "--quiet",
@@ -97,7 +96,7 @@ fn bench_one_to_one_filtering(c: &mut Criterion) {
                 },
                 |(temp_dir, input_paf, output_paf)| {
                     Command::new("cargo")
-                        .args(&[
+                        .args([
                             "run",
                             "--release",
                             "--quiet",
