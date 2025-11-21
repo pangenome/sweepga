@@ -11,7 +11,6 @@
 ///
 /// DISABLED: These tests cause process exit with code 255 due to ONE library cleanup bug.
 /// To run: cargo test --test test_1aln_roundtrip --features enable_1aln_tests
-
 #[cfg(feature = "enable_1aln_tests")]
 use anyhow::Result;
 #[cfg(feature = "enable_1aln_tests")]
@@ -32,7 +31,7 @@ fn test_1aln_roundtrip_preserves_data() -> Result<()> {
     // Generate test data
     // Use a persistent temp directory to avoid race condition with ONE library cleanup
     let temp_dir = TempDir::new()?;
-    let temp_dir = temp_dir.into_path(); // Persist temp dir to avoid cleanup race with ONE library
+    let temp_dir = temp_dir.keep(); // Persist temp dir to avoid cleanup race with ONE library
     let input_fasta = temp_dir.join("test.fa");
 
     // Create 2 related sequences (3kb each for speed)
@@ -106,36 +105,30 @@ fn test_1aln_roundtrip_preserves_data() -> Result<()> {
         for (i, (orig, filt)) in original_meta.iter().zip(filtered_meta.iter()).enumerate() {
             assert_eq!(
                 orig.query_name, filt.query_name,
-                "Record {} query name mismatch",
-                i
+                "Record {i} query name mismatch"
             );
             assert_eq!(
                 orig.target_name, filt.target_name,
-                "Record {} target name mismatch",
-                i
+                "Record {i} target name mismatch"
             );
             assert_eq!(
                 orig.query_start, filt.query_start,
-                "Record {} query_start mismatch",
-                i
+                "Record {i} query_start mismatch"
             );
             assert_eq!(
                 orig.query_end, filt.query_end,
-                "Record {} query_end mismatch",
-                i
+                "Record {i} query_end mismatch"
             );
             assert_eq!(
                 orig.target_start, filt.target_start,
-                "Record {} target_start mismatch",
-                i
+                "Record {i} target_start mismatch"
             );
             assert_eq!(
                 orig.target_end, filt.target_end,
-                "Record {} target_end mismatch",
-                i
+                "Record {i} target_end mismatch"
             );
-            assert_eq!(orig.strand, filt.strand, "Record {} strand mismatch", i);
-            assert_eq!(orig.matches, filt.matches, "Record {} matches mismatch", i);
+            assert_eq!(orig.strand, filt.strand, "Record {i} strand mismatch");
+            assert_eq!(orig.matches, filt.matches, "Record {i} matches mismatch");
 
             // Allow small floating point differences in identity
             let identity_diff = (orig.identity - filt.identity).abs();
@@ -161,7 +154,7 @@ fn test_1aln_roundtrip_with_filtering() -> Result<()> {
     // Test that filtering actually removes records and remaining ones are intact
     // Use a persistent temp directory to avoid race condition with ONE library cleanup
     let temp_dir = TempDir::new()?;
-    let temp_dir = temp_dir.into_path(); // Persist temp dir to avoid cleanup race with ONE library
+    let temp_dir = temp_dir.keep(); // Persist temp dir to avoid cleanup race with ONE library
     let input_fasta = temp_dir.join("test.fa");
 
     // Create 3 related sequences for more alignments (3kb each)

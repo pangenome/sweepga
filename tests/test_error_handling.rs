@@ -18,7 +18,7 @@ fn test_empty_file_error() -> Result<()> {
 
     // Try to process it
     let output = Command::new("cargo")
-        .args(&[
+        .args([
             "run",
             "--release",
             "--quiet",
@@ -35,8 +35,7 @@ fn test_empty_file_error() -> Result<()> {
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(
         stderr.contains("Empty file") || stderr.contains("No alignments"),
-        "Should mention empty file, got: {}",
-        stderr
+        "Should mention empty file, got: {stderr}"
     );
 
     Ok(())
@@ -52,7 +51,7 @@ fn test_malformed_paf_lines() -> Result<()> {
     fs::write(&malformed_paf, "seq1\t100\t200\n")?; // Only 3 fields
 
     let output = Command::new("cargo")
-        .args(&[
+        .args([
             "run",
             "--release",
             "--quiet",
@@ -89,7 +88,7 @@ fn test_invalid_paf_numbers() -> Result<()> {
     )?;
 
     let output = Command::new("cargo")
-        .args(&[
+        .args([
             "run",
             "--release",
             "--quiet",
@@ -106,8 +105,7 @@ fn test_invalid_paf_numbers() -> Result<()> {
     // Either it should fail, or produce no output
     assert!(
         !output.status.success() || output.stdout.is_empty(),
-        "Invalid numbers should cause error or be skipped, stderr: {}",
-        stderr
+        "Invalid numbers should cause error or be skipped, stderr: {stderr}"
     );
 
     Ok(())
@@ -119,7 +117,7 @@ fn test_missing_file_error() -> Result<()> {
     let nonexistent = "/tmp/this_file_definitely_does_not_exist_12345.paf";
 
     let output = Command::new("cargo")
-        .args(&[
+        .args([
             "run",
             "--release",
             "--quiet",
@@ -138,8 +136,7 @@ fn test_missing_file_error() -> Result<()> {
         stderr.contains("No such file")
             || stderr.contains("not found")
             || stderr.contains("does not exist"),
-        "Should mention file not found, got: {}",
-        stderr
+        "Should mention file not found, got: {stderr}"
     );
 
     Ok(())
@@ -160,7 +157,7 @@ fn test_invalid_coordinate_ranges() -> Result<()> {
     )?;
 
     let output = Command::new("cargo")
-        .args(&[
+        .args([
             "run",
             "--release",
             "--quiet",
@@ -188,10 +185,10 @@ fn test_unsupported_format() -> Result<()> {
     let binary_file = temp_dir.path().join("binary.bin");
 
     // Write some binary garbage
-    fs::write(&binary_file, &[0xFF, 0xFE, 0xFD, 0xFC, 0x00, 0x01])?;
+    fs::write(&binary_file, [0xFF, 0xFE, 0xFD, 0xFC, 0x00, 0x01])?;
 
     let output = Command::new("cargo")
-        .args(&[
+        .args([
             "run",
             "--release",
             "--quiet",
@@ -212,8 +209,7 @@ fn test_unsupported_format() -> Result<()> {
             || stderr.contains("invalid")
             || stderr.contains("UTF")
             || stderr.contains("Empty file"),
-        "Should mention format/parsing error, got: {}",
-        stderr
+        "Should mention format/parsing error, got: {stderr}"
     );
 
     Ok(())
@@ -237,7 +233,7 @@ seq5\t500\t0\t150\t+\tseq6\t600\t0\t150\t140\t150\t60
     fs::write(&mixed_paf, content)?;
 
     let output = Command::new("cargo")
-        .args(&[
+        .args([
             "run",
             "--release",
             "--quiet",
@@ -259,8 +255,7 @@ seq5\t500\t0\t150\t+\tseq6\t600\t0\t150\t140\t150\t60
     // Should get at least 1 valid line (might filter some)
     assert!(
         line_count >= 1,
-        "Should process at least some valid lines, got {} lines",
-        line_count
+        "Should process at least some valid lines, got {line_count} lines"
     );
 
     Ok(())
@@ -279,7 +274,7 @@ fn test_negative_coordinates() -> Result<()> {
     )?;
 
     let output = Command::new("cargo")
-        .args(&[
+        .args([
             "run",
             "--release",
             "--quiet",
@@ -314,7 +309,7 @@ fn test_overflow_coordinates() -> Result<()> {
     )?;
 
     let output = Command::new("cargo")
-        .args(&[
+        .args([
             "run",
             "--release",
             "--quiet",
@@ -347,7 +342,7 @@ fn test_invalid_strand() -> Result<()> {
     )?;
 
     let output = Command::new("cargo")
-        .args(&[
+        .args([
             "run",
             "--release",
             "--quiet",
@@ -385,7 +380,7 @@ fn test_permission_denied() -> Result<()> {
     fs::set_permissions(&no_read, fs::Permissions::from_mode(0o000))?;
 
     let output = Command::new("cargo")
-        .args(&[
+        .args([
             "run",
             "--release",
             "--quiet",
@@ -410,8 +405,7 @@ fn test_permission_denied() -> Result<()> {
         stderr.contains("Permission denied")
             || stderr.contains("permission")
             || stderr.contains("access"),
-        "Should mention permission error, got: {}",
-        stderr
+        "Should mention permission error, got: {stderr}"
     );
 
     Ok(())

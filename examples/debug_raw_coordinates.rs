@@ -66,8 +66,7 @@ D Z 1 6 STRING
             let strand = if is_reverse { '-' } else { '+' };
 
             println!(
-                "Record {}: a_id={} [{}-{}] → b_id={} [{}-{}] {}",
-                count, a_id, a_beg, a_end, b_id, b_beg, b_end, strand
+                "Record {count}: a_id={a_id} [{a_beg}-{a_end}] → b_id={b_id} [{b_beg}-{b_end}] {strand}"
             );
         }
     }

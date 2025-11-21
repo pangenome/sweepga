@@ -89,8 +89,8 @@ fn main() -> Result<()> {
         )
     };
 
-    aln_sorted.sort_by_key(|r| sort_key(r));
-    paf_sorted.sort_by_key(|r| sort_key(r));
+    aln_sorted.sort_by_key(&sort_key);
+    paf_sorted.sort_by_key(sort_key);
 
     println!("First 10 records - detailed comparison:\n");
 
@@ -190,7 +190,7 @@ fn main() -> Result<()> {
         } else {
             println!("❌ DIFFERENCES:");
             for diff in &field_diffs {
-                println!("   {}", diff);
+                println!("   {diff}");
             }
             println!();
             diffs.push((i, field_diffs));
@@ -248,10 +248,10 @@ fn main() -> Result<()> {
         100.0 * total_mismatches as f64 / aln_sorted.len() as f64
     );
     println!("\nDifference breakdown:");
-    println!("  Coordinate differences: {}", coord_diffs);
-    println!("  Identity differences: {}", identity_diffs);
-    println!("  Block length differences: {}", block_len_diffs);
-    println!("  Matches differences: {}", matches_diffs);
+    println!("  Coordinate differences: {coord_diffs}");
+    println!("  Identity differences: {identity_diffs}");
+    println!("  Block length differences: {block_len_diffs}");
+    println!("  Matches differences: {matches_diffs}");
 
     Ok(())
 }
@@ -263,7 +263,7 @@ fn find_binary(name: &str) -> Option<String> {
     let project_root = env::current_dir().ok()?;
 
     for build_type in &["debug", "release"] {
-        let build_dir = project_root.join(format!("target/{}/build", build_type));
+        let build_dir = project_root.join(format!("target/{build_type}/build"));
         if let Ok(entries) = fs::read_dir(&build_dir) {
             for entry in entries.flatten() {
                 let out_dir = entry.path().join("out");

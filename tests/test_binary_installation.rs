@@ -35,7 +35,7 @@ fn test_all_fastga_binaries_installed() {
                 {
                     use std::os::unix::fs::PermissionsExt;
                     let metadata = std::fs::metadata(&path)
-                        .unwrap_or_else(|_| panic!("Could not read metadata for {}", binary));
+                        .unwrap_or_else(|_| panic!("Could not read metadata for {binary}"));
                     let is_executable = metadata.permissions().mode() & 0o111 != 0;
                     assert!(
                         is_executable,
@@ -48,7 +48,7 @@ fn test_all_fastga_binaries_installed() {
                 eprintln!("✓ {} found at: {}", binary, path.display());
             }
             Err(e) => {
-                eprintln!("✗ {} NOT FOUND: {}", binary, e);
+                eprintln!("✗ {binary} NOT FOUND: {e}");
                 missing_binaries.push(*binary);
                 all_found = false;
             }
@@ -57,10 +57,9 @@ fn test_all_fastga_binaries_installed() {
 
     if !all_found {
         panic!(
-            "Missing required FastGA binaries: {:?}\n\
+            "Missing required FastGA binaries: {missing_binaries:?}\n\
              This means the build.rs script didn't install all required binaries.\n\
-             FastGA will fail at runtime when it tries to call these via system().",
-            missing_binaries
+             FastGA will fail at runtime when it tries to call these via system()."
         );
     }
 }

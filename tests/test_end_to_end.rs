@@ -11,9 +11,10 @@ use tempfile::TempDir;
 
 /// Parse PAF and calculate coverage statistics
 fn calculate_coverage_stats(paf_path: &Path) -> Result<CoverageStats> {
+    type AlignmentSpans = Vec<(u64, u64, u64, u64)>;
     let content = fs::read_to_string(paf_path)?;
 
-    let mut genome_pairs: HashMap<(String, String), Vec<(u64, u64, u64, u64)>> = HashMap::new();
+    let mut genome_pairs: HashMap<(String, String), AlignmentSpans> = HashMap::new();
 
     for line in content.lines() {
         if line.trim().is_empty() {
@@ -78,7 +79,7 @@ fn calculate_coverage_stats(paf_path: &Path) -> Result<CoverageStats> {
         let target_coverage = merge_and_sum_intervals(&target_intervals);
 
         pair_coverage.push((
-            format!("{}→{}", q_genome, t_genome),
+            format!("{q_genome}→{t_genome}"),
             alignments.len(),
             query_coverage,
             target_coverage,
@@ -151,7 +152,7 @@ fn test_end_to_end_yeast_coverage() -> Result<()> {
 
     // Run the full pipeline
     let status = Command::new("cargo")
-        .args(&[
+        .args([
             "run",
             "--release",
             "--quiet",
@@ -190,14 +191,12 @@ fn test_end_to_end_yeast_coverage() -> Result<()> {
     // Check that we have coverage for pairs
     for (pair_name, aln_count, q_cov, t_cov) in &stats.pair_stats {
         eprintln!(
-            "  {}: {} alns, {}bp q_cov, {}bp t_cov",
-            pair_name, aln_count, q_cov, t_cov
+            "  {pair_name}: {aln_count} alns, {q_cov}bp q_cov, {t_cov}bp t_cov"
         );
 
         assert!(
             *aln_count > 0,
-            "Genome pair {} should have alignments",
-            pair_name
+            "Genome pair {pair_name} should have alignments"
         );
     }
 
@@ -226,7 +225,7 @@ fn test_one_to_one_preserves_pairs() -> Result<()> {
     // Generate unfiltered output
     let unfiltered_paf = temp_dir.path().join("unfiltered.paf");
     Command::new("cargo")
-        .args(&[
+        .args([
             "run",
             "--release",
             "--quiet",
@@ -244,7 +243,7 @@ fn test_one_to_one_preserves_pairs() -> Result<()> {
     // Generate 1:1 filtered output
     let filtered_paf = temp_dir.path().join("filtered.paf");
     Command::new("cargo")
-        .args(&[
+        .args([
             "run",
             "--release",
             "--quiet",
@@ -302,7 +301,7 @@ fn test_filtering_mode_comparison() -> Result<()> {
     {
         let file = fs::File::create(&nn_paf)?;
         let status = Command::new("cargo")
-            .args(&[
+            .args([
                 "run",
                 "--release",
                 "--quiet",
@@ -324,7 +323,7 @@ fn test_filtering_mode_comparison() -> Result<()> {
     {
         let file = fs::File::create(&one_to_one_paf)?;
         let status = Command::new("cargo")
-            .args(&[
+            .args([
                 "run",
                 "--release",
                 "--quiet",

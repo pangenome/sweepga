@@ -8,7 +8,7 @@ fn main() -> Result<()> {
         .nth(1)
         .unwrap_or_else(|| "test_output.1aln".to_string());
 
-    eprintln!("Reading {}...\n", aln_path);
+    eprintln!("Reading {aln_path}...\n");
 
     let mut reader = fastga_rs::AlnReader::open(&aln_path)?;
     let id_to_name = reader.get_all_seq_names();

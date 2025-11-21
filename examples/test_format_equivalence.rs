@@ -52,7 +52,7 @@ fn main() -> Result<()> {
         .lines()
         .count();
     println!("\nInitial alignments:");
-    println!("  PAF: {} alignments", paf_count);
+    println!("  PAF: {paf_count} alignments");
 
     println!("\nStep 2: Apply 1:1 filtering to both formats...");
 
@@ -176,7 +176,7 @@ fn main() -> Result<()> {
 
     if in_paf_not_aln.is_empty() && in_aln_not_paf.is_empty() {
         println!("✅ SUCCESS: Filtered results are IDENTICAL!");
-        println!("");
+        println!();
         println!("Summary:");
         println!(
             "  - Both formats filtered from {} to {} alignments",
@@ -194,14 +194,14 @@ fn main() -> Result<()> {
         if !in_paf_not_aln.is_empty() {
             println!("\nFirst 5 in PAF but not .1aln:");
             for key in in_paf_not_aln.iter().take(5) {
-                println!("  {:?}", key);
+                println!("  {key:?}");
             }
         }
 
         if !in_aln_not_paf.is_empty() {
             println!("\nFirst 5 in .1aln but not PAF:");
             for key in in_aln_not_paf.iter().take(5) {
-                println!("  {:?}", key);
+                println!("  {key:?}");
             }
         }
     }

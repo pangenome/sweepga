@@ -95,7 +95,7 @@ fn test_large_scale_paf_output() -> Result<()> {
     eprintln!("Generating PAF output from FASTA...");
     let paf_output = temp_dir.path().join("output.paf");
     let status = Command::new("cargo")
-        .args(&[
+        .args([
             "run",
             "--release",
             "--quiet",
@@ -127,24 +127,20 @@ fn test_large_scale_paf_output() -> Result<()> {
     for (i, rec) in paf_records.iter().take(100).enumerate() {
         assert!(
             rec.query_start < rec.query_end,
-            "Record {}: query_start >= query_end",
-            i
+            "Record {i}: query_start >= query_end"
         );
         assert!(
             rec.target_start < rec.target_end,
-            "Record {}: target_start >= target_end",
-            i
+            "Record {i}: target_start >= target_end"
         );
         assert!(
             rec.matches <= rec.block_len,
-            "Record {}: matches > block_len",
-            i
+            "Record {i}: matches > block_len"
         );
-        assert!(!rec.query_name.is_empty(), "Record {}: empty query_name", i);
+        assert!(!rec.query_name.is_empty(), "Record {i}: empty query_name");
         assert!(
             !rec.target_name.is_empty(),
-            "Record {}: empty target_name",
-            i
+            "Record {i}: empty target_name"
         );
     }
 
@@ -174,7 +170,7 @@ fn test_large_scale_paf_filtering() -> Result<()> {
     eprintln!("Generating unfiltered PAF with -n N:N...");
     let unfiltered_paf = temp_dir.path().join("unfiltered.paf");
     let status = Command::new("cargo")
-        .args(&[
+        .args([
             "run",
             "--release",
             "--quiet",
@@ -197,7 +193,7 @@ fn test_large_scale_paf_filtering() -> Result<()> {
     eprintln!("Applying 1:1 filtering to PAF...");
     let filtered_paf = temp_dir.path().join("filtered.paf");
     let status = Command::new("cargo")
-        .args(&[
+        .args([
             "run",
             "--release",
             "--quiet",
@@ -234,7 +230,7 @@ fn test_large_scale_paf_filtering() -> Result<()> {
         filtered.len() <= unfiltered.len(),
         "Filtering should not increase alignment count"
     );
-    assert!(filtered.len() > 0, "Filtered output should not be empty");
+    assert!(!filtered.is_empty(), "Filtered output should not be empty");
 
     // All filtered records should be in unfiltered set
     let unfiltered_sigs: HashSet<String> = unfiltered
@@ -270,9 +266,7 @@ fn test_large_scale_paf_filtering() -> Result<()> {
         );
         assert!(
             unfiltered_sigs.contains(&sig),
-            "Filtered record {} not found in unfiltered set: {}",
-            i,
-            sig
+            "Filtered record {i} not found in unfiltered set: {sig}"
         );
     }
 
@@ -304,7 +298,7 @@ fn test_coordinate_stability_at_scale() -> Result<()> {
 
     let paf1 = temp_dir.path().join("run1.paf");
     Command::new("cargo")
-        .args(&[
+        .args([
             "run",
             "--release",
             "--quiet",
@@ -319,7 +313,7 @@ fn test_coordinate_stability_at_scale() -> Result<()> {
 
     let paf2 = temp_dir.path().join("run2.paf");
     Command::new("cargo")
-        .args(&[
+        .args([
             "run",
             "--release",
             "--quiet",
@@ -354,9 +348,9 @@ fn test_coordinate_stability_at_scale() -> Result<()> {
         if r1 != r2 {
             drifted += 1;
             if drifted <= 3 {
-                eprintln!("Difference at record {}:", i);
-                eprintln!("  Run 1: {:?}", r1);
-                eprintln!("  Run 2: {:?}", r2);
+                eprintln!("Difference at record {i}:");
+                eprintln!("  Run 1: {r1:?}");
+                eprintln!("  Run 2: {r2:?}");
             }
         }
     }
@@ -394,7 +388,7 @@ fn test_b3106_paf_output() -> Result<()> {
 
     let paf_output = temp_dir.path().join("output.paf");
     let status = Command::new("cargo")
-        .args(&[
+        .args([
             "run",
             "--release",
             "--quiet",
@@ -415,7 +409,7 @@ fn test_b3106_paf_output() -> Result<()> {
     eprintln!("✓ B-3106 PAF test: {} alignments", paf_records.len());
 
     // Basic validation
-    assert!(paf_records.len() > 0, "Should produce some alignments");
+    assert!(!paf_records.is_empty(), "Should produce some alignments");
 
     for rec in &paf_records {
         assert!(rec.query_start < rec.query_end, "Valid query coordinates");
@@ -442,7 +436,7 @@ fn test_b3106_filtering_behavior() -> Result<()> {
     // Generate N:N (no filtering)
     let nn_paf = temp_dir.path().join("nn.paf");
     Command::new("cargo")
-        .args(&[
+        .args([
             "run",
             "--release",
             "--quiet",
@@ -462,7 +456,7 @@ fn test_b3106_filtering_behavior() -> Result<()> {
     // Generate 1:1 filtered
     let filtered_paf = temp_dir.path().join("filtered.paf");
     Command::new("cargo")
-        .args(&[
+        .args([
             "run",
             "--release",
             "--quiet",
@@ -492,7 +486,7 @@ fn test_b3106_filtering_behavior() -> Result<()> {
         filtered.len() <= nn.len(),
         "1:1 should not increase alignments"
     );
-    assert!(filtered.len() > 0, "Should keep some alignments");
+    assert!(!filtered.is_empty(), "Should keep some alignments");
 
     Ok(())
 }
@@ -510,7 +504,7 @@ fn test_b3106_coordinate_determinism() -> Result<()> {
     // Run twice
     let paf1 = temp_dir.path().join("run1.paf");
     Command::new("cargo")
-        .args(&[
+        .args([
             "run",
             "--release",
             "--quiet",
@@ -527,7 +521,7 @@ fn test_b3106_coordinate_determinism() -> Result<()> {
 
     let paf2 = temp_dir.path().join("run2.paf");
     Command::new("cargo")
-        .args(&[
+        .args([
             "run",
             "--release",
             "--quiet",
