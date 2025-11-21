@@ -82,7 +82,7 @@ alias guix=$HOME/opt/guix-pull-20251012/bin/guix
 
 # Update Rust and Cargo
 mkdir -p ~/.cargo ~/.rustup # to prevent rebuilds
-guix shell --share=$HOME/.cargo  --share=$HOME/.rustup -C -N -D -F -v 3 guix gcc-toolchain make libdeflate pkg-config xz coreutils sed zstd zlib nss-certs openssl curl
+guix shell --share=$HOME/.cargo  --share=$HOME/.rustup -C -N -D -F -v 3 guix gcc-toolchain make libdeflate pkg-config xz coreutils sed zstd zlib nss-certs openssl curl git
 curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
 . ~/.cargo/env
 rustup default stable
@@ -92,7 +92,7 @@ exit
 git clone https://github.com/pangenome/sweepga.git
 cd sweepga
 
-guix shell --share=$HOME/.cargo  --share=$HOME/.rustup -C -N -D -F -v 3 guix gcc-toolchain make libdeflate pkg-config xz coreutils sed zstd zlib nss-certs openssl curl cmake clang # we need cmake and clang too for building
+guix shell --share=$HOME/.cargo  --share=$HOME/.rustup -C -N -D -F -v 3 guix gcc-toolchain make libdeflate pkg-config xz coreutils sed zstd zlib nss-certs openssl curl cmake git clang # we need cmake and clang too for building
 . ~/.cargo/env
 export LD_LIBRARY_PATH=$GUIX_ENVIRONMENT/lib
 cargo build --release
