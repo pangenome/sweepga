@@ -49,6 +49,9 @@ s288c*.fa
 # Wfmash temp files
 wfmash-*
 
+# PDFs (papers, etc.)
+*.pdf
+
 # Except the input test files we want to keep
 !test_data/chrV.fastga.paf
 !test_data/chrV.wfmash.paf
