@@ -188,7 +188,7 @@ For *memory-constrained systems*: All-pairs mode uses 39.7% less peak memory (37
 
 For *large-scale pangenomes*: Memory scales as O(H·L), becoming prohibitive beyond ~100 haplotypes for whole genomes. The practical solution is hierarchical alignment: use sparse global alignment to build a pangenome graph (e.g., with impg), extract local homologous chunks where L is reduced to 100 kb–1 Mb, then apply FastGA self-alignment within each chunk with appropriate `-f 10×H` setting.
 
-*Process overhead observations*: The high system time in all-pairs mode (808.55s system vs 138.06s user) reveals that process creation overhead dominates CPU usage. Each of 42 genome pairs requires a separate FastGA invocation, creating substantial overhead. This could potentially be optimized through process reuse or batch processing.
+*Process overhead observations*: The high system time in all-pairs mode (808.55s system vs 138.06s user) likely reflects I/O, memory allocation, and kernel work across 42 separate FastGA processes. While the exact breakdown is unclear, running 42 independent processes clearly incurs overhead that self-alignment avoids.
 
 == Validation of Theoretical Model
 
@@ -224,9 +224,7 @@ The `-f 70` setting (10 × 7 genomes) matches the effective per-pair frequency t
 
 === Why Self-Alignment Finds More Homology
 
-Regular `-f 70` finds 483.3 Mb matched bases versus 479.7 Mb for all-pairs—3.6 Mb more homology despite being 10.4× faster. This suggests a qualitative advantage beyond runtime: the global sorted view may detect matches that pairwise comparisons miss.
-
-When all k-mers are sorted together, repetitive elements shared across multiple genomes appear as clusters. These clusters encode multi-way relationships that pairwise alignment cannot exploit. The frequency threshold `-f 10×H` allows these shared repetitive k-mers to contribute seeds, enabling alignment through regions that pairwise mode filters out.
+Regular `-f 70` finds 483.3 Mb matched bases versus 479.7 Mb for all-pairs—3.6 Mb more homology despite being 10.4× faster. The cause is unclear: it may reflect the global sorted view detecting matches that pairwise comparisons miss, or it may be an artifact of subtly different filtering semantics (global `-f 70` vs per-pair `-f 10` are not perfectly equivalent). The difference is small (~0.7%) and both modes achieve excellent coverage.
 
 === Implementation Verification
 
@@ -236,19 +234,19 @@ To verify these theoretical claims, we examined Gene Myers' FastGA source code (
 
 *Pairwise mode* (`adaptamer_merge`, line 2279): Uses *two* k-mer streams `T1` and `T2`. Each pairwise comparison requires a separate merge operation. For H genomes, this means H²/2 invocations of the merge, each scanning O(L) entries.
 
-The critical inner loop in `new_self_merge_thread` (lines 1810-1862):
+The critical inner loop in `new_self_merge_thread` (lines 1810-1862) enumerates matches within a run of identical k-mers:
 
 ```c
 for (p = low+PAYOFF; p < hgh; p += kbyte)
   { if (p == pay1)
       continue;
-    if (p[-2] >= mlen)  // LCP check
+    if (p[-2] >= mlen)  // skip if already in same match group
       continue;
     // emit match between suf1 and p
   }
 ```
 
-This loop iterates through adjacent k-mers in the sorted table. The `p[-2] >= mlen` check uses the LCP value to skip already-processed matches. At each k-mer position, up to H matching entries from different genomes are enumerated—this is the "local H²" factor. But the outer scan visits each of H·L k-mers exactly once, yielding O(H·L) total complexity.
+Here `low` and `hgh` define the range of k-mers sharing a common prefix of length `mlen`. The algorithm uses an LCP (Longest Common Prefix) array—a standard suffix array technique—to track how many prefix bases each entry shares with its predecessor. The `p[-2] >= mlen` check skips entries that have already been grouped with the current k-mer in a previous iteration, avoiding duplicate emissions.
 
 The decision point at line 5116 selects between modes:
 
@@ -259,11 +257,11 @@ else
   adaptamer_merge(T1,T2,P1,P2,gdb1->seqtot);
 ```
 
-The LCP structure stored in each k-mer entry records how many prefix bases match the previous entry in sorted order. This enables O(1) boundary lookup: `low = vlcp[plen]` immediately gives the start of the matching run without linear search. This is why the "enumerate all H" operation at each position is cache-coherent—all relevant entries are physically adjacent in memory.
+The LCP structure enables O(1) lookup of run boundaries via the `vlcp[]` array: `low = vlcp[plen]` immediately gives the start of entries sharing a prefix of length `plen`. This is what makes the "enumerate all H" operation at each position cache-coherent—all relevant entries are physically adjacent in the sorted table.
 
 === Practical Recommendation
 
-Use concatenated self-alignment with `-f 10×H` for pangenome work. This achieves O(H·L) complexity while finding more homologous sequence than O(H²·L) all-pairs mode—a rare case where the faster algorithm also produces better results.
+Use concatenated self-alignment with `-f 10×H` for pangenome work. This reduces scan complexity from O(H²·L) to O(H·L) while producing equivalent output—a substantial speedup with no loss in sensitivity.
 
 = Appendix: Data and Methods
 
