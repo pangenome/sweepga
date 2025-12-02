@@ -22,27 +22,15 @@
 
 #v(1.5em)
 
-= Background
+= Motivation
 
-== Motivation: An Unexpected Efficiency
+FastGA (Myers, Durbin, and Zhou 2025) aligns genomes using sorted k-mer tables and linear merge operations. We adapted it for pangenome alignment and discovered something unexpected: self-alignment of H concatenated genomes is *dramatically faster* than explicit pairwise alignment of all H²/2 genome pairs. For 7 yeast genomes, self-alignment took 15 seconds versus 2.5 minutes for all-pairs—a 10× speedup.
 
-While experimenting with FastGA (Myers, Durbin, and Zhou 2025) for pangenome alignment, we observed something unexpected: aligning all genomes together as a single self-alignment was *dramatically faster* than performing explicit pairwise alignments between all genome pairs. For 7 yeast genomes, self-alignment completed in under 9 seconds while all-pairs mode required over 2.5 minutes—a 17× speedup.
+This document investigates why. The answer: self-alignment reduces the scan phase from O(H²·L) to O(H·L) operations by sorting all k-mers together into one table. Matching k-mers from different genomes become adjacent, so a single pass discovers all pairwise relationships. The emission phase remains O(H²·L), but happens cache-locally on adjacent entries rather than across separate merge operations.
 
-This observation required investigation. FastGA was designed for pairwise whole-genome comparison, where a k-mer appearing in both genomes might occur a handful of times. The default frequency threshold (`-f 10`) filters out k-mers appearing more than 10 times, preventing the aligner from wasting computation on highly repetitive sequences. But in a pangenome context with H haplotypes, even a unique single-copy gene will produce a k-mer that appears H times—once per haplotype. With the default threshold, nearly all biologically meaningful k-mers would be filtered out.
+Adapting FastGA for pangenomes required one key modification: raising the frequency threshold from `-f 10` to `-f 10×H`. In pangenome context, even single-copy genes produce k-mers appearing H times (once per haplotype); the default threshold would filter them out.
 
-Adapting FastGA for pangenome use required raising this frequency threshold significantly. We found that setting `-f` to approximately 10×H (where H is the number of haplotypes) allows detection of homologous regions containing moderately repetitive elements while still filtering true high-copy repeats. This modification, combined with self-alignment mode, revealed the efficiency gains documented here.
-
-== SweepGA: A Wrapper for Pangenome Workflows
-
-SweepGA wraps FastGA and adapts it for pangenome workflows. It handles file format conversion (producing PAF output compatible with downstream tools) and applies plane sweep filtering to remove redundant overlapping alignments. This filtering step is standard practice after whole-genome alignment—tools like LASTZ, minimap2, and other aligners typically require similar post-processing when downstream analyses assume 1:1 homologies between sequences.
-
-== The Algorithmic Question
-
-This document investigates *why* self-alignment is so much faster than all-pairs alignment. The answer reveals a deeper property of FastGA's sorted k-mer merge algorithm that, to our knowledge, has not been explicitly discussed: when aligning H genomes simultaneously, the merge-based approach achieves O(H·L) complexity rather than the O(H²·L) required for explicit pairwise comparisons.
-
-== Technical Context
-
-FastGA replaces hash-based seed lookup with merge-based k-mer matching. The algorithm builds sorted k-mer occurrence tables and performs linear merge operations to find matching seeds, avoiding the random memory access patterns of hash-based methods. For a detailed description, see Myers, Durbin, and Zhou (2025).
+We used SweepGA as a harness to run FastGA on pangenome data, handling format conversion and applying plane sweep filtering for downstream compatibility.
 
 = The Algorithm
 
