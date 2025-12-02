@@ -62,11 +62,35 @@ The total output is O(H²·L) seed pairs (as expected: H²/2 genome pairs × O(L
 
 = The Key Observation
 
-The efficiency gain comes from *sorting all k-mers together*. In explicit all-pairs mode, we perform H²/2 separate pairwise merges, each scanning O(L) entries: O(H²·L) total scan time. In self-alignment mode, we scan one table of H·L entries once: O(H·L) scan time.
+== Separating Scan Cost from Emission Cost
 
-The H² factor doesn't disappear—we still emit O(H²·L) seed pairs. But the H² work becomes *local enumeration within cache* rather than *separate traversals*. When a k-mer is shared by H genomes, all H entries are adjacent in the sorted table. Enumerating H² matches from H adjacent cache-resident entries is far faster than performing H² separate merge operations with their associated I/O, index lookups, and cache misses.
+The work breaks down into two phases:
 
-This is analogous to the difference between O(N²) pairwise duplicate detection and O(N log N) sort-and-scan: sorting provides implicit structure that makes comparison "cheap" after the sort.
+*Phase 1 — Finding matching k-mers (the scan):*
+- All-pairs: H²/2 separate merges, each scanning O(L) entries → O(H²·L) scan operations
+- Self-alignment: One scan through H·L sorted entries → O(H·L) scan operations
+
+*Phase 2 — Emitting seed pairs (the enumeration):*
+- Both modes: O(H²·L) seed pairs emitted
+
+This is a legitimate complexity separation. The scan phase has real per-operation costs: cache line fetches, k-mer comparisons, maintaining merge state, finding run boundaries. Reducing this from O(H²·L) to O(H·L) is a genuine H-factor improvement in that portion of the work.
+
+== When Does This Matter?
+
+Total cost = (scan_ops × cost_per_scan) + (emit_ops × cost_per_emit)
+
+- All-pairs: H²·L · c_scan + H²·L · c_emit
+- Self-alignment: H·L · c_scan + H²·L · c_emit
+
+The speedup depends on the ratio of scan cost to emission cost. If scanning/lookup is expensive relative to emission, you approach H× speedup. If emission dominates, the speedup diminishes.
+
+For H=7 and observed ~10× speedup, this implies c_scan is substantial—which makes sense. Each scan operation involves index arithmetic, k-mer comparisons, memory fetches (potentially cache misses in all-pairs mode), and merge state bookkeeping. Emission is relatively cheap: you've already found the match, you just write it out.
+
+== Cache Locality Compounds This
+
+In self-alignment, the scan is sequential through one contiguous array—optimal for hardware prefetching. In all-pairs, you perform H² separate merge operations, each potentially thrashing cache as you switch between different k-mer tables. So not only are there H× fewer scan operations, but each operation is cheaper due to better locality.
+
+This means the "constant" c_scan is actually worse for all-pairs mode, compounding the H-factor algorithmic improvement.
 
 = Implications
 
@@ -78,7 +102,9 @@ The practical solution: hierarchical alignment. Use sparse global alignment to b
 
 FastGA's merge-based approach eliminates the O(L²) per-pair comparison cost of naive k-mer matching, achieving O(L) per pair through sorting and linear merge.
 
-For pangenome self-alignment with H genomes, the critical insight is: *sorting all k-mers together into one table* reduces scan time from O(H²·L) to O(H·L). We still produce O(H²·L) seed pairs (all genome pairs × all positions), but the H² enumeration at each shared k-mer happens within cache—H adjacent entries rather than H² separate merge operations.
+For pangenome self-alignment with H genomes, the critical insight is: *sorting all k-mers together into one table* reduces the scan phase from O(H²·L) to O(H·L) operations. Total output remains O(H²·L) seed pairs, but the expensive work (index lookups, cache fetches, merge bookkeeping) is reduced H-fold, while the remaining emission work happens cache-locally on adjacent entries.
+
+This decomposition explains the observed ~10× speedup for H=7: close to the theoretical H-fold improvement in scan cost, with additional gains from cache locality.
 
 Memory is the main constraint: O(H·L) space for the sorted k-mer table. For large pangenomes, hierarchical workflows (sparse global alignment → local refinement) make this tractable.
 
@@ -166,23 +192,21 @@ For *large-scale pangenomes*: Memory scales as O(H·L), becoming prohibitive bey
 
 == Validation of Theoretical Model
 
-=== The Complexity Reduction: From O(H²·L) to O(H·L) Scan Time
+=== Validating the Scan/Emission Decomposition
 
-The dramatic speedup of concatenated self-alignment reveals a deeper algorithmic advantage than simple constant-factor improvements. The key insight: *sorting all k-mers together reduces scan time from O(H²·L) to O(H·L)*, while the H² match enumeration happens locally in cache.
+The observed speedup validates the scan/emission cost model. With H=7:
 
-*All-pairs merge approach*: For each of H² genome pairs, we merge two sorted k-mer tables. Each merge scans O(L) k-mers, yielding *O(H²·L)* total. With H=7, we perform 42 merges at ~3.7s each = 155.3s total.
+*All-pairs*: 42 separate merge operations at ~3.7s each = 155.3s total. Each merge involves O(L) scan operations plus O(L) emissions per pair, totaling O(H²·L) scan ops and O(H²·L) emissions.
 
-*Concatenated self-alignment*: We sort k-mers from *all* H genomes into a single table of size H·L. We then trace *one path* through this sorted sequence. When we encounter a k-mer shared between genomes i and j, they are *adjacent* in the sorted order—regardless of which pair (i,j) they represent. A single O(H·L) scan discovers all matches across all H² pairs simultaneously.
+*Self-alignment with `-f 70`*: One scan through H·L entries = 14.94s. The scan phase is O(H·L), while emission remains O(H²·L).
 
-The complexity reduction is *H-fold*: from O(H²·L) to O(H·L). For H=7, we predict ~7× speedup from this effect. Using `-f 70` (which matches the per-pair k-mer density of all-pairs mode), we observe *10.4× speedup*—close to the theoretical 7×. The additional ~1.5× gain comes from eliminating process creation overhead and improved cache locality.
+The *10.4× speedup* (close to theoretical 7×) confirms that scan costs are substantial relative to emission costs. The extra ~1.5× beyond 7× reflects that c_scan is actually worse in all-pairs mode due to cache thrashing across H² separate merge operations, plus process creation overhead.
 
 === The Geometric Intuition
 
-Consider the H×H×L lattice of potential matches—for each of H² genome pairs, L positions could match. Explicit all-pairs traverses this lattice pair-by-pair, performing H² separate O(L) scans. Concatenated self-alignment exploits sorted order to trace a *single path* through this entire lattice.
+Consider the H×H×L lattice of potential matches—for each of H² genome pairs, L positions could match. Explicit all-pairs traverses this lattice pair-by-pair, performing H² separate O(L) scans. Self-alignment exploits sorted order to trace a *single path* through this entire lattice: one O(H·L) scan that discovers all H² pairwise relationships.
 
-The sorted k-mer table encodes a "bundle" describing all matches across all genome pairs. Matching k-mers cluster together regardless of which genomes they came from. Following this bundle through the sorted k-mer ascent, we visit each potential match exactly once, discovering all H² pairwise relationships in O(H·L) time.
-
-This is analogous to the difference between O(N²) pairwise duplicate detection versus O(N log N) sort-and-scan: sorting provides implicit structure that makes all-vs-all comparison "free" after the sort. The sorted order *is* the index into the H×H×L matching space.
+The sorted k-mer table encodes a "bundle" of all matches across all genome pairs. Matching k-mers cluster together regardless of which genomes they came from. Following this bundle through the sorted k-mer sequence, we perform O(H·L) scan operations while emitting O(H²·L) seed pairs from cache-local enumeration.
 
 === Empirical Confirmation
 
