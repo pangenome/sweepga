@@ -199,7 +199,7 @@ This is analogous to the difference between O(N²) pairwise duplicate detection 
   [Speedup], [H = 7], [17.4×], [Includes overhead elimination],
 )
 
-The 1.68× slowdown when using `-f 70` (8.90s → 14.94s) reflects increased match density, not changed complexity class.
+The `-f 70` setting (10 × 7 genomes) matches the effective per-pair frequency threshold used in all-pairs mode (default `-f 10`). This makes `-f 70` the fair comparison: 14.94s vs 155.3s = *10.4× speedup*, close to the theoretical 7× (H-fold) prediction. The additional ~1.5× gain comes from eliminating process overhead and improved cache locality.
 
 === Why Self-Alignment Finds More Homology
 
