@@ -174,10 +174,7 @@ The dramatic speedup of concatenated self-alignment reveals a deeper algorithmic
 
 *Concatenated self-alignment*: We sort k-mers from *all* H genomes into a single table of size H·L. We then trace *one path* through this sorted sequence. When we encounter a k-mer shared between genomes i and j, they are *adjacent* in the sorted order—regardless of which pair (i,j) they represent. A single O(H·L) scan discovers all matches across all H² pairs simultaneously.
 
-The complexity reduction is *H-fold*: from O(H²·L) to O(H·L). For H=7, we predict ~7× speedup from this effect. The observed 17.4× includes additional gains from:
-- Eliminating process creation overhead (85% of all-pairs CPU was system calls)
-- Cache locality: one sorted array vs 42 separate merge operations
-- Single index construction vs repeated I/O
+The complexity reduction is *H-fold*: from O(H²·L) to O(H·L). For H=7, we predict ~7× speedup from this effect. Using `-f 70` (which matches the per-pair k-mer density of all-pairs mode), we observe *10.4× speedup*—close to the theoretical 7×. The additional ~1.5× gain comes from eliminating process creation overhead and improved cache locality.
 
 === The Geometric Intuition
 
@@ -194,12 +191,12 @@ This is analogous to the difference between O(N²) pairwise duplicate detection 
   inset: 8pt,
   align: (left, right, right, right),
   [*Mode*], [*Complexity*], [*Observed*], [*Notes*],
-  [All-pairs], [O(H²·L)], [155.3s], [42 merges × 3.7s each],
-  [Regular], [O(H·L)], [8.90s], [Single sorted scan],
-  [Speedup], [H = 7], [17.4×], [Includes overhead elimination],
+  [All-pairs (`-f 10` per pair)], [O(H²·L)], [155.3s], [42 merges × 3.7s each],
+  [Self-alignment (`-f 70`)], [O(H·L)], [14.94s], [Single sorted scan],
+  [Speedup], [H = 7], [10.4×], [Close to theoretical 7×],
 )
 
-The `-f 70` setting (10 × 7 genomes) matches the effective per-pair frequency threshold used in all-pairs mode (default `-f 10`). This makes `-f 70` the fair comparison: 14.94s vs 155.3s = *10.4× speedup*, close to the theoretical 7× (H-fold) prediction. The additional ~1.5× gain comes from eliminating process overhead and improved cache locality.
+The `-f 70` setting (10 × 7 genomes) matches the effective per-pair frequency threshold used in all-pairs mode (default `-f 10`), making this an apples-to-apples comparison. The observed 10.4× speedup is close to the theoretical H-fold (7×) prediction; the additional ~1.5× gain comes from eliminating process overhead and improved cache locality.
 
 === Why Self-Alignment Finds More Homology
 
