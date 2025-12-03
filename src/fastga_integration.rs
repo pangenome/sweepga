@@ -5,6 +5,31 @@ use std::path::Path;
 use std::str::FromStr;
 use tempfile::NamedTempFile;
 
+/// Get the preferred temp directory for FastGA operations.
+/// Priority: TMPDIR env var > /dev/shm (if available) > current directory
+fn get_temp_dir() -> String {
+    // First check TMPDIR environment variable
+    if let Ok(tmpdir) = std::env::var("TMPDIR") {
+        if !tmpdir.is_empty() && std::path::Path::new(&tmpdir).is_dir() {
+            return tmpdir;
+        }
+    }
+
+    // Check if /dev/shm exists and is writable (preferred for performance)
+    let dev_shm = std::path::Path::new("/dev/shm");
+    if dev_shm.is_dir() {
+        // Try to create a test file to verify write access
+        let test_path = dev_shm.join(format!(".sweepga_test_{}", std::process::id()));
+        if std::fs::write(&test_path, b"test").is_ok() {
+            let _ = std::fs::remove_file(&test_path);
+            return "/dev/shm".to_string();
+        }
+    }
+
+    // Fallback to current directory
+    ".".to_string()
+}
+
 /// FastGA parameter presets optimized for different ANI levels
 #[derive(Debug, Clone, Copy)]
 #[allow(dead_code)]
@@ -198,7 +223,7 @@ impl FastGAIntegration {
             min_length: self.config.min_alignment_length as i32,
             min_identity: self.config.min_identity.unwrap_or(0.7),
             kmer_freq: self.config.adaptive_seed_cutoff.unwrap_or(10) as i32,
-            temp_dir: std::env::var("TMPDIR").unwrap_or_else(|_| ".".to_string()),
+            temp_dir: get_temp_dir(),
         };
 
         // Prepare GDB
@@ -283,7 +308,7 @@ impl FastGAIntegration {
             min_length: self.config.min_alignment_length as i32,
             min_identity: self.config.min_identity.unwrap_or(0.0),
             kmer_freq,
-            temp_dir: std::env::var("TMPDIR").unwrap_or_else(|_| ".".to_string()),
+            temp_dir: get_temp_dir(),
         };
 
         // Run alignment - FastGA creates BOTH .1aln and .1gdb files
@@ -355,7 +380,7 @@ impl FastGAIntegration {
             min_length: self.config.min_alignment_length as i32,
             min_identity: self.config.min_identity.unwrap_or(0.0), // 0.0 means use FastGA default
             kmer_freq,
-            temp_dir: std::env::var("TMPDIR").unwrap_or_else(|_| ".".to_string()),
+            temp_dir: get_temp_dir(),
         };
 
         // Run alignment with existing indices (returns PAF bytes directly)
