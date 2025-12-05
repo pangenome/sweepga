@@ -238,6 +238,10 @@ struct Args {
     #[clap(long = "zstd", help_heading = "Alignment options")]
     zstd_compress: bool,
 
+    /// Zstd compression level (1-19, higher = smaller files but slower). Default: 3
+    #[clap(long = "zstd-level", default_value = "3", help_heading = "Alignment options")]
+    zstd_level: u32,
+
     // ============================================================================
     // Basic Filtering
     // ============================================================================
@@ -1070,6 +1074,7 @@ fn align_multiple_fastas(
     quiet: bool,
     min_alignment_length: u64,
     zstd_compress: bool,
+    zstd_level: u32,
 ) -> Result<tempfile::NamedTempFile> {
     // Detect genome groups from input files
     let mut num_genomes = 0;
@@ -1098,6 +1103,7 @@ fn align_multiple_fastas(
             quiet,
             min_alignment_length,
             zstd_compress,
+            zstd_level,
         );
     }
 
@@ -1147,7 +1153,7 @@ fn align_multiple_fastas(
             .or_else(|| gdb_base.strip_suffix(".fna"))
             .or_else(|| gdb_base.strip_suffix(".fasta"))
             .unwrap_or(&gdb_base);
-        fastga_integration::FastGAIntegration::compress_index(gdb_base_stripped)?;
+        fastga_integration::FastGAIntegration::compress_index(gdb_base_stripped, zstd_level)?;
         if !quiet {
             timing.log("index", "Index compressed with zstd");
         }
@@ -1178,6 +1184,7 @@ fn align_all_pairs_mode(
     quiet: bool,
     min_alignment_length: u64,
     zstd_compress: bool,
+    zstd_level: u32,
 ) -> Result<tempfile::NamedTempFile> {
     use std::io::Write;
 
@@ -1277,7 +1284,7 @@ fn align_all_pairs_mode(
                 .or_else(|| gdb_base.strip_suffix(".fna"))
                 .or_else(|| gdb_base.strip_suffix(".fasta"))
                 .unwrap_or(&gdb_base);
-            fastga_integration::FastGAIntegration::compress_index(gdb_base_stripped)?;
+            fastga_integration::FastGAIntegration::compress_index(gdb_base_stripped, zstd_level)?;
         }
     }
 
@@ -1745,6 +1752,7 @@ fn main() -> Result<()> {
                         args.quiet,
                         args.block_length,
                         args.zstd_compress,
+                        args.zstd_level,
                     )?;
 
                     alignment_time = Some(alignment_start.elapsed().as_secs_f64());
@@ -1824,6 +1832,7 @@ fn main() -> Result<()> {
                         args.quiet,
                         args.block_length,
                         args.zstd_compress,
+                        args.zstd_level,
                     )?;
 
                     alignment_time = Some(alignment_start.elapsed().as_secs_f64());
@@ -1901,6 +1910,7 @@ fn main() -> Result<()> {
                     args.quiet,
                     args.block_length,
                     args.zstd_compress,
+                    args.zstd_level,
                 )?;
 
                 alignment_time = Some(alignment_start.elapsed().as_secs_f64());

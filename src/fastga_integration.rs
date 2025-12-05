@@ -244,7 +244,8 @@ impl FastGAIntegration {
 
     /// Compress ktab index files using zstd seekable format
     /// This reduces disk usage by ~2x and can improve I/O performance
-    pub fn compress_index(gdb_base: &str) -> Result<()> {
+    /// Level: 1-19 (higher = smaller files but slower compression)
+    pub fn compress_index(gdb_base: &str, level: u32) -> Result<()> {
         use std::process::Command;
 
         // Get the bin directory from FASTGA_BIN_DIR or PATH
@@ -252,9 +253,10 @@ impl FastGAIntegration {
             .map(|dir| format!("{}/GIXpack", dir))
             .unwrap_or_else(|_| "GIXpack".to_string());
 
-        eprintln!("[FastGA] Compressing index with zstd...");
+        eprintln!("[FastGA] Compressing index with zstd (level {level})...");
 
         let output = Command::new(&gixpack_path)
+            .arg(format!("-l{}", level))
             .arg(gdb_base)
             .output()
             .with_context(|| format!("Failed to run GIXpack: {}", gixpack_path))?;
