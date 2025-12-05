@@ -397,7 +397,7 @@ dependencies = [
 [[package]]
 name = "fastga-rs"
 version = "0.1.1"
-source = "git+https://github.com/pangenome/fastga-rs?branch=zstd-compressed-ktab#6ea1ff5fda0906a6a4f3522adda35f0f719fe79e"
+source = "git+https://github.com/pangenome/fastga-rs?branch=zstd-compressed-ktab#441e15b0449a37ddb42ff8b56a69d11d2eeec100"
 dependencies = [
  "anyhow",
  "cc",
