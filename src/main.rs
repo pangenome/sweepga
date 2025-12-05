@@ -234,6 +234,10 @@ struct Args {
     #[clap(long = "all-pairs", help_heading = "Alignment options")]
     all_pairs: bool,
 
+    /// Compress k-mer index with zstd for ~2x disk savings and faster I/O
+    #[clap(long = "zstd", help_heading = "Alignment options")]
+    zstd_compress: bool,
+
     // ============================================================================
     // Basic Filtering
     // ============================================================================
@@ -1065,6 +1069,7 @@ fn align_multiple_fastas(
     timing: &TimingContext,
     quiet: bool,
     min_alignment_length: u64,
+    zstd_compress: bool,
 ) -> Result<tempfile::NamedTempFile> {
     // Detect genome groups from input files
     let mut num_genomes = 0;
@@ -1092,6 +1097,7 @@ fn align_multiple_fastas(
             timing,
             quiet,
             min_alignment_length,
+            zstd_compress,
         );
     }
 
@@ -1128,6 +1134,25 @@ fn align_multiple_fastas(
     // Canonicalize path to avoid empty parent directory issues in fastga-rs
     let input_path = std::fs::canonicalize(input_file)
         .with_context(|| format!("Failed to resolve path: {input_file}"))?;
+
+    // If zstd compression is requested, pre-build and compress the index
+    if zstd_compress {
+        if !quiet {
+            timing.log("index", "Building index for compression...");
+        }
+        let gdb_base = fastga.prepare_gdb(&input_path)?;
+        // Strip .fa extension if present (fastga-rs returns path with .fa but index uses base name)
+        let gdb_base_stripped = gdb_base
+            .strip_suffix(".fa")
+            .or_else(|| gdb_base.strip_suffix(".fna"))
+            .or_else(|| gdb_base.strip_suffix(".fasta"))
+            .unwrap_or(&gdb_base);
+        fastga_integration::FastGAIntegration::compress_index(gdb_base_stripped)?;
+        if !quiet {
+            timing.log("index", "Index compressed with zstd");
+        }
+    }
+
     let temp_paf = fastga.align_to_temp_paf(&input_path, &input_path)?;
 
     if !quiet {
@@ -1152,6 +1177,7 @@ fn align_all_pairs_mode(
     timing: &TimingContext,
     quiet: bool,
     min_alignment_length: u64,
+    zstd_compress: bool,
 ) -> Result<tempfile::NamedTempFile> {
     use std::io::Write;
 
@@ -1241,8 +1267,18 @@ fn align_all_pairs_mode(
         }
 
         // Create .gdb and .gix files
-        // We don't need to store the result - FastGA will auto-detect them by the FASTA path
-        let _gdb_base = fastga.prepare_gdb(fasta_path)?;
+        let gdb_base = fastga.prepare_gdb(fasta_path)?;
+
+        // Compress index if requested
+        if zstd_compress {
+            // Strip .fa extension if present (fastga-rs returns path with .fa but index uses base name)
+            let gdb_base_stripped = gdb_base
+                .strip_suffix(".fa")
+                .or_else(|| gdb_base.strip_suffix(".fna"))
+                .or_else(|| gdb_base.strip_suffix(".fasta"))
+                .unwrap_or(&gdb_base);
+            fastga_integration::FastGAIntegration::compress_index(gdb_base_stripped)?;
+        }
     }
 
     if !quiet {
@@ -1708,6 +1744,7 @@ fn main() -> Result<()> {
                         &timing,
                         args.quiet,
                         args.block_length,
+                        args.zstd_compress,
                     )?;
 
                     alignment_time = Some(alignment_start.elapsed().as_secs_f64());
@@ -1786,6 +1823,7 @@ fn main() -> Result<()> {
                         &timing,
                         args.quiet,
                         args.block_length,
+                        args.zstd_compress,
                     )?;
 
                     alignment_time = Some(alignment_start.elapsed().as_secs_f64());
@@ -1862,6 +1900,7 @@ fn main() -> Result<()> {
                     &timing,
                     args.quiet,
                     args.block_length,
+                    args.zstd_compress,
                 )?;
 
                 alignment_time = Some(alignment_start.elapsed().as_secs_f64());
