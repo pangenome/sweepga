@@ -239,7 +239,11 @@ struct Args {
     zstd_compress: bool,
 
     /// Zstd compression level (1-19, higher = smaller files but slower). Default: 3
-    #[clap(long = "zstd-level", default_value = "3", help_heading = "Alignment options")]
+    #[clap(
+        long = "zstd-level",
+        default_value = "3",
+        help_heading = "Alignment options"
+    )]
     zstd_level: u32,
 
     // ============================================================================

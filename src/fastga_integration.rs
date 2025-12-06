@@ -275,10 +275,17 @@ impl FastGAIntegration {
             if gix_reader.read_exact(&mut header).is_ok() {
                 let nthreads = i32::from_le_bytes([header[4], header[5], header[6], header[7]]);
                 for p in 1..=nthreads {
-                    let ktab_path = format!(".{}.ktab.{}",
-                        std::path::Path::new(gdb_base).file_name().unwrap().to_str().unwrap(),
-                        p);
-                    let full_path = std::path::Path::new(gdb_base).parent()
+                    let ktab_path = format!(
+                        ".{}.ktab.{}",
+                        std::path::Path::new(gdb_base)
+                            .file_name()
+                            .unwrap()
+                            .to_str()
+                            .unwrap(),
+                        p
+                    );
+                    let full_path = std::path::Path::new(gdb_base)
+                        .parent()
                         .map(|p| p.join(&ktab_path))
                         .unwrap_or_else(|| std::path::PathBuf::from(&ktab_path));
                     let _ = std::fs::remove_file(full_path);
