@@ -242,6 +242,61 @@ impl FastGAIntegration {
         Ok(gdb_base)
     }
 
+    /// Compress ktab index files using zstd seekable format
+    /// This reduces disk usage by ~2x and can improve I/O performance
+    /// Level: 1-19 (higher = smaller files but slower compression)
+    pub fn compress_index(gdb_base: &str, level: u32) -> Result<()> {
+        use std::process::Command;
+
+        // Get the bin directory from FASTGA_BIN_DIR or PATH
+        let gixpack_path = std::env::var("FASTGA_BIN_DIR")
+            .map(|dir| format!("{}/GIXpack", dir))
+            .unwrap_or_else(|_| "GIXpack".to_string());
+
+        eprintln!("[FastGA] Compressing index with zstd (level {level})...");
+
+        let output = Command::new(&gixpack_path)
+            .arg(format!("-l{}", level))
+            .arg(gdb_base)
+            .output()
+            .with_context(|| format!("Failed to run GIXpack: {}", gixpack_path))?;
+
+        if !output.status.success() {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            anyhow::bail!("GIXpack failed: {}", stderr);
+        }
+
+        // Remove uncompressed ktab files after successful compression
+        let gix_path = format!("{}.gix", gdb_base);
+        if let Ok(gix_file) = std::fs::File::open(&gix_path) {
+            use std::io::Read;
+            let mut header = [0u8; 8];
+            let mut gix_reader = std::io::BufReader::new(gix_file);
+            if gix_reader.read_exact(&mut header).is_ok() {
+                let nthreads = i32::from_le_bytes([header[4], header[5], header[6], header[7]]);
+                for p in 1..=nthreads {
+                    let ktab_path = format!(
+                        ".{}.ktab.{}",
+                        std::path::Path::new(gdb_base)
+                            .file_name()
+                            .unwrap()
+                            .to_str()
+                            .unwrap(),
+                        p
+                    );
+                    let full_path = std::path::Path::new(gdb_base)
+                        .parent()
+                        .map(|p| p.join(&ktab_path))
+                        .unwrap_or_else(|| std::path::PathBuf::from(&ktab_path));
+                    let _ = std::fs::remove_file(full_path);
+                }
+            }
+        }
+
+        eprintln!("[FastGA] Index compression complete");
+        Ok(())
+    }
+
     /// Count unique haplotypes in a FASTA file based on PanSN naming convention
     /// PanSN format: SAMPLE#HAPLOTYPE#CONTIG (e.g., HG01106#1#CM087962.1)
     /// Extracts SAMPLE#HAPLOTYPE prefix and counts unique haplotypes
