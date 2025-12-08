@@ -1,4 +1,4 @@
-// ! Binary path resolution for embedded FastGA tools
+//! Binary path resolution for embedded FastGA tools
 //!
 //! This module provides robust binary path resolution that:
 //! 1. Prioritizes embedded binaries built by cargo in target/build directories
