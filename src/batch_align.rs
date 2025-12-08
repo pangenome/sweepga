@@ -44,6 +44,12 @@ pub struct GenomeBatch {
     pub estimated_index_bytes: u64,
 }
 
+impl Default for GenomeBatch {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl GenomeBatch {
     pub fn new() -> Self {
         Self {
@@ -64,11 +70,6 @@ impl GenomeBatch {
     pub fn would_exceed(&self, genome: &GenomeInfo, max_bytes: u64) -> bool {
         let new_total = self.total_bp + genome.total_bp;
         estimate_index_size(new_total) > max_bytes
-    }
-
-    /// Get genome prefixes in this batch
-    pub fn prefixes(&self) -> Vec<&str> {
-        self.genomes.iter().map(|g| g.prefix.as_str()).collect()
     }
 }
 
