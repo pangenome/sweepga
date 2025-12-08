@@ -1,4 +1,5 @@
 // Library exports for sweepga
+pub mod batch_align;
 pub mod binary_paths;
 pub mod compact_mapping;
 pub mod fastga_integration;

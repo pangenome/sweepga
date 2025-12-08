@@ -1,4 +1,5 @@
 mod aln_filter;
+mod batch_align;
 mod binary_paths;
 mod compact_mapping;
 mod fastga_integration;
@@ -233,6 +234,11 @@ struct Args {
     /// Align all genome pairs separately (slower, uses more memory, but handles many genomes)
     #[clap(long = "all-pairs", help_heading = "Alignment options")]
     all_pairs: bool,
+
+    /// Maximum index size per batch (e.g., "10G", "500M"). Partitions genomes to fit disk limits.
+    /// Formula: index ≈ 0.1GB + 12 bytes/bp. Use when scratch space is limited.
+    #[clap(long = "batch-bytes", value_parser = parse_metric_number, help_heading = "Alignment options")]
+    batch_bytes: Option<u64>,
 
     /// Compress k-mer index with zstd for ~2x disk savings and faster I/O
     #[clap(long = "zstd", help_heading = "Alignment options")]
@@ -1071,6 +1077,7 @@ fn align_multiple_fastas(
     fasta_files: &[String],
     frequency: Option<usize>,
     all_pairs: bool,
+    batch_bytes: Option<u64>,
     threads: usize,
     keep_self: bool,
     tempdir: Option<&str>,
@@ -1092,6 +1099,31 @@ fn align_multiple_fastas(
                 &format!("{}: {} genome groups", fasta_file, groups.len()),
             );
         }
+    }
+
+    // Check for batch mode
+    if let Some(max_index_bytes) = batch_bytes {
+        if !quiet {
+            timing.log(
+                "batch",
+                &format!(
+                    "Batch mode enabled: max {} index size per batch",
+                    batch_align::format_bytes(max_index_bytes)
+                ),
+            );
+        }
+
+        let config = batch_align::BatchAlignConfig {
+            frequency,
+            threads,
+            min_alignment_length,
+            zstd_compress,
+            zstd_level,
+            keep_self,
+            quiet,
+        };
+
+        return batch_align::run_batch_alignment(fasta_files, max_index_bytes, &config, tempdir);
     }
 
     // Decide on alignment mode
@@ -1749,6 +1781,7 @@ fn main() -> Result<()> {
                         &args.files,
                         args.frequency,
                         args.all_pairs,
+                        args.batch_bytes,
                         args.threads,
                         args.keep_self,
                         args.tempdir.as_deref(),
@@ -1829,6 +1862,7 @@ fn main() -> Result<()> {
                         &args.files,
                         args.frequency,
                         args.all_pairs,
+                        args.batch_bytes,
                         args.threads,
                         args.keep_self,
                         args.tempdir.as_deref(),
@@ -1907,6 +1941,7 @@ fn main() -> Result<()> {
                     &args.files,
                     args.frequency,
                     args.all_pairs,
+                    args.batch_bytes,
                     args.threads,
                     args.keep_self,
                     args.tempdir.as_deref(),

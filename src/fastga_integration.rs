@@ -242,6 +242,48 @@ impl FastGAIntegration {
         Ok(gdb_base)
     }
 
+    /// Create GDB files only (no index) - used for batch alignment
+    /// Returns the gdb_base path (without extension)
+    pub fn create_gdb_only(&self, fasta_path: &Path) -> Result<String> {
+        Self::ensure_fastga_in_path()?;
+
+        let orchestrator = fastga_rs::orchestrator::FastGAOrchestrator {
+            num_threads: self.config.num_threads as i32,
+            min_length: self.config.min_alignment_length as i32,
+            min_identity: self.config.min_identity.unwrap_or(0.7),
+            kmer_freq: self.config.adaptive_seed_cutoff.unwrap_or(10) as i32,
+            temp_dir: get_temp_dir(),
+        };
+
+        let gdb_base = orchestrator
+            .prepare_gdb(fasta_path)
+            .map_err(|e| anyhow::anyhow!("Failed to prepare GDB: {e}"))?;
+
+        Ok(gdb_base)
+    }
+
+    /// Create index for an existing GDB - used for batch alignment
+    pub fn create_index_only(&self, gdb_base: &str) -> Result<()> {
+        Self::ensure_fastga_in_path()?;
+
+        let orchestrator = fastga_rs::orchestrator::FastGAOrchestrator {
+            num_threads: self.config.num_threads as i32,
+            min_length: self.config.min_alignment_length as i32,
+            min_identity: self.config.min_identity.unwrap_or(0.7),
+            kmer_freq: self.config.adaptive_seed_cutoff.unwrap_or(10) as i32,
+            temp_dir: get_temp_dir(),
+        };
+
+        orchestrator
+            .create_index(
+                gdb_base,
+                self.config.adaptive_seed_cutoff.unwrap_or(10) as i32,
+            )
+            .map_err(|e| anyhow::anyhow!("Failed to create index: {e}"))?;
+
+        Ok(())
+    }
+
     /// Compress ktab index files using zstd seekable format
     /// This reduces disk usage by ~2x and can improve I/O performance
     /// Level: 1-19 (higher = smaller files but slower compression)
@@ -294,6 +336,129 @@ impl FastGAIntegration {
         }
 
         eprintln!("[FastGA] Index compression complete");
+        Ok(())
+    }
+
+    /// Run FastGA alignment with direct PAF output (streaming, no .1aln intermediate)
+    /// This bypasses ALNtoPAF conversion issues
+    pub fn align_direct_paf(&self, queries: &Path, targets: &Path) -> Result<Vec<u8>> {
+        use std::process::Command;
+
+        // Get FastGA binary path
+        let fastga_bin = std::env::var("FASTGA_BIN_DIR")
+            .map(|dir| format!("{}/FastGA", dir))
+            .unwrap_or_else(|_| "FastGA".to_string());
+
+        // Determine kmer frequency threshold
+        let kmer_freq = if let Some(freq) = self.config.adaptive_seed_cutoff {
+            freq as i32
+        } else {
+            let num_haplotypes = Self::count_haplotypes(queries)?;
+            std::cmp::max(num_haplotypes, 10) as i32
+        };
+
+        // Use absolute paths to handle batch alignment where query and target
+        // may be in different directories with the same filename
+        let query_abs = queries
+            .canonicalize()
+            .unwrap_or_else(|_| queries.to_path_buf());
+        let target_abs = targets
+            .canonicalize()
+            .unwrap_or_else(|_| targets.to_path_buf());
+
+        // Set working directory to target's directory (where the index is)
+        let working_dir = target_abs
+            .parent()
+            .unwrap_or_else(|| std::path::Path::new("."));
+
+        // Build command - FastGA outputs PAF-like format directly to stdout
+        // Note: Not using -pafx because ALNtoPAF segfaults on some inputs
+        // The output is valid PAF without CIGAR strings (dv:f and df:i tags only)
+        let mut cmd = Command::new(&fastga_bin);
+        cmd.arg(format!("-T{}", self.config.num_threads));
+
+        if kmer_freq != 10 {
+            cmd.arg(format!("-f{}", kmer_freq));
+        }
+
+        if self.config.min_alignment_length > 0 {
+            cmd.arg(format!("-l{}", self.config.min_alignment_length));
+        }
+
+        if let Some(min_id) = self.config.min_identity {
+            if min_id > 0.0 {
+                cmd.arg(format!("-i{:.2}", min_id));
+            }
+        }
+
+        // Use absolute paths so cross-directory batch alignments work correctly
+        cmd.arg(&query_abs)
+            .arg(&target_abs)
+            .current_dir(working_dir);
+
+        let output = cmd
+            .output()
+            .with_context(|| format!("Failed to run FastGA: {}", fastga_bin))?;
+
+        if !output.status.success() {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            anyhow::bail!("FastGA failed: {}", stderr);
+        }
+
+        Ok(output.stdout)
+    }
+
+    /// Clean up GIX index files only (.gix, .ktab.*, .ktab.*.zst) for a given base path
+    /// Keeps .1gdb and .bps files which are needed for sequence name lookups
+    /// This frees most disk space while preserving ability to query
+    pub fn cleanup_index(gdb_base: &str) -> Result<()> {
+        let base_path = std::path::Path::new(gdb_base);
+        let parent = base_path
+            .parent()
+            .unwrap_or_else(|| std::path::Path::new("."));
+        let base_name = base_path.file_name().unwrap().to_str().unwrap();
+
+        // Remove .gix file and associated .ktab.* files
+        let gix_path = format!("{}.gix", gdb_base);
+        if let Ok(gix_file) = std::fs::File::open(&gix_path) {
+            use std::io::Read;
+            let mut header = [0u8; 8];
+            let mut gix_reader = std::io::BufReader::new(gix_file);
+            if gix_reader.read_exact(&mut header).is_ok() {
+                let nthreads = i32::from_le_bytes([header[4], header[5], header[6], header[7]]);
+                // Remove .ktab.* and .ktab.*.zst files (the big ones)
+                for p in 1..=nthreads {
+                    let ktab_path = parent.join(format!(".{}.ktab.{}", base_name, p));
+                    let ktab_zst_path = parent.join(format!(".{}.ktab.{}.zst", base_name, p));
+                    let _ = std::fs::remove_file(&ktab_path);
+                    let _ = std::fs::remove_file(&ktab_zst_path);
+                }
+            }
+        }
+        let _ = std::fs::remove_file(&gix_path);
+
+        // NOTE: We keep .1gdb and .bps files - they're needed for sequence name resolution
+        // when this batch is used as a QUERY (not target) later
+
+        Ok(())
+    }
+
+    /// Completely remove all files (.gdb, .gix, .bps, .ktab.*) for a given base path
+    pub fn cleanup_all(gdb_base: &str) -> Result<()> {
+        let base_path = std::path::Path::new(gdb_base);
+        let parent = base_path
+            .parent()
+            .unwrap_or_else(|| std::path::Path::new("."));
+        let base_name = base_path.file_name().unwrap().to_str().unwrap();
+
+        // First cleanup GIX
+        Self::cleanup_index(gdb_base)?;
+
+        // Then remove GDB files
+        let _ = std::fs::remove_file(format!("{}.1gdb", gdb_base));
+        let bps_path = parent.join(format!(".{}.bps", base_name));
+        let _ = std::fs::remove_file(&bps_path);
+
         Ok(())
     }
 
