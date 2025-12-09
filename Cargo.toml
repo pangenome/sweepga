@@ -33,7 +33,7 @@ rayon = "1.10"
 byteorder = "1.5"
 tempfile = "3.8"
 ordered-float = "4.0"
-fastga-rs = { git = "https://github.com/pangenome/fastga-rs", branch = "optional-zstd", default-features = false }
+fastga-rs = { git = "https://github.com/pangenome/fastga-rs", branch = "temp-dir", default-features = false }
 onecode = "0.1.0"
 chrono = "0.4"
 flate2 = "1.0"
@@ -43,7 +43,7 @@ rand = "0.8"
 
 [build-dependencies]
 cc = "1.0"
-fastga-rs = { git = "https://github.com/pangenome/fastga-rs", branch = "optional-zstd", default-features = false }
+fastga-rs = { git = "https://github.com/pangenome/fastga-rs", branch = "temp-dir", default-features = false }
 
 [[bin]]
 name = "sweepga"
