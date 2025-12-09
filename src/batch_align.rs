@@ -389,6 +389,7 @@ pub fn run_batch_alignment(
         config.frequency,
         config.threads,
         config.min_alignment_length,
+        tempdir.map(String::from),
     );
 
     // Phase 1: Create GDBs for ALL batches upfront
@@ -492,7 +493,7 @@ pub fn run_batch_alignment(
 fn run_single_batch_alignment(
     fasta_files: &[String],
     config: &BatchAlignConfig,
-    _tempdir: Option<&str>,
+    tempdir: Option<&str>,
 ) -> Result<tempfile::NamedTempFile> {
     use crate::fastga_integration::FastGAIntegration;
 
@@ -500,6 +501,7 @@ fn run_single_batch_alignment(
         config.frequency,
         config.threads,
         config.min_alignment_length,
+        tempdir.map(String::from),
     );
 
     // Use first file for self-alignment

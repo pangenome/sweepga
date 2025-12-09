@@ -10,9 +10,16 @@ use std::str::FromStr;
 use tempfile::NamedTempFile;
 
 /// Get the preferred temp directory for FastGA operations.
-/// Priority: TMPDIR env var > /dev/shm (if available) > current directory
-fn get_temp_dir() -> String {
-    // First check TMPDIR environment variable
+/// Priority: explicit override > TMPDIR env var > /dev/shm (if available) > current directory
+fn get_temp_dir(override_dir: Option<&str>) -> String {
+    // First check explicit override (from --tempdir CLI option)
+    if let Some(dir) = override_dir {
+        if !dir.is_empty() && std::path::Path::new(dir).is_dir() {
+            return dir.to_string();
+        }
+    }
+
+    // Then check TMPDIR environment variable
     if let Ok(tmpdir) = std::env::var("TMPDIR") {
         if !tmpdir.is_empty() && std::path::Path::new(&tmpdir).is_dir() {
             return tmpdir;
@@ -153,12 +160,18 @@ impl FromStr for FastGAPreset {
 /// This version just runs FastGA and writes output to a temp PAF file
 pub struct FastGAIntegration {
     config: Config,
+    temp_dir: Option<String>,
 }
 
 impl FastGAIntegration {
     /// Create a new FastGA integration with optional frequency parameter
     /// If not provided, auto-detects from PanSN haplotype count during alignment
-    pub fn new(frequency: Option<usize>, num_threads: usize, min_alignment_length: u64) -> Self {
+    pub fn new(
+        frequency: Option<usize>,
+        num_threads: usize,
+        min_alignment_length: u64,
+        temp_dir: Option<String>,
+    ) -> Self {
         let mut builder = Config::builder()
             .num_threads(num_threads)
             .min_alignment_length(min_alignment_length as usize)
@@ -171,7 +184,7 @@ impl FastGAIntegration {
         }
 
         let config = builder.build();
-        FastGAIntegration { config }
+        FastGAIntegration { config, temp_dir }
     }
 
     /// Create with custom parameters (for future use)
@@ -180,6 +193,7 @@ impl FastGAIntegration {
         min_identity: f64,
         min_alignment_length: u32,
         num_threads: usize,
+        temp_dir: Option<String>,
     ) -> Self {
         let config = Config::builder()
             .min_identity(min_identity)
@@ -188,7 +202,7 @@ impl FastGAIntegration {
             .verbose(true)
             .build();
 
-        FastGAIntegration { config }
+        FastGAIntegration { config, temp_dir }
     }
 
     /// Convert FASTA to GDB format (creates .gdb and .gix files)
@@ -227,7 +241,7 @@ impl FastGAIntegration {
             min_length: self.config.min_alignment_length as i32,
             min_identity: self.config.min_identity.unwrap_or(0.7),
             kmer_freq: self.config.adaptive_seed_cutoff.unwrap_or(10) as i32,
-            temp_dir: get_temp_dir(),
+            temp_dir: get_temp_dir(self.temp_dir.as_deref()),
         };
 
         // Prepare GDB
@@ -256,7 +270,7 @@ impl FastGAIntegration {
             min_length: self.config.min_alignment_length as i32,
             min_identity: self.config.min_identity.unwrap_or(0.7),
             kmer_freq: self.config.adaptive_seed_cutoff.unwrap_or(10) as i32,
-            temp_dir: get_temp_dir(),
+            temp_dir: get_temp_dir(self.temp_dir.as_deref()),
         };
 
         let gdb_base = orchestrator
@@ -275,7 +289,7 @@ impl FastGAIntegration {
             min_length: self.config.min_alignment_length as i32,
             min_identity: self.config.min_identity.unwrap_or(0.7),
             kmer_freq: self.config.adaptive_seed_cutoff.unwrap_or(10) as i32,
-            temp_dir: get_temp_dir(),
+            temp_dir: get_temp_dir(self.temp_dir.as_deref()),
         };
 
         orchestrator
@@ -532,7 +546,7 @@ impl FastGAIntegration {
             min_length: self.config.min_alignment_length as i32,
             min_identity: self.config.min_identity.unwrap_or(0.0),
             kmer_freq,
-            temp_dir: get_temp_dir(),
+            temp_dir: get_temp_dir(self.temp_dir.as_deref()),
         };
 
         // Run alignment - FastGA creates BOTH .1aln and .1gdb files
@@ -604,7 +618,7 @@ impl FastGAIntegration {
             min_length: self.config.min_alignment_length as i32,
             min_identity: self.config.min_identity.unwrap_or(0.0), // 0.0 means use FastGA default
             kmer_freq,
-            temp_dir: get_temp_dir(),
+            temp_dir: get_temp_dir(self.temp_dir.as_deref()),
         };
 
         // Run alignment with existing indices (returns PAF bytes directly)

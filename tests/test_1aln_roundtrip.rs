@@ -42,7 +42,7 @@ fn test_1aln_roundtrip_preserves_data() -> Result<()> {
     std::fs::write(&input_fasta, format!(">seq1\n{seq1}\n>seq2\n{seq2}\n"))?;
 
     // Align to create .1aln
-    let fastga = sweepga::fastga_integration::FastGAIntegration::new(None, 1, 100);
+    let fastga = sweepga::fastga_integration::FastGAIntegration::new(None, 1, 100, None);
     let aln_result = fastga.align_to_temp_1aln(&input_fasta, &input_fasta);
 
     if aln_result.is_err() {
@@ -168,7 +168,7 @@ fn test_1aln_roundtrip_with_filtering() -> Result<()> {
         format!(">seq1\n{seq1}\n>seq2\n{seq2}\n>seq3\n{seq3}\n"),
     )?;
 
-    let fastga = sweepga::fastga_integration::FastGAIntegration::new(None, 1, 100);
+    let fastga = sweepga::fastga_integration::FastGAIntegration::new(None, 1, 100, None);
     let aln_result = fastga.align_to_temp_1aln(&input_fasta, &input_fasta);
 
     if aln_result.is_err() {
