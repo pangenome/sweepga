@@ -212,21 +212,13 @@ impl FastGAIntegration {
     fn ensure_fastga_in_path() -> Result<()> {
         // Try to find FastGA using our binary_paths module
         if let Ok(fastga_path) = crate::binary_paths::get_embedded_binary_path("FastGA") {
-            // eprintln!(
-            //     "[FastGA] Found embedded binary at: {}",
-            //     fastga_path.display()
-            // );
             if let Some(fastga_dir) = fastga_path.parent() {
-                // Set ISOLATED PATH so FastGA can ONLY find its own utilities
-                // This prevents FastGA from accidentally using system binaries
-                // eprintln!(
-                //     "[FastGA] Setting ISOLATED PATH to: {}",
-                //     fastga_dir.display()
-                // );
-                std::env::set_var("PATH", fastga_dir.to_str().unwrap());
+                // Prepend FastGA directory to PATH so FastGA utilities are found first,
+                // but keep system PATH for shell utilities (sh, etc.) that FastGA needs
+                let current_path = std::env::var("PATH").unwrap_or_default();
+                let new_path = format!("{}:{}", fastga_dir.display(), current_path);
+                std::env::set_var("PATH", &new_path);
             }
-        } else {
-            // eprintln!("[FastGA] WARNING: Could not find embedded FastGA binary");
         }
         Ok(())
     }
