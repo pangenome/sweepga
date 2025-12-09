@@ -10,9 +10,16 @@ use std::str::FromStr;
 use tempfile::NamedTempFile;
 
 /// Get the preferred temp directory for FastGA operations.
-/// Priority: TMPDIR env var > /dev/shm (if available) > current directory
-fn get_temp_dir() -> String {
-    // First check TMPDIR environment variable
+/// Priority: explicit override > TMPDIR env var > /dev/shm (if available) > current directory
+fn get_temp_dir(override_dir: Option<&str>) -> String {
+    // First check explicit override (from --tempdir CLI option)
+    if let Some(dir) = override_dir {
+        if !dir.is_empty() && std::path::Path::new(dir).is_dir() {
+            return dir.to_string();
+        }
+    }
+
+    // Then check TMPDIR environment variable
     if let Ok(tmpdir) = std::env::var("TMPDIR") {
         if !tmpdir.is_empty() && std::path::Path::new(&tmpdir).is_dir() {
             return tmpdir;
@@ -153,12 +160,18 @@ impl FromStr for FastGAPreset {
 /// This version just runs FastGA and writes output to a temp PAF file
 pub struct FastGAIntegration {
     config: Config,
+    temp_dir: Option<String>,
 }
 
 impl FastGAIntegration {
     /// Create a new FastGA integration with optional frequency parameter
     /// If not provided, auto-detects from PanSN haplotype count during alignment
-    pub fn new(frequency: Option<usize>, num_threads: usize, min_alignment_length: u64) -> Self {
+    pub fn new(
+        frequency: Option<usize>,
+        num_threads: usize,
+        min_alignment_length: u64,
+        temp_dir: Option<String>,
+    ) -> Self {
         let mut builder = Config::builder()
             .num_threads(num_threads)
             .min_alignment_length(min_alignment_length as usize)
@@ -171,7 +184,7 @@ impl FastGAIntegration {
         }
 
         let config = builder.build();
-        FastGAIntegration { config }
+        FastGAIntegration { config, temp_dir }
     }
 
     /// Create with custom parameters (for future use)
@@ -180,6 +193,7 @@ impl FastGAIntegration {
         min_identity: f64,
         min_alignment_length: u32,
         num_threads: usize,
+        temp_dir: Option<String>,
     ) -> Self {
         let config = Config::builder()
             .min_identity(min_identity)
@@ -188,7 +202,7 @@ impl FastGAIntegration {
             .verbose(true)
             .build();
 
-        FastGAIntegration { config }
+        FastGAIntegration { config, temp_dir }
     }
 
     /// Convert FASTA to GDB format (creates .gdb and .gix files)
@@ -198,21 +212,13 @@ impl FastGAIntegration {
     fn ensure_fastga_in_path() -> Result<()> {
         // Try to find FastGA using our binary_paths module
         if let Ok(fastga_path) = crate::binary_paths::get_embedded_binary_path("FastGA") {
-            // eprintln!(
-            //     "[FastGA] Found embedded binary at: {}",
-            //     fastga_path.display()
-            // );
             if let Some(fastga_dir) = fastga_path.parent() {
-                // Set ISOLATED PATH so FastGA can ONLY find its own utilities
-                // This prevents FastGA from accidentally using system binaries
-                // eprintln!(
-                //     "[FastGA] Setting ISOLATED PATH to: {}",
-                //     fastga_dir.display()
-                // );
-                std::env::set_var("PATH", fastga_dir.to_str().unwrap());
+                // Prepend FastGA directory to PATH so FastGA utilities are found first,
+                // but keep system PATH for shell utilities (sh, etc.) that FastGA needs
+                let current_path = std::env::var("PATH").unwrap_or_default();
+                let new_path = format!("{}:{}", fastga_dir.display(), current_path);
+                std::env::set_var("PATH", &new_path);
             }
-        } else {
-            // eprintln!("[FastGA] WARNING: Could not find embedded FastGA binary");
         }
         Ok(())
     }
@@ -221,13 +227,18 @@ impl FastGAIntegration {
         // Ensure fastga-rs can find binaries
         Self::ensure_fastga_in_path()?;
 
+        // Set TMPDIR for FastGA's internal temp files (ONEcode uses this)
+        if let Some(ref dir) = self.temp_dir {
+            std::env::set_var("TMPDIR", dir);
+        }
+
         // Create a temporary FastGA instance to access orchestrator methods
         let orchestrator = fastga_rs::orchestrator::FastGAOrchestrator {
             num_threads: self.config.num_threads as i32,
             min_length: self.config.min_alignment_length as i32,
             min_identity: self.config.min_identity.unwrap_or(0.7),
             kmer_freq: self.config.adaptive_seed_cutoff.unwrap_or(10) as i32,
-            temp_dir: get_temp_dir(),
+            temp_dir: get_temp_dir(self.temp_dir.as_deref()),
         };
 
         // Prepare GDB
@@ -251,12 +262,17 @@ impl FastGAIntegration {
     pub fn create_gdb_only(&self, fasta_path: &Path) -> Result<String> {
         Self::ensure_fastga_in_path()?;
 
+        // Set TMPDIR for FastGA's internal temp files (ONEcode uses this)
+        if let Some(ref dir) = self.temp_dir {
+            std::env::set_var("TMPDIR", dir);
+        }
+
         let orchestrator = fastga_rs::orchestrator::FastGAOrchestrator {
             num_threads: self.config.num_threads as i32,
             min_length: self.config.min_alignment_length as i32,
             min_identity: self.config.min_identity.unwrap_or(0.7),
             kmer_freq: self.config.adaptive_seed_cutoff.unwrap_or(10) as i32,
-            temp_dir: get_temp_dir(),
+            temp_dir: get_temp_dir(self.temp_dir.as_deref()),
         };
 
         let gdb_base = orchestrator
@@ -270,12 +286,17 @@ impl FastGAIntegration {
     pub fn create_index_only(&self, gdb_base: &str) -> Result<()> {
         Self::ensure_fastga_in_path()?;
 
+        // Set TMPDIR for FastGA's internal temp files (ONEcode uses this)
+        if let Some(ref dir) = self.temp_dir {
+            std::env::set_var("TMPDIR", dir);
+        }
+
         let orchestrator = fastga_rs::orchestrator::FastGAOrchestrator {
             num_threads: self.config.num_threads as i32,
             min_length: self.config.min_alignment_length as i32,
             min_identity: self.config.min_identity.unwrap_or(0.7),
             kmer_freq: self.config.adaptive_seed_cutoff.unwrap_or(10) as i32,
-            temp_dir: get_temp_dir(),
+            temp_dir: get_temp_dir(self.temp_dir.as_deref()),
         };
 
         orchestrator
@@ -516,6 +537,11 @@ impl FastGAIntegration {
         // Ensure fastga-rs can find binaries
         Self::ensure_fastga_in_path()?;
 
+        // Set TMPDIR for FastGA's internal temp files (ONEcode uses this)
+        if let Some(ref dir) = self.temp_dir {
+            std::env::set_var("TMPDIR", dir);
+        }
+
         // Determine kmer frequency threshold
         // Default to number of haplotypes in query file for pangenome workflows
         let kmer_freq = if let Some(freq) = self.config.adaptive_seed_cutoff {
@@ -532,7 +558,7 @@ impl FastGAIntegration {
             min_length: self.config.min_alignment_length as i32,
             min_identity: self.config.min_identity.unwrap_or(0.0),
             kmer_freq,
-            temp_dir: get_temp_dir(),
+            temp_dir: get_temp_dir(self.temp_dir.as_deref()),
         };
 
         // Run alignment - FastGA creates BOTH .1aln and .1gdb files
@@ -588,6 +614,11 @@ impl FastGAIntegration {
         // Ensure fastga-rs can find binaries
         Self::ensure_fastga_in_path()?;
 
+        // Set TMPDIR for FastGA's internal temp files (ONEcode uses this)
+        if let Some(ref dir) = self.temp_dir {
+            std::env::set_var("TMPDIR", dir);
+        }
+
         // Determine kmer frequency threshold
         // Default to number of haplotypes in query file for pangenome workflows
         let kmer_freq = if let Some(freq) = self.config.adaptive_seed_cutoff {
@@ -604,7 +635,7 @@ impl FastGAIntegration {
             min_length: self.config.min_alignment_length as i32,
             min_identity: self.config.min_identity.unwrap_or(0.0), // 0.0 means use FastGA default
             kmer_freq,
-            temp_dir: get_temp_dir(),
+            temp_dir: get_temp_dir(self.temp_dir.as_deref()),
         };
 
         // Run alignment with existing indices (returns PAF bytes directly)

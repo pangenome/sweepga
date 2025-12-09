@@ -22,7 +22,7 @@ fn test_fastga_alignment_with_b3106() {
     let _temp_dir = TempDir::new().unwrap();
 
     // Use the FastGA integration module directly
-    let integration = sweepga::fastga_integration::FastGAIntegration::new(None, 1, 100);
+    let integration = sweepga::fastga_integration::FastGAIntegration::new(None, 1, 100, None);
 
     // Run self-alignment
     let result = integration.align_to_temp_1aln(fasta_path, fasta_path);
@@ -112,7 +112,7 @@ fn test_multisequence_synthetic() {
     .unwrap();
 
     // Use FastGA integration directly
-    let integration = sweepga::fastga_integration::FastGAIntegration::new(None, 1, 100);
+    let integration = sweepga::fastga_integration::FastGAIntegration::new(None, 1, 100, None);
     let result = integration.align_to_temp_1aln(&multi_fa, &multi_fa);
 
     if result.is_err() {
@@ -141,7 +141,7 @@ fn test_1aln_filtering_api() {
     fs::write(&test_fa, format!(">test\n{seq}\n")).unwrap();
 
     // Generate 1aln file
-    let integration = sweepga::fastga_integration::FastGAIntegration::new(None, 1, 100);
+    let integration = sweepga::fastga_integration::FastGAIntegration::new(None, 1, 100, None);
     let aln_result = integration.align_to_temp_1aln(&test_fa, &test_fa);
 
     if aln_result.is_err() {
@@ -201,7 +201,7 @@ fn test_small_sequence_alignment() {
     let seq = "ACGTACGTACGT".repeat(17); // ~200bp
     fs::write(&small_fa, format!(">small\n{seq}\n")).unwrap();
 
-    let integration = sweepga::fastga_integration::FastGAIntegration::new(None, 1, 100);
+    let integration = sweepga::fastga_integration::FastGAIntegration::new(None, 1, 100, None);
     let result = integration.align_to_temp_1aln(&small_fa, &small_fa);
 
     // This might fail for very small sequences, which is okay
@@ -231,7 +231,7 @@ fn test_pairwise_b3106() {
     fs::copy(fasta_path, &query).unwrap();
     fs::copy(fasta_path, &target).unwrap();
 
-    let integration = sweepga::fastga_integration::FastGAIntegration::new(None, 1, 100);
+    let integration = sweepga::fastga_integration::FastGAIntegration::new(None, 1, 100, None);
     let result = integration.align_to_temp_1aln(&query, &target);
 
     if result.is_err() {

@@ -274,7 +274,7 @@ fn test_paf_vs_1aln_with_small_data() {
     let temp_dir = TempDir::new().unwrap();
 
     // Use library API to generate alignments
-    let integration = sweepga::fastga_integration::FastGAIntegration::new(None, 1, 100);
+    let integration = sweepga::fastga_integration::FastGAIntegration::new(None, 1, 100, None);
 
     // Generate .1aln
     let aln_file = integration.align_to_temp_1aln(fasta_path, fasta_path);
