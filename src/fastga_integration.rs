@@ -1,3 +1,7 @@
+//! FastGA integration module
+//!
+//! This module provides integration with FastGA for genome alignment.
+
 use anyhow::{Context, Result};
 use fastga_rs::Config;
 use std::io::Write;
