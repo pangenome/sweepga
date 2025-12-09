@@ -235,6 +235,11 @@ impl FastGAIntegration {
         // Ensure fastga-rs can find binaries
         Self::ensure_fastga_in_path()?;
 
+        // Set TMPDIR for FastGA's internal temp files (ONEcode uses this)
+        if let Some(ref dir) = self.temp_dir {
+            std::env::set_var("TMPDIR", dir);
+        }
+
         // Create a temporary FastGA instance to access orchestrator methods
         let orchestrator = fastga_rs::orchestrator::FastGAOrchestrator {
             num_threads: self.config.num_threads as i32,
@@ -265,6 +270,11 @@ impl FastGAIntegration {
     pub fn create_gdb_only(&self, fasta_path: &Path) -> Result<String> {
         Self::ensure_fastga_in_path()?;
 
+        // Set TMPDIR for FastGA's internal temp files (ONEcode uses this)
+        if let Some(ref dir) = self.temp_dir {
+            std::env::set_var("TMPDIR", dir);
+        }
+
         let orchestrator = fastga_rs::orchestrator::FastGAOrchestrator {
             num_threads: self.config.num_threads as i32,
             min_length: self.config.min_alignment_length as i32,
@@ -283,6 +293,11 @@ impl FastGAIntegration {
     /// Create index for an existing GDB - used for batch alignment
     pub fn create_index_only(&self, gdb_base: &str) -> Result<()> {
         Self::ensure_fastga_in_path()?;
+
+        // Set TMPDIR for FastGA's internal temp files (ONEcode uses this)
+        if let Some(ref dir) = self.temp_dir {
+            std::env::set_var("TMPDIR", dir);
+        }
 
         let orchestrator = fastga_rs::orchestrator::FastGAOrchestrator {
             num_threads: self.config.num_threads as i32,
@@ -530,6 +545,11 @@ impl FastGAIntegration {
         // Ensure fastga-rs can find binaries
         Self::ensure_fastga_in_path()?;
 
+        // Set TMPDIR for FastGA's internal temp files (ONEcode uses this)
+        if let Some(ref dir) = self.temp_dir {
+            std::env::set_var("TMPDIR", dir);
+        }
+
         // Determine kmer frequency threshold
         // Default to number of haplotypes in query file for pangenome workflows
         let kmer_freq = if let Some(freq) = self.config.adaptive_seed_cutoff {
@@ -601,6 +621,11 @@ impl FastGAIntegration {
     pub fn align_to_temp_paf(&self, queries: &Path, targets: &Path) -> Result<NamedTempFile> {
         // Ensure fastga-rs can find binaries
         Self::ensure_fastga_in_path()?;
+
+        // Set TMPDIR for FastGA's internal temp files (ONEcode uses this)
+        if let Some(ref dir) = self.temp_dir {
+            std::env::set_var("TMPDIR", dir);
+        }
 
         // Determine kmer frequency threshold
         // Default to number of haplotypes in query file for pangenome workflows
