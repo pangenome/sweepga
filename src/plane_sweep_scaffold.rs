@@ -1,11 +1,25 @@
 use crate::filter_types::{FilterMode, ScoringFunction};
-use crate::plane_sweep_exact::{plane_sweep_query, plane_sweep_target, PlaneSweepMapping};
+use crate::plane_sweep_exact::{plane_sweep_both, PlaneSweepMapping};
 /// Plane sweep filtering for scaffold chains
 ///
 /// This module provides reusable plane sweep logic that works on any chain-like structure.
 /// It's used by both filter_scaffold.rs and paf_filter.rs to deduplicate overlapping scaffolds.
 use anyhow::Result;
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
+
+/// Extract PanSN genome prefix from sequence name
+/// Default: first two parts (genome#haplotype#) for standard PanSN format
+/// e.g., "SGDref#1#chrI" -> "SGDref#1#"
+fn extract_genome_prefix(name: &str) -> String {
+    let parts: Vec<&str> = name.split('#').collect();
+    if parts.len() >= 2 {
+        // Take first two parts: genome#haplotype#
+        format!("{}#{}#", parts[0], parts[1])
+    } else {
+        // No standard PanSN format, use whole name
+        name.to_string()
+    }
+}
 
 /// Trait for any structure that can be converted to plane sweep coordinates
 pub trait ScaffoldLike {
@@ -79,66 +93,87 @@ pub fn plane_sweep_scaffolds<T: ScaffoldLike>(
     Ok(kept_indices)
 }
 
-/// Apply 1:1 plane sweep (independent query and target sweeps, then intersection)
+/// Apply 1:1 plane sweep - group by GENOME PAIR, filter by CHROMOSOME PAIR
+///
+/// Grouping hierarchy:
+/// 1. Group scaffolds by genome pair (using PanSN prefix: genome#haplotype#)
+/// 2. Within each genome pair, further group by chromosome pair (full names)
+/// 3. Apply plane sweep filtering within each chromosome pair
+///
+/// This ensures:
+/// - Scaffolds between different genome pairs don't compete
+/// - Scaffolds on different chromosomes within same genome pair don't compete
+/// - Only scaffolds on the SAME chromosome pair compete via plane sweep
 fn apply_one_to_one_sweep(
     plane_sweep_mappings: &[(PlaneSweepMapping, String, String)],
     overlap_threshold: f64,
     scoring_function: ScoringFunction,
 ) -> Result<Vec<usize>> {
-    // Query axis sweep: group by query chromosome
-    let mut query_kept_set = HashSet::new();
-    let mut by_query: HashMap<String, Vec<usize>> = HashMap::new();
+    // First, organize by genome pair (for logging/organization)
+    let mut genome_pairs: HashMap<(String, String), HashMap<(String, String), Vec<usize>>> = HashMap::new();
 
-    for (i, (_, q, _t)) in plane_sweep_mappings.iter().enumerate() {
-        by_query.entry(q.clone()).or_default().push(i);
+    for (i, (_, q, t)) in plane_sweep_mappings.iter().enumerate() {
+        let q_prefix = extract_genome_prefix(q);
+        let t_prefix = extract_genome_prefix(t);
+        let chr_pair = (q.clone(), t.clone());
+
+        genome_pairs
+            .entry((q_prefix, t_prefix))
+            .or_default()
+            .entry(chr_pair)
+            .or_default()
+            .push(i);
     }
 
-    for (_q_chr, indices) in by_query {
-        let mut query_mappings: Vec<_> =
-            indices.iter().map(|&i| plane_sweep_mappings[i].0).collect();
-
-        let kept = plane_sweep_query(
-            &mut query_mappings,
-            1, // Keep 1 per query
-            overlap_threshold,
-            scoring_function,
-        );
-        for k in kept {
-            query_kept_set.insert(indices[k]);
+    // Log genome pairs found
+    if !genome_pairs.is_empty() {
+        let mut genome_pair_list: Vec<_> = genome_pairs.keys().collect();
+        genome_pair_list.sort();
+        eprintln!("[sweepga::scaffold] Found {} genome pairs for scaffold filtering:", genome_pair_list.len());
+        for (q_prefix, t_prefix) in &genome_pair_list {
+            let chr_count = genome_pairs.get(&(q_prefix.clone(), t_prefix.clone())).map(|m| m.len()).unwrap_or(0);
+            eprintln!("[sweepga::scaffold]   {} -> {} ({} chromosome pairs)",
+                     q_prefix.trim_end_matches('#'), t_prefix.trim_end_matches('#'), chr_count);
         }
     }
 
-    // Target axis sweep: group by target chromosome
-    let mut target_kept_set = HashSet::new();
-    let mut by_target: HashMap<String, Vec<usize>> = HashMap::new();
+    let mut all_kept = Vec::new();
 
-    for (i, (_, _q, t)) in plane_sweep_mappings.iter().enumerate() {
-        by_target.entry(t.clone()).or_default().push(i);
-    }
+    // Process each genome pair
+    for ((_q_prefix, _t_prefix), chr_pairs) in genome_pairs {
+        // Process each chromosome pair within this genome pair
+        for ((_q_chr, _t_chr), indices) in chr_pairs {
+            if indices.is_empty() {
+                continue;
+            }
 
-    for (_t_chr, indices) in by_target {
-        let mut target_mappings: Vec<_> =
-            indices.iter().map(|&i| plane_sweep_mappings[i].0).collect();
+            // Extract mappings for this chromosome pair
+            let mut pair_mappings: Vec<PlaneSweepMapping> =
+                indices.iter().map(|&i| plane_sweep_mappings[i].0).collect();
 
-        let kept = plane_sweep_target(
-            &mut target_mappings,
-            1, // Keep 1 per target
-            overlap_threshold,
-            scoring_function,
-        );
-        for k in kept {
-            target_kept_set.insert(indices[k]);
+            // Apply 1:1 plane sweep within this chromosome pair
+            // This keeps the best non-overlapping scaffolds on BOTH axes
+            let kept_in_pair = plane_sweep_both(
+                &mut pair_mappings,
+                1, // 1 per query position
+                1, // 1 per target position
+                overlap_threshold,
+                scoring_function,
+            );
+
+            // Map back to original indices
+            for &local_idx in &kept_in_pair {
+                all_kept.push(indices[local_idx]);
+            }
         }
     }
 
-    // Intersection: keep only indices that passed both sweeps
-    Ok(query_kept_set
-        .intersection(&target_kept_set)
-        .copied()
-        .collect())
+    Ok(all_kept)
 }
 
-/// Apply M:N plane sweep (independent query and target sweeps with limits, then intersection)
+/// Apply M:N plane sweep - group by GENOME PAIR, filter by CHROMOSOME PAIR
+///
+/// Same grouping hierarchy as 1:1, but with configurable M:N limits per position.
 fn apply_many_sweep(
     plane_sweep_mappings: &[(PlaneSweepMapping, String, String)],
     max_per_query: Option<usize>,
@@ -149,57 +184,53 @@ fn apply_many_sweep(
     let query_limit = max_per_query.unwrap_or(usize::MAX);
     let target_limit = max_per_target.unwrap_or(usize::MAX);
 
-    // Query axis sweep: group by query chromosome
-    let mut query_kept_set = HashSet::new();
-    let mut by_query: HashMap<String, Vec<usize>> = HashMap::new();
+    // First, organize by genome pair, then by chromosome pair
+    let mut genome_pairs: HashMap<(String, String), HashMap<(String, String), Vec<usize>>> = HashMap::new();
 
-    for (i, (_, q, _t)) in plane_sweep_mappings.iter().enumerate() {
-        by_query.entry(q.clone()).or_default().push(i);
+    for (i, (_, q, t)) in plane_sweep_mappings.iter().enumerate() {
+        let q_prefix = extract_genome_prefix(q);
+        let t_prefix = extract_genome_prefix(t);
+        let chr_pair = (q.clone(), t.clone());
+
+        genome_pairs
+            .entry((q_prefix, t_prefix))
+            .or_default()
+            .entry(chr_pair)
+            .or_default()
+            .push(i);
     }
 
-    for (_q_chr, indices) in by_query {
-        let mut query_mappings: Vec<_> =
-            indices.iter().map(|&i| plane_sweep_mappings[i].0).collect();
+    let mut all_kept = Vec::new();
 
-        let kept = plane_sweep_query(
-            &mut query_mappings,
-            query_limit,
-            overlap_threshold,
-            scoring_function,
-        );
-        for k in kept {
-            query_kept_set.insert(indices[k]);
+    // Process each genome pair
+    for ((_q_prefix, _t_prefix), chr_pairs) in genome_pairs {
+        // Process each chromosome pair within this genome pair
+        for ((_q_chr, _t_chr), indices) in chr_pairs {
+            if indices.is_empty() {
+                continue;
+            }
+
+            // Extract mappings for this chromosome pair
+            let mut pair_mappings: Vec<PlaneSweepMapping> =
+                indices.iter().map(|&i| plane_sweep_mappings[i].0).collect();
+
+            // Apply M:N plane sweep within this chromosome pair
+            let kept_in_pair = plane_sweep_both(
+                &mut pair_mappings,
+                query_limit,
+                target_limit,
+                overlap_threshold,
+                scoring_function,
+            );
+
+            // Map back to original indices
+            for &local_idx in &kept_in_pair {
+                all_kept.push(indices[local_idx]);
+            }
         }
     }
 
-    // Target axis sweep: group by target chromosome
-    let mut target_kept_set = HashSet::new();
-    let mut by_target: HashMap<String, Vec<usize>> = HashMap::new();
-
-    for (i, (_, _q, t)) in plane_sweep_mappings.iter().enumerate() {
-        by_target.entry(t.clone()).or_default().push(i);
-    }
-
-    for (_t_chr, indices) in by_target {
-        let mut target_mappings: Vec<_> =
-            indices.iter().map(|&i| plane_sweep_mappings[i].0).collect();
-
-        let kept = plane_sweep_target(
-            &mut target_mappings,
-            target_limit,
-            overlap_threshold,
-            scoring_function,
-        );
-        for k in kept {
-            target_kept_set.insert(indices[k]);
-        }
-    }
-
-    // Intersection: keep only indices that passed both sweeps
-    Ok(query_kept_set
-        .intersection(&target_kept_set)
-        .copied()
-        .collect())
+    Ok(all_kept)
 }
 
 #[cfg(test)]
