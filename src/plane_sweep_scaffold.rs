@@ -110,7 +110,8 @@ fn apply_one_to_one_sweep(
     scoring_function: ScoringFunction,
 ) -> Result<Vec<usize>> {
     // First, organize by genome pair (for logging/organization)
-    let mut genome_pairs: HashMap<(String, String), HashMap<(String, String), Vec<usize>>> = HashMap::new();
+    let mut genome_pairs: HashMap<(String, String), HashMap<(String, String), Vec<usize>>> =
+        HashMap::new();
 
     for (i, (_, q, t)) in plane_sweep_mappings.iter().enumerate() {
         let q_prefix = extract_genome_prefix(q);
@@ -129,11 +130,21 @@ fn apply_one_to_one_sweep(
     if !genome_pairs.is_empty() {
         let mut genome_pair_list: Vec<_> = genome_pairs.keys().collect();
         genome_pair_list.sort();
-        eprintln!("[sweepga::scaffold] Found {} genome pairs for scaffold filtering:", genome_pair_list.len());
+        eprintln!(
+            "[sweepga::scaffold] Found {} genome pairs for scaffold filtering:",
+            genome_pair_list.len()
+        );
         for (q_prefix, t_prefix) in &genome_pair_list {
-            let chr_count = genome_pairs.get(&(q_prefix.clone(), t_prefix.clone())).map(|m| m.len()).unwrap_or(0);
-            eprintln!("[sweepga::scaffold]   {} -> {} ({} chromosome pairs)",
-                     q_prefix.trim_end_matches('#'), t_prefix.trim_end_matches('#'), chr_count);
+            let chr_count = genome_pairs
+                .get(&(q_prefix.clone(), t_prefix.clone()))
+                .map(|m| m.len())
+                .unwrap_or(0);
+            eprintln!(
+                "[sweepga::scaffold]   {} -> {} ({} chromosome pairs)",
+                q_prefix.trim_end_matches('#'),
+                t_prefix.trim_end_matches('#'),
+                chr_count
+            );
         }
     }
 
@@ -185,7 +196,8 @@ fn apply_many_sweep(
     let target_limit = max_per_target.unwrap_or(usize::MAX);
 
     // First, organize by genome pair, then by chromosome pair
-    let mut genome_pairs: HashMap<(String, String), HashMap<(String, String), Vec<usize>>> = HashMap::new();
+    let mut genome_pairs: HashMap<(String, String), HashMap<(String, String), Vec<usize>>> =
+        HashMap::new();
 
     for (i, (_, q, t)) in plane_sweep_mappings.iter().enumerate() {
         let q_prefix = extract_genome_prefix(q);
