@@ -104,6 +104,7 @@ pub fn plane_sweep_scaffolds<T: ScaffoldLike>(
 /// - Scaffolds between different genome pairs don't compete
 /// - Scaffolds on different chromosomes within same genome pair don't compete
 /// - Only scaffolds on the SAME chromosome pair compete via plane sweep
+#[allow(clippy::type_complexity)]
 fn apply_one_to_one_sweep(
     plane_sweep_mappings: &[(PlaneSweepMapping, String, String)],
     overlap_threshold: f64,
@@ -185,6 +186,7 @@ fn apply_one_to_one_sweep(
 /// Apply M:N plane sweep - group by GENOME PAIR, filter by CHROMOSOME PAIR
 ///
 /// Same grouping hierarchy as 1:1, but with configurable M:N limits per position.
+#[allow(clippy::type_complexity)]
 fn apply_many_sweep(
     plane_sweep_mappings: &[(PlaneSweepMapping, String, String)],
     max_per_query: Option<usize>,
