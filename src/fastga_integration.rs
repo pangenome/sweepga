@@ -7,6 +7,8 @@ use fastga_rs::Config;
 use std::io::Write;
 use std::path::Path;
 use std::str::FromStr;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
 use tempfile::NamedTempFile;
 
 /// Get the preferred temp directory for FastGA operations.
@@ -638,16 +640,53 @@ impl FastGAIntegration {
             temp_dir: get_temp_dir(self.temp_dir.as_deref()),
         };
 
+        // Get the directory containing the input files (where indexes will be created)
+        // Use canonicalize to get absolute path, falling back to current dir
+        let index_dir = queries
+            .parent()
+            .and_then(|p| if p.as_os_str().is_empty() { None } else { Some(p) })
+            .map(|p| p.to_path_buf())
+            .or_else(|| std::env::current_dir().ok())
+            .unwrap_or_else(|| Path::new(".").to_path_buf());
+
+        // Start a background thread to monitor index file creation
+        let stop_flag = Arc::new(AtomicBool::new(false));
+        let stop_flag_clone = stop_flag.clone();
+        let index_dir_clone = index_dir.clone();
+
+        let monitor_handle = std::thread::spawn(move || {
+            let mut last_size = 0u64;
+            while !stop_flag_clone.load(Ordering::Relaxed) {
+                // Scan for index files and track the delta
+                if let Ok(current_size) =
+                    crate::disk_usage::scan_fastga_index_files(&index_dir_clone)
+                {
+                    if current_size != last_size {
+                        // Record the delta (positive = new files, negative = files deleted)
+                        if current_size > last_size {
+                            crate::disk_usage::add_bytes(current_size - last_size);
+                        } else {
+                            crate::disk_usage::remove_bytes(last_size - current_size);
+                        }
+                        last_size = current_size;
+                    }
+                }
+                std::thread::sleep(std::time::Duration::from_millis(50));
+            }
+            // Final cleanup - indexes are deleted after alignment
+            if last_size > 0 {
+                crate::disk_usage::remove_bytes(last_size);
+            }
+        });
+
         // Run alignment with existing indices (returns PAF bytes directly)
         let paf_output = orchestrator
             .align_with_existing_indices(queries, targets)
             .map_err(|e| anyhow::anyhow!("Failed to run FastGA alignment: {e}"))?;
 
-        // eprintln!(
-        //     "[sweepga] PAF output: {} bytes, {} lines",
-        //     paf_output.len(),
-        //     String::from_utf8_lossy(&paf_output).lines().count()
-        // );
+        // Stop the monitor thread (it will cleanup the index bytes on exit)
+        stop_flag.store(true, Ordering::Relaxed);
+        let _ = monitor_handle.join();
 
         // Write to temporary file
         let mut temp_file = NamedTempFile::new().context("Failed to create temporary PAF file")?;
@@ -659,6 +698,9 @@ impl FastGAIntegration {
         temp_file
             .flush()
             .context("Failed to flush temporary file")?;
+
+        // Track disk usage of the temp PAF file
+        crate::disk_usage::track_file_created(temp_file.path());
 
         Ok(temp_file)
     }

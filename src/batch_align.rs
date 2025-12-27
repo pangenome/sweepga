@@ -421,6 +421,13 @@ pub fn run_batch_alignment(
         }
         fastga.create_index_only(&gdb_bases[i])?;
 
+        // Track disk usage of index files
+        let index_dir = std::path::Path::new(&gdb_bases[i])
+            .parent()
+            .unwrap_or(std::path::Path::new("."));
+        let index_size = crate::disk_usage::scan_fastga_index_files(index_dir).unwrap_or(0);
+        crate::disk_usage::add_bytes(index_size);
+
         // Compress if requested
         if config.zstd_compress {
             fastga_integration::FastGAIntegration::compress_index(
@@ -470,6 +477,8 @@ pub fn run_batch_alignment(
         if !config.quiet {
             eprintln!("[batch] Cleaning up index for batch {}...", i + 1);
         }
+        // Untrack disk usage before cleanup
+        crate::disk_usage::remove_bytes(index_size);
         let _ = fastga_integration::FastGAIntegration::cleanup_index(&gdb_bases[i]);
     }
 

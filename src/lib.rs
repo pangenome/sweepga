@@ -2,6 +2,7 @@
 pub mod batch_align;
 pub mod binary_paths;
 pub mod compact_mapping;
+pub mod disk_usage;
 pub mod fastga_integration;
 pub mod filter_types;
 pub mod grouped_mappings;

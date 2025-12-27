@@ -2,6 +2,7 @@ mod aln_filter;
 mod batch_align;
 mod binary_paths;
 mod compact_mapping;
+mod disk_usage;
 mod fastga_integration;
 mod filter_types;
 mod grouped_mappings;
@@ -393,6 +394,10 @@ struct Args {
     /// Check FastGA binary locations and exit (diagnostic tool)
     #[clap(long = "check-fastga", help_heading = "General options")]
     check_fastga: bool,
+
+    /// Report disk usage statistics (current, peak, cumulative bytes written)
+    #[clap(long = "disk-usage", help_heading = "General options")]
+    disk_usage: bool,
 }
 
 fn parse_filter_mode(mode: &str, _filter_type: &str) -> (FilterMode, Option<usize>, Option<usize>) {
@@ -1625,6 +1630,15 @@ fn main() -> Result<()> {
                 }
 
                 let aln_path = temp_1aln.path().to_string_lossy().into_owned();
+
+                // Track disk usage of alignment file
+                disk_usage::track_file_created(&aln_path);
+                // Also track .1gdb if it exists
+                let gdb_path = aln_path.replace(".1aln", ".1gdb");
+                if std::path::Path::new(&gdb_path).exists() {
+                    disk_usage::track_file_created(&gdb_path);
+                }
+
                 (Some(temp_1aln), aln_path)
             } else {
                 // eprintln!("[sweepga] ERROR: No valid input provided");
@@ -2439,6 +2453,11 @@ fn main() -> Result<()> {
         } else {
             timing.log("done", &format!("Total: {total_elapsed:.1}s"));
         }
+    }
+
+    // Report disk usage if requested
+    if args.disk_usage {
+        disk_usage::log_summary();
     }
 
     Ok(())
