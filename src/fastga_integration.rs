@@ -644,7 +644,13 @@ impl FastGAIntegration {
         // Use canonicalize to get absolute path, falling back to current dir
         let index_dir = queries
             .parent()
-            .and_then(|p| if p.as_os_str().is_empty() { None } else { Some(p) })
+            .and_then(|p| {
+                if p.as_os_str().is_empty() {
+                    None
+                } else {
+                    Some(p)
+                }
+            })
             .map(|p| p.to_path_buf())
             .or_else(|| std::env::current_dir().ok())
             .unwrap_or_else(|| Path::new(".").to_path_buf());

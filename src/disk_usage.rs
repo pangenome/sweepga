@@ -137,7 +137,10 @@ pub fn log_summary() {
     eprintln!("[sweepga::disk] Disk usage summary:");
     eprintln!("[sweepga::disk]   Current:    {}", format_bytes(s.current));
     eprintln!("[sweepga::disk]   Peak:       {}", format_bytes(s.peak));
-    eprintln!("[sweepga::disk]   Cumulative: {}", format_bytes(s.cumulative));
+    eprintln!(
+        "[sweepga::disk]   Cumulative: {}",
+        format_bytes(s.cumulative)
+    );
 }
 
 /// Disk usage summary
