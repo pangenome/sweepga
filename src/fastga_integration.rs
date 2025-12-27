@@ -677,7 +677,7 @@ impl FastGAIntegration {
                         last_size = current_size;
                     }
                 }
-                std::thread::sleep(std::time::Duration::from_millis(50));
+                std::thread::sleep(std::time::Duration::from_millis(1000));
             }
             // Final cleanup - indexes are deleted after alignment
             if last_size > 0 {
