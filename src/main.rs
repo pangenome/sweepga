@@ -1325,7 +1325,7 @@ fn process_agc_archive(
         timing.log("agc", &format!("Extracted to: {}", fasta_path.display()));
     }
 
-    // Run FastGA alignment
+    // Run FastGA alignment using direct PAF output (bypasses ALNtoPAF segfaults)
     let fastga = create_fastga_integration(
         args.frequency,
         args.threads,
@@ -1337,7 +1337,16 @@ fn process_agc_archive(
         timing.log("align", "Running FastGA alignment...");
     }
 
-    let temp_paf = fastga.align_to_temp_paf(&fasta_path, &fasta_path)?;
+    let paf_bytes = fastga.align_direct_paf(&fasta_path, &fasta_path)?;
+
+    // Write to temp file
+    use std::io::Write;
+    let mut temp_paf = tempfile::Builder::new()
+        .prefix("sweepga_agc_")
+        .suffix(".paf")
+        .tempfile_in(&temp_base)?;
+    temp_paf.write_all(&paf_bytes)?;
+    temp_paf.flush()?;
 
     // temp_fasta will be cleaned up when it goes out of scope
     // But we need to keep it alive until alignment is done, which it is now
