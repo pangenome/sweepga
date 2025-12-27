@@ -34,6 +34,7 @@ byteorder = "1.5"
 tempfile = "3.8"
 ordered-float = "4.0"
 fastga-rs = { git = "https://github.com/pangenome/fastga-rs", branch = "unique-tmp-name", default-features = false }
+ragc-core = { git = "https://github.com/ekg/ragc" }
 onecode = "0.1.0"
 chrono = "0.4"
 flate2 = "1.0"

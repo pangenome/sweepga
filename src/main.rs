@@ -1,3 +1,4 @@
+mod agc;
 mod aln_filter;
 mod batch_align;
 mod binary_paths;
@@ -77,12 +78,18 @@ enum FileType {
     Fasta,
     Paf,
     Aln, // .1aln binary format
+    Agc, // AGC compressed genome archive
 }
 
 /// Detect file type by reading first non-empty line or checking file extension
 /// Handles .gz files automatically
 fn detect_file_type(path: &str) -> Result<FileType> {
-    // Check for .1aln extension first (binary format)
+    // Check for .agc extension first (AGC archive)
+    if path.ends_with(".agc") || path.ends_with(".AGC") {
+        return Ok(FileType::Agc);
+    }
+
+    // Check for .1aln extension (binary format)
     if path.ends_with(".1aln") {
         return Ok(FileType::Aln);
     }
@@ -398,6 +405,29 @@ struct Args {
     /// Report disk usage statistics (current, peak, cumulative bytes written)
     #[clap(long = "disk-usage", help_heading = "General options")]
     disk_usage: bool,
+
+    // ============================================================================
+    // AGC Archive Options
+    // ============================================================================
+    /// Extract only samples matching this prefix (AGC input)
+    #[clap(long = "agc-prefix", help_heading = "AGC archive options")]
+    agc_prefix: Option<String>,
+
+    /// Extract only these samples (comma-separated or @file with one per line)
+    #[clap(long = "agc-samples", help_heading = "AGC archive options")]
+    agc_samples: Option<String>,
+
+    /// Query samples for asymmetric alignment (prefix or comma-separated/@file list)
+    #[clap(long = "agc-queries", help_heading = "AGC archive options")]
+    agc_queries: Option<String>,
+
+    /// Target samples for asymmetric alignment (prefix or comma-separated/@file list)
+    #[clap(long = "agc-targets", help_heading = "AGC archive options")]
+    agc_targets: Option<String>,
+
+    /// Temp directory for AGC extraction (defaults to --tempdir)
+    #[clap(long = "agc-tempdir", help_heading = "AGC archive options")]
+    agc_tempdir: Option<String>,
 }
 
 fn parse_filter_mode(mode: &str, _filter_type: &str) -> (FilterMode, Option<usize>, Option<usize>) {
@@ -1218,6 +1248,270 @@ fn align_multiple_fastas(
     Ok(temp_paf)
 }
 
+/// Process an AGC archive: extract samples and run FastGA alignment
+#[allow(clippy::too_many_arguments)]
+fn process_agc_archive(
+    agc_path: &str,
+    args: &Args,
+    agc_tempdir: Option<&str>,
+    timing: &TimingContext,
+) -> Result<tempfile::NamedTempFile> {
+    use agc::AgcSource;
+
+    if !args.quiet {
+        timing.log("agc", &format!("Opening AGC archive: {}", agc_path));
+    }
+
+    let mut agc = AgcSource::open(agc_path)?;
+
+    // Determine which samples to process
+    let samples = determine_agc_samples(&mut agc, args, timing)?;
+
+    if samples.is_empty() {
+        anyhow::bail!("No samples found in AGC archive matching the specified criteria");
+    }
+
+    if !args.quiet {
+        timing.log("agc", &format!("Selected {} samples for alignment", samples.len()));
+    }
+
+    // Get sizes for batch planning
+    let sizes = agc.get_sample_sizes_for(&samples)?;
+    let total_bp: u64 = sizes.values().sum();
+
+    if !args.quiet {
+        timing.log(
+            "agc",
+            &format!(
+                "Total sequence: {} bp ({} samples)",
+                batch_align::format_bytes(total_bp),
+                samples.len()
+            ),
+        );
+    }
+
+    // Determine temp directory for extraction
+    let temp_base = if let Some(dir) = agc_tempdir {
+        std::path::PathBuf::from(dir)
+    } else if let Ok(tmpdir) = std::env::var("TMPDIR") {
+        std::path::PathBuf::from(tmpdir)
+    } else {
+        std::path::PathBuf::from("/tmp")
+    };
+
+    // Check if we should use batch mode
+    if let Some(max_index_bytes) = args.batch_bytes {
+        // Batch mode: partition samples and process incrementally
+        return process_agc_batched(
+            &mut agc,
+            &samples,
+            &sizes,
+            max_index_bytes,
+            args,
+            &temp_base,
+            timing,
+        );
+    }
+
+    // Non-batch mode: extract all samples to a single temp FASTA
+    if !args.quiet {
+        timing.log("agc", "Extracting all samples to temp FASTA...");
+    }
+
+    let temp_fasta = agc.extract_samples_to_temp(&samples, Some(&temp_base))?;
+    let fasta_path = temp_fasta.path().to_path_buf();
+
+    if !args.quiet {
+        timing.log("agc", &format!("Extracted to: {}", fasta_path.display()));
+    }
+
+    // Run FastGA alignment
+    let fastga = create_fastga_integration(
+        args.frequency,
+        args.threads,
+        args.block_length,
+        args.tempdir.clone(),
+    )?;
+
+    if !args.quiet {
+        timing.log("align", "Running FastGA alignment...");
+    }
+
+    let temp_paf = fastga.align_to_temp_paf(&fasta_path, &fasta_path)?;
+
+    // temp_fasta will be cleaned up when it goes out of scope
+    // But we need to keep it alive until alignment is done, which it is now
+
+    Ok(temp_paf)
+}
+
+/// Determine which samples to extract from an AGC archive based on CLI args
+fn determine_agc_samples(
+    agc: &mut agc::AgcSource,
+    args: &Args,
+    timing: &TimingContext,
+) -> Result<Vec<String>> {
+    use agc::parse_sample_list;
+
+    // Check for asymmetric alignment (queries vs targets)
+    if args.agc_queries.is_some() || args.agc_targets.is_some() {
+        let queries = get_agc_sample_set(agc, args.agc_queries.as_deref(), "queries", timing)?;
+        let targets = get_agc_sample_set(agc, args.agc_targets.as_deref(), "targets", timing)?;
+
+        if !args.quiet {
+            timing.log(
+                "agc",
+                &format!("{} queries, {} targets", queries.len(), targets.len()),
+            );
+        }
+
+        // For asymmetric alignment, we need both sets
+        // Return the union for now (TODO: implement true asymmetric alignment)
+        let mut all_samples: std::collections::HashSet<String> = queries.into_iter().collect();
+        all_samples.extend(targets);
+        return Ok(all_samples.into_iter().collect());
+    }
+
+    // Check for explicit sample list
+    if let Some(ref sample_spec) = args.agc_samples {
+        let samples = parse_sample_list(sample_spec)?;
+        if !args.quiet {
+            timing.log("agc", &format!("Using {} samples from list", samples.len()));
+        }
+        return Ok(samples);
+    }
+
+    // Check for prefix filter
+    if let Some(ref prefix) = args.agc_prefix {
+        let samples = agc.list_samples_with_prefix(prefix);
+        if !args.quiet {
+            timing.log(
+                "agc",
+                &format!("{} samples matching prefix '{}'", samples.len(), prefix),
+            );
+        }
+        return Ok(samples);
+    }
+
+    // Default: all samples
+    let samples = agc.list_samples();
+    if !args.quiet {
+        timing.log("agc", &format!("Using all {} samples", samples.len()));
+    }
+    Ok(samples)
+}
+
+/// Get a set of samples from AGC based on a spec (prefix or list)
+fn get_agc_sample_set(
+    agc: &mut agc::AgcSource,
+    spec: Option<&str>,
+    _name: &str,
+    _timing: &TimingContext,
+) -> Result<Vec<String>> {
+    match spec {
+        None => {
+            // No spec means all samples
+            Ok(agc.list_samples())
+        }
+        Some(s) if s.starts_with('@') || s.contains(',') => {
+            // Explicit list
+            agc::parse_sample_list(s)
+        }
+        Some(prefix) => {
+            // Prefix match
+            Ok(agc.list_samples_with_prefix(prefix))
+        }
+    }
+}
+
+/// Process AGC archive in batches to limit disk usage
+fn process_agc_batched(
+    agc: &mut agc::AgcSource,
+    samples: &[String],
+    sizes: &std::collections::HashMap<String, u64>,
+    max_index_bytes: u64,
+    args: &Args,
+    temp_base: &std::path::Path,
+    timing: &TimingContext,
+) -> Result<tempfile::NamedTempFile> {
+    use std::io::Write;
+
+    if !args.quiet {
+        timing.log(
+            "batch",
+            &format!(
+                "Batch mode: max {} index size",
+                batch_align::format_bytes(max_index_bytes)
+            ),
+        );
+    }
+
+    // Partition samples into batches based on estimated index size
+    // Index estimate: 0.1GB + 12 bytes per bp
+    let mut batches: Vec<Vec<String>> = Vec::new();
+    let mut current_batch: Vec<String> = Vec::new();
+    let mut current_size: u64 = 0;
+
+    for sample in samples {
+        let sample_size = sizes.get(sample).copied().unwrap_or(0);
+        let estimated_index = 100_000_000 + sample_size * 12; // 0.1GB + 12 bytes/bp
+
+        if current_size + estimated_index > max_index_bytes && !current_batch.is_empty() {
+            batches.push(std::mem::take(&mut current_batch));
+            current_size = 0;
+        }
+
+        current_batch.push(sample.clone());
+        current_size += estimated_index;
+    }
+
+    if !current_batch.is_empty() {
+        batches.push(current_batch);
+    }
+
+    if !args.quiet {
+        timing.log("batch", &format!("Partitioned into {} batches", batches.len()));
+    }
+
+    // Create output temp file for combined PAF
+    let mut output_paf = tempfile::Builder::new()
+        .prefix("sweepga_agc_")
+        .suffix(".paf")
+        .tempfile_in(temp_base)?;
+
+    // Process each batch
+    for (batch_idx, batch) in batches.iter().enumerate() {
+        if !args.quiet {
+            timing.log(
+                "batch",
+                &format!("Processing batch {}/{} ({} samples)", batch_idx + 1, batches.len(), batch.len()),
+            );
+        }
+
+        // Extract batch to temp FASTA
+        let temp_fasta = agc.extract_samples_to_temp(batch, Some(temp_base))?;
+        let fasta_path = temp_fasta.path().to_path_buf();
+
+        // Run FastGA alignment
+        let fastga = create_fastga_integration(
+            args.frequency,
+            args.threads,
+            args.block_length,
+            args.tempdir.clone(),
+        )?;
+
+        let temp_paf = fastga.align_to_temp_paf(&fasta_path, &fasta_path)?;
+
+        // Append PAF to output
+        let paf_content = std::fs::read_to_string(temp_paf.path())?;
+        write!(output_paf.as_file_mut(), "{}", paf_content)?;
+
+        // temp_fasta and temp_paf are cleaned up here
+    }
+
+    Ok(output_paf)
+}
+
 /// Align all genome pairs separately in both directions (for --all-pairs mode)
 #[allow(clippy::too_many_arguments)]
 fn align_all_pairs_mode(
@@ -2026,8 +2320,35 @@ fn main() -> Result<()> {
 
                 (Some(temp_paf), paf_path)
             }
+            (1, false) if file_types[0] == FileType::Agc => {
+                // AGC archive - extract samples and align
+                let alignment_start = Instant::now();
+
+                let agc_tempdir = args.agc_tempdir.as_deref().or(args.tempdir.as_deref());
+
+                let temp_paf = process_agc_archive(
+                    &args.files[0],
+                    &args,
+                    agc_tempdir,
+                    &timing,
+                )?;
+
+                alignment_time = Some(alignment_start.elapsed().as_secs_f64());
+                if !args.quiet {
+                    timing.log(
+                        "align",
+                        &format!(
+                            "AGC alignment complete ({:.1}s)",
+                            alignment_time.unwrap()
+                        ),
+                    );
+                }
+
+                let paf_path = temp_paf.path().to_string_lossy().into_owned();
+                (Some(temp_paf), paf_path)
+            }
             _ => {
-                anyhow::bail!("Invalid file combination: expected FASTA file(s) for alignment, 1 PAF for filtering, or 1 .1aln for filtering");
+                anyhow::bail!("Invalid file combination: expected FASTA file(s) for alignment, 1 PAF for filtering, 1 .1aln for filtering, or 1 .agc archive");
             }
         }
     } else {
@@ -2120,6 +2441,9 @@ fn main() -> Result<()> {
                 // Keep both temp files alive
                 Box::leak(Box::new(temp));
                 (Some(temp_paf), paf_path)
+            }
+            FileType::Agc => {
+                anyhow::bail!("AGC archives cannot be read from stdin - please provide a file path");
             }
         }
     };
