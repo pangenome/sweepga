@@ -1432,17 +1432,14 @@ fn process_agc_batched(
     max_index_bytes: u64,
     args: &Args,
     temp_base: &std::path::Path,
-    timing: &TimingContext,
+    _timing: &TimingContext,
 ) -> Result<tempfile::NamedTempFile> {
     use std::io::Write;
 
     if !args.quiet {
-        timing.log(
-            "batch",
-            &format!(
-                "Batch mode: max {} index size",
-                batch_align::format_bytes(max_index_bytes)
-            ),
+        eprintln!(
+            "[batch] Batch mode: max {} index size",
+            batch_align::format_bytes(max_index_bytes)
         );
     }
 
@@ -1469,44 +1466,111 @@ fn process_agc_batched(
         batches.push(current_batch);
     }
 
+    let num_batches = batches.len();
     if !args.quiet {
-        timing.log("batch", &format!("Partitioned into {} batches", batches.len()));
+        eprintln!("[batch] Partitioned {} samples into {} batches", samples.len(), num_batches);
     }
 
-    // Create output temp file for combined PAF
+    // Phase 1: Extract all batches to temp FASTA files
+    let batch_dir = temp_base.join(format!("sweepga_agc_batches_{}", std::process::id()));
+    std::fs::create_dir_all(&batch_dir)?;
+
+    let mut batch_files: Vec<std::path::PathBuf> = Vec::new();
+    for (i, batch) in batches.iter().enumerate() {
+        let batch_file = batch_dir.join(format!("batch_{}.fa", i));
+        agc.extract_samples_to_fasta(batch, &batch_file)?;
+        if !args.quiet {
+            eprintln!("[batch] Extracted batch {} ({} samples)", i + 1, batch.len());
+        }
+        batch_files.push(batch_file);
+    }
+
+    // Create FastGA integration
+    // Use temp_base (not batch_dir) so TMPDIR isn't set to a directory we'll delete
+    let fastga = create_fastga_integration(
+        args.frequency,
+        args.threads,
+        args.block_length,
+        Some(temp_base.to_string_lossy().to_string()),
+    )?;
+
+    // Phase 2: Create GDB for all batches
+    if !args.quiet {
+        eprintln!("[batch] Creating GDB files...");
+    }
+    let mut gdb_bases: Vec<String> = Vec::new();
+    for (i, batch_file) in batch_files.iter().enumerate() {
+        if !args.quiet {
+            eprintln!("[batch]   GDB for batch {}...", i + 1);
+        }
+        let gdb_base = fastga.create_gdb_only(batch_file)?;
+        gdb_bases.push(gdb_base);
+    }
+
+    // Create merged output file
     let mut output_paf = tempfile::Builder::new()
         .prefix("sweepga_agc_")
         .suffix(".paf")
         .tempfile_in(temp_base)?;
 
-    // Process each batch
-    for (batch_idx, batch) in batches.iter().enumerate() {
+    let mut total_alignments = 0;
+
+    // Phase 3: All-pairs alignment between batches
+    // For each target batch i, create index, run alignments, cleanup index
+    for i in 0..num_batches {
         if !args.quiet {
-            timing.log(
-                "batch",
-                &format!("Processing batch {}/{} ({} samples)", batch_idx + 1, batches.len(), batch.len()),
-            );
+            eprintln!("[batch] Building index for batch {}...", i + 1);
+        }
+        fastga.create_index_only(&gdb_bases[i])?;
+
+        // Compress if requested
+        if args.zstd_compress {
+            fastga_integration::FastGAIntegration::compress_index(&gdb_bases[i], args.zstd_level)?;
         }
 
-        // Extract batch to temp FASTA
-        let temp_fasta = agc.extract_samples_to_temp(batch, Some(temp_base))?;
-        let fasta_path = temp_fasta.path().to_path_buf();
+        for j in 0..num_batches {
+            if !args.quiet {
+                if i == j {
+                    eprintln!("[batch] Aligning batch {} to itself...", i + 1);
+                } else {
+                    eprintln!("[batch] Aligning batch {} vs batch {}...", j + 1, i + 1);
+                }
+            }
 
-        // Run FastGA alignment
-        let fastga = create_fastga_integration(
-            args.frequency,
-            args.threads,
-            args.block_length,
-            args.tempdir.clone(),
-        )?;
+            // Run alignment: query batch j against target batch i
+            // Use direct PAF output to avoid ALNtoPAF conversion issues
+            let paf_bytes = fastga.align_direct_paf(&batch_files[j], &batch_files[i])?;
 
-        let temp_paf = fastga.align_to_temp_paf(&fasta_path, &fasta_path)?;
+            let line_count = paf_bytes.iter().filter(|&&b| b == b'\n').count();
+            total_alignments += line_count;
 
-        // Append PAF to output
-        let paf_content = std::fs::read_to_string(temp_paf.path())?;
-        write!(output_paf.as_file_mut(), "{}", paf_content)?;
+            output_paf.as_file_mut().write_all(&paf_bytes)?;
 
-        // temp_fasta and temp_paf are cleaned up here
+            if !args.quiet {
+                eprintln!("[batch]   {} alignments", line_count);
+            }
+
+            // Clean up query index if FastGA auto-created one (j != i)
+            if j != i {
+                let _ = fastga_integration::FastGAIntegration::cleanup_index(&gdb_bases[j]);
+            }
+        }
+
+        // Clean up index for batch i to free disk space
+        if !args.quiet {
+            eprintln!("[batch] Cleaning up index for batch {}...", i + 1);
+        }
+        let _ = fastga_integration::FastGAIntegration::cleanup_index(&gdb_bases[i]);
+    }
+
+    // Phase 4: Clean up all GDB files and batch directory
+    for gdb_base in &gdb_bases {
+        let _ = fastga_integration::FastGAIntegration::cleanup_all(gdb_base);
+    }
+    let _ = std::fs::remove_dir_all(&batch_dir);
+
+    if !args.quiet {
+        eprintln!("[batch] Completed batch alignment: {} total alignments", total_alignments);
     }
 
     Ok(output_paf)
