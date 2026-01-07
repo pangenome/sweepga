@@ -7,7 +7,9 @@ mod disk_usage;
 mod fastga_integration;
 mod filter_types;
 mod grouped_mappings;
+mod knn_graph;
 mod mapping;
+mod mash;
 mod paf;
 mod paf_filter;
 mod plane_sweep;
@@ -428,6 +430,45 @@ struct Args {
     /// Temp directory for AGC extraction (defaults to --tempdir)
     #[clap(long = "agc-tempdir", help_heading = "AGC archive options")]
     agc_tempdir: Option<String>,
+
+    // ============================================================================
+    // Pair Selection (for incremental/targeted alignment)
+    // ============================================================================
+    /// File of sample pairs to align (TSV: query<tab>target, one pair per line)
+    #[clap(long = "pairs", help_heading = "Pair selection")]
+    pairs_file: Option<String>,
+
+    /// File to append completed pairs (for resume capability)
+    #[clap(long = "pairs-done", help_heading = "Pair selection")]
+    pairs_done: Option<String>,
+
+    /// File to write remaining pairs after run (for resume capability)
+    #[clap(long = "pairs-remaining", help_heading = "Pair selection")]
+    pairs_remaining: Option<String>,
+
+    /// List all sample pairs and exit (for generating pairs files)
+    #[clap(long = "list-pairs", help_heading = "Pair selection")]
+    list_pairs: bool,
+
+    /// Shuffle pair order (for load balancing across runs)
+    #[clap(long = "shuffle-pairs", help_heading = "Pair selection")]
+    shuffle_pairs: bool,
+
+    /// Seed for pair shuffling (for reproducible ordering)
+    #[clap(long = "shuffle-seed", help_heading = "Pair selection")]
+    shuffle_seed: Option<u64>,
+
+    /// Maximum number of pairs to process in this run (0 = unlimited)
+    #[clap(long = "max-pairs", default_value = "0", help_heading = "Pair selection")]
+    max_pairs: usize,
+
+    /// Start index for pair range (0-based, use with shuffle-seed for stable ordering)
+    #[clap(long = "pair-start", default_value = "0", help_heading = "Pair selection")]
+    pair_start: usize,
+
+    /// Sparsification strategy for pair selection (none, auto, random:<frac>, giant:<prob>, tree:<near>:<far>:<random>[:<kmer>])
+    #[clap(long = "sparsify-pairs", default_value = "none", help_heading = "Pair selection")]
+    sparsify_pairs: String,
 }
 
 fn parse_filter_mode(mode: &str, _filter_type: &str) -> (FilterMode, Option<usize>, Option<usize>) {
@@ -1248,8 +1289,18 @@ fn align_multiple_fastas(
     Ok(temp_paf)
 }
 
-/// Process an AGC archive: extract samples and run FastGA alignment
-#[allow(clippy::too_many_arguments)]
+/// Check if pair-mode processing is requested
+fn is_pair_mode(args: &Args) -> bool {
+    args.pairs_file.is_some()
+        || args.list_pairs
+        || args.shuffle_pairs
+        || args.pair_start > 0
+        || args.max_pairs > 0
+        || args.pairs_done.is_some()
+        || args.pairs_remaining.is_some()
+        || args.sparsify_pairs != "none"
+}
+
 fn process_agc_archive(
     agc_path: &str,
     args: &Args,
@@ -1263,6 +1314,44 @@ fn process_agc_archive(
     }
 
     let mut agc = AgcSource::open(agc_path)?;
+
+    // Determine temp directory for extraction
+    let temp_base = if let Some(dir) = agc_tempdir {
+        std::path::PathBuf::from(dir)
+    } else if let Ok(tmpdir) = std::env::var("TMPDIR") {
+        std::path::PathBuf::from(tmpdir)
+    } else {
+        std::path::PathBuf::from("/tmp")
+    };
+
+    // Check for pair-mode processing (--list-pairs, --pairs, --shuffle-pairs, etc.)
+    if is_pair_mode(args) || args.list_pairs {
+        // Generate or read pairs
+        let pairs = get_pairs_from_args(&mut agc, args, timing, Some(&temp_base))?;
+
+        // Handle --list-pairs: output pairs and exit
+        if args.list_pairs {
+            // Apply shuffle and range before listing
+            let pairs = apply_pair_filters(pairs, args, timing)?;
+            for pair in &pairs {
+                println!("{}", pair.to_tsv());
+            }
+            // Return empty PAF file (won't be used since we exit early)
+            let output_paf = tempfile::Builder::new()
+                .prefix("sweepga_pairs_")
+                .suffix(".paf")
+                .tempfile_in(&temp_base)?;
+            return Ok(output_paf);
+        }
+
+        // Apply filters (shuffle, range, done filtering)
+        let pairs = apply_pair_filters(pairs, args, timing)?;
+
+        // Process pairs
+        return process_agc_pairs(&mut agc, &pairs, args, &temp_base, timing);
+    }
+
+    // Standard mode: process all samples together
 
     // Determine which samples to process
     let samples = determine_agc_samples(&mut agc, args, timing)?;
@@ -1289,15 +1378,6 @@ fn process_agc_archive(
             ),
         );
     }
-
-    // Determine temp directory for extraction
-    let temp_base = if let Some(dir) = agc_tempdir {
-        std::path::PathBuf::from(dir)
-    } else if let Ok(tmpdir) = std::env::var("TMPDIR") {
-        std::path::PathBuf::from(tmpdir)
-    } else {
-        std::path::PathBuf::from("/tmp")
-    };
 
     // Check if we should use batch mode
     if let Some(max_index_bytes) = args.batch_bytes {
@@ -1431,6 +1511,461 @@ fn get_agc_sample_set(
             Ok(agc.list_samples_with_prefix(prefix))
         }
     }
+}
+
+/// A pair of samples to align (query, target)
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct SamplePair {
+    pub query: String,
+    pub target: String,
+}
+
+impl SamplePair {
+    pub fn new(query: String, target: String) -> Self {
+        Self { query, target }
+    }
+
+    /// Parse from TSV line (query\ttarget)
+    pub fn from_tsv(line: &str) -> Option<Self> {
+        let parts: Vec<&str> = line.trim().split('\t').collect();
+        if parts.len() >= 2 {
+            Some(Self::new(parts[0].to_string(), parts[1].to_string()))
+        } else {
+            None
+        }
+    }
+
+    /// Format as TSV line
+    pub fn to_tsv(&self) -> String {
+        format!("{}\t{}", self.query, self.target)
+    }
+}
+
+/// Read pairs from a TSV file
+fn read_pairs_file(path: &str) -> Result<Vec<SamplePair>> {
+    let file = File::open(path).context(format!("Failed to open pairs file: {}", path))?;
+    let reader = BufReader::new(file);
+    let mut pairs = Vec::new();
+
+    for line in reader.lines() {
+        let line = line?;
+        let trimmed = line.trim();
+        if trimmed.is_empty() || trimmed.starts_with('#') {
+            continue;
+        }
+        if let Some(pair) = SamplePair::from_tsv(trimmed) {
+            pairs.push(pair);
+        }
+    }
+
+    Ok(pairs)
+}
+
+/// Generate all pairs from a list of samples (symmetric, no self-pairs)
+fn generate_all_pairs(samples: &[String]) -> Vec<SamplePair> {
+    let mut pairs = Vec::new();
+    for i in 0..samples.len() {
+        for j in (i + 1)..samples.len() {
+            pairs.push(SamplePair::new(samples[i].clone(), samples[j].clone()));
+        }
+    }
+    pairs
+}
+
+/// Generate cartesian product of queries x targets
+fn generate_cartesian_pairs(queries: &[String], targets: &[String]) -> Vec<SamplePair> {
+    let mut pairs = Vec::new();
+    for q in queries {
+        for t in targets {
+            if q != t {
+                pairs.push(SamplePair::new(q.clone(), t.clone()));
+            }
+        }
+    }
+    pairs
+}
+
+/// Filter out pairs that are already in the done file
+fn filter_done_pairs(pairs: Vec<SamplePair>, done_path: &str) -> Result<Vec<SamplePair>> {
+    let done_pairs: std::collections::HashSet<SamplePair> = if Path::new(done_path).exists() {
+        read_pairs_file(done_path)?.into_iter().collect()
+    } else {
+        std::collections::HashSet::new()
+    };
+
+    Ok(pairs.into_iter().filter(|p| !done_pairs.contains(p)).collect())
+}
+
+/// Shuffle pairs with optional seed for reproducibility
+fn shuffle_pairs(mut pairs: Vec<SamplePair>, seed: Option<u64>) -> Vec<SamplePair> {
+    use rand::seq::SliceRandom;
+    use rand::SeedableRng;
+
+    if let Some(seed) = seed {
+        let mut rng = rand::rngs::StdRng::seed_from_u64(seed);
+        pairs.shuffle(&mut rng);
+    } else {
+        let mut rng = rand::thread_rng();
+        pairs.shuffle(&mut rng);
+    }
+    pairs
+}
+
+/// Write pairs to a TSV file
+fn write_pairs_file(path: &str, pairs: &[SamplePair]) -> Result<()> {
+    use std::io::Write;
+    let mut file = File::create(path).context(format!("Failed to create pairs file: {}", path))?;
+    for pair in pairs {
+        writeln!(file, "{}", pair.to_tsv())?;
+    }
+    Ok(())
+}
+
+/// Append a pair to a file (for done tracking)
+fn append_pair_to_file(path: &str, pair: &SamplePair) -> Result<()> {
+    use std::io::Write;
+    let mut file = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(path)
+        .context(format!("Failed to open pairs file for append: {}", path))?;
+    writeln!(file, "{}", pair.to_tsv())?;
+    Ok(())
+}
+
+/// Generate or read pairs based on CLI arguments
+fn get_pairs_from_args(
+    agc: &mut agc::AgcSource,
+    args: &Args,
+    timing: &TimingContext,
+    temp_base: Option<&std::path::Path>,
+) -> Result<Vec<SamplePair>> {
+    // Option 1: Read pairs from file
+    if let Some(ref pairs_file) = args.pairs_file {
+        let pairs = read_pairs_file(pairs_file)?;
+        if !args.quiet {
+            timing.log("pairs", &format!("Read {} pairs from file", pairs.len()));
+        }
+        return Ok(pairs);
+    }
+
+    // Option 2: Cartesian product of queries x targets
+    if args.agc_queries.is_some() && args.agc_targets.is_some() {
+        let queries = get_agc_sample_set(agc, args.agc_queries.as_deref(), "queries", timing)?;
+        let targets = get_agc_sample_set(agc, args.agc_targets.as_deref(), "targets", timing)?;
+
+        let pairs = generate_cartesian_pairs(&queries, &targets);
+        if !args.quiet {
+            timing.log(
+                "pairs",
+                &format!(
+                    "Generated {} pairs ({} queries x {} targets)",
+                    pairs.len(),
+                    queries.len(),
+                    targets.len()
+                ),
+            );
+        }
+        return Ok(pairs);
+    }
+
+    // Get samples list
+    let samples = if let Some(ref prefix) = args.agc_prefix {
+        agc.list_samples_with_prefix(prefix)
+    } else if let Some(ref sample_spec) = args.agc_samples {
+        agc::parse_sample_list(sample_spec)?
+    } else {
+        agc.list_samples()
+    };
+
+    // Parse sparsification strategy
+    let strategy: knn_graph::SparsificationStrategy = args
+        .sparsify_pairs
+        .parse()
+        .map_err(|e| anyhow::anyhow!("Invalid sparsification strategy: {}", e))?;
+
+    // Option 3: Sparsified pairs using minhash/knn
+    if strategy != knn_graph::SparsificationStrategy::None {
+        if !args.quiet {
+            timing.log("pairs", &format!("Sparsification: {}", strategy));
+        }
+
+        // For sparsification, we need to compute mash sketches
+        // Stream one sample at a time to avoid materializing all sequences in memory
+
+        // Determine k-mer size from strategy
+        let kmer_size = match &strategy {
+            knn_graph::SparsificationStrategy::TreeSampling(_, _, _, Some(k)) => *k,
+            _ => mash::DEFAULT_KMER_SIZE,
+        };
+
+        if !args.quiet {
+            timing.log(
+                "mash",
+                &format!(
+                    "Computing sketches for {} samples (k={})...",
+                    samples.len(),
+                    kmer_size
+                ),
+            );
+        }
+
+        // Stream: extract each sample directly to memory, compute sketch, discard sequence
+        // Only sketches are kept in memory (~8KB each vs ~12MB per yeast genome)
+        // No temp files needed - RAGC extracts directly to Vec<u8>
+        let mut sketches: Vec<mash::KmerSketch> = Vec::with_capacity(samples.len());
+        for (i, sample) in samples.iter().enumerate() {
+            // Extract directly to memory (no temp file)
+            let seq = agc.extract_sample_to_bytes(sample)?;
+
+            // Compute sketch and discard sequence immediately
+            let sketch = mash::KmerSketch::from_sequence(&seq, kmer_size, mash::DEFAULT_SKETCH_SIZE);
+            sketches.push(sketch);
+            drop(seq); // Explicitly drop to free memory
+
+            // Progress indicator for large sets
+            if !args.quiet && samples.len() > 100 && (i + 1) % 50 == 0 {
+                timing.log("mash", &format!("  sketched {}/{} samples", i + 1, samples.len()));
+            }
+        }
+
+        // Select pairs using pre-computed sketches (no sequence data needed)
+        let pair_indices = knn_graph::select_pairs_from_sketches(&sketches, &strategy);
+
+        // Convert indices to SamplePair
+        let pairs: Vec<SamplePair> = pair_indices
+            .into_iter()
+            .map(|(i, j)| SamplePair::new(samples[i].clone(), samples[j].clone()))
+            .collect();
+
+        if !args.quiet {
+            let total_possible = samples.len() * (samples.len() - 1) / 2;
+            let percentage = (pairs.len() as f64 / total_possible as f64) * 100.0;
+            timing.log(
+                "pairs",
+                &format!(
+                    "Selected {} pairs from {} samples ({:.1}% of {} possible)",
+                    pairs.len(),
+                    samples.len(),
+                    percentage,
+                    total_possible
+                ),
+            );
+        }
+
+        return Ok(pairs);
+    }
+
+    // Option 4: All pairs from samples (no sparsification)
+    let pairs = generate_all_pairs(&samples);
+    if !args.quiet {
+        timing.log(
+            "pairs",
+            &format!(
+                "Generated {} pairs from {} samples",
+                pairs.len(),
+                samples.len()
+            ),
+        );
+    }
+    Ok(pairs)
+}
+
+/// Apply filtering to pairs: shuffle, range selection, done filtering
+fn apply_pair_filters(
+    pairs: Vec<SamplePair>,
+    args: &Args,
+    timing: &TimingContext,
+) -> Result<Vec<SamplePair>> {
+    let mut pairs = pairs;
+
+    // Apply shuffle if requested
+    if args.shuffle_pairs {
+        pairs = shuffle_pairs(pairs, args.shuffle_seed);
+        if !args.quiet {
+            let seed_str = args
+                .shuffle_seed
+                .map(|s| format!(" (seed={})", s))
+                .unwrap_or_default();
+            timing.log("pairs", &format!("Shuffled pairs{}", seed_str));
+        }
+    }
+
+    // Apply range selection (start + max)
+    if args.pair_start > 0 || args.max_pairs > 0 {
+        let total = pairs.len();
+        let start = args.pair_start.min(total);
+        let end = if args.max_pairs > 0 {
+            (start + args.max_pairs).min(total)
+        } else {
+            total
+        };
+        pairs = pairs[start..end].to_vec();
+        if !args.quiet {
+            timing.log(
+                "pairs",
+                &format!("Selected pairs {}..{} of {}", start, end, total),
+            );
+        }
+    }
+
+    // Filter out done pairs if specified
+    if let Some(ref done_path) = args.pairs_done {
+        let before = pairs.len();
+        pairs = filter_done_pairs(pairs, done_path)?;
+        let filtered = before - pairs.len();
+        if !args.quiet && filtered > 0 {
+            timing.log(
+                "pairs",
+                &format!("Filtered {} done pairs, {} remaining", filtered, pairs.len()),
+            );
+        }
+    }
+
+    // Write remaining pairs to file if requested
+    if let Some(ref remaining_path) = args.pairs_remaining {
+        write_pairs_file(remaining_path, &pairs)?;
+        if !args.quiet {
+            timing.log(
+                "pairs",
+                &format!("Wrote {} remaining pairs to {}", pairs.len(), remaining_path),
+            );
+        }
+    }
+
+    Ok(pairs)
+}
+
+/// Process AGC archive pair-by-pair with checkpointing
+#[allow(clippy::too_many_arguments)]
+fn process_agc_pairs(
+    agc: &mut agc::AgcSource,
+    pairs: &[SamplePair],
+    args: &Args,
+    temp_base: &std::path::Path,
+    timing: &TimingContext,
+) -> Result<tempfile::NamedTempFile> {
+    use std::io::Write;
+
+    if pairs.is_empty() {
+        if !args.quiet {
+            timing.log("pairs", "No pairs to process");
+        }
+        // Return empty PAF file
+        let output_paf = tempfile::Builder::new()
+            .prefix("sweepga_pairs_")
+            .suffix(".paf")
+            .tempfile_in(temp_base)?;
+        return Ok(output_paf);
+    }
+
+    if !args.quiet {
+        timing.log("pairs", &format!("Processing {} pairs", pairs.len()));
+    }
+
+    // Create FastGA integration
+    let fastga = create_fastga_integration(
+        args.frequency,
+        args.threads,
+        args.block_length,
+        Some(temp_base.to_string_lossy().to_string()),
+    )?;
+
+    // Create work directory for extractions
+    let work_dir = temp_base.join(format!("sweepga_pairs_{}", std::process::id()));
+    std::fs::create_dir_all(&work_dir)?;
+
+    // Create output PAF file
+    let mut output_paf = tempfile::Builder::new()
+        .prefix("sweepga_pairs_")
+        .suffix(".paf")
+        .tempfile_in(temp_base)?;
+
+    let mut total_alignments = 0usize;
+    let mut processed = 0;
+
+    for pair in pairs {
+        processed += 1;
+        if !args.quiet {
+            eprintln!(
+                "[pairs] ({}/{}) {} -> {}",
+                processed,
+                pairs.len(),
+                pair.query,
+                pair.target
+            );
+        }
+        let prev_total = total_alignments;
+
+        // Extract query and target to temp FASTA files
+        let query_fasta = work_dir.join(format!("{}.fa", pair.query.replace('#', "_")));
+        let target_fasta = work_dir.join(format!("{}.fa", pair.target.replace('#', "_")));
+
+        // Extract samples (skip if same and file exists)
+        if pair.query == pair.target {
+            agc.extract_sample_to_fasta(&pair.query, &query_fasta)?;
+            // Run self-alignment
+            let paf_bytes = fastga.align_direct_paf(&query_fasta, &query_fasta)?;
+            let line_count = paf_bytes.iter().filter(|&&b| b == b'\n').count();
+            total_alignments += line_count;
+            output_paf.as_file_mut().write_all(&paf_bytes)?;
+
+            // Cleanup
+            let _ = std::fs::remove_file(&query_fasta);
+        } else {
+            // Extract both samples
+            agc.extract_sample_to_fasta(&pair.query, &query_fasta)?;
+            agc.extract_sample_to_fasta(&pair.target, &target_fasta)?;
+
+            // Create index for target and align query to it
+            let target_gdb = fastga.create_gdb_only(&target_fasta)?;
+            fastga.create_index_only(&target_gdb)?;
+
+            if args.zstd_compress {
+                fastga_integration::FastGAIntegration::compress_index(&target_gdb, args.zstd_level)?;
+            }
+
+            let paf_bytes = fastga.align_direct_paf(&query_fasta, &target_fasta)?;
+            let line_count = paf_bytes.iter().filter(|&&b| b == b'\n').count();
+            total_alignments += line_count;
+            output_paf.as_file_mut().write_all(&paf_bytes)?;
+
+            // Cleanup
+            let _ = fastga_integration::FastGAIntegration::cleanup_all(&target_gdb);
+            let _ = std::fs::remove_file(&query_fasta);
+            let _ = std::fs::remove_file(&target_fasta);
+        }
+
+        // Record completion if done file specified
+        if let Some(ref done_path) = args.pairs_done {
+            append_pair_to_file(done_path, pair)?;
+        }
+
+        if !args.quiet {
+            let pair_alignments = total_alignments - prev_total;
+            eprintln!(
+                "[pairs]   {} alignments (total: {})",
+                pair_alignments,
+                total_alignments
+            );
+        }
+    }
+
+    // Cleanup work directory
+    let _ = std::fs::remove_dir_all(&work_dir);
+
+    if !args.quiet {
+        timing.log(
+            "pairs",
+            &format!(
+                "Completed {} pairs, {} total alignments",
+                pairs.len(),
+                total_alignments
+            ),
+        );
+    }
+
+    Ok(output_paf)
 }
 
 /// Process AGC archive in batches to limit disk usage

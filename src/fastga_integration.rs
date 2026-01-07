@@ -366,15 +366,18 @@ impl FastGAIntegration {
         Ok(())
     }
 
-    /// Run FastGA alignment with direct PAF output (streaming, no .1aln intermediate)
-    /// This bypasses ALNtoPAF conversion issues
+    /// Run FastGA alignment with PAF output including CIGAR strings
+    /// Uses .1aln intermediate format and ALNtoPAF -x for proper CIGAR generation
     pub fn align_direct_paf(&self, queries: &Path, targets: &Path) -> Result<Vec<u8>> {
         use std::process::Command;
 
-        // Get FastGA binary path
+        // Get binary paths
         let fastga_bin = std::env::var("FASTGA_BIN_DIR")
             .map(|dir| format!("{}/FastGA", dir))
             .unwrap_or_else(|_| "FastGA".to_string());
+        let alnto_paf_bin = std::env::var("FASTGA_BIN_DIR")
+            .map(|dir| format!("{}/ALNtoPAF", dir))
+            .unwrap_or_else(|_| "ALNtoPAF".to_string());
 
         // Determine kmer frequency threshold
         let kmer_freq = if let Some(freq) = self.config.adaptive_seed_cutoff {
@@ -398,11 +401,18 @@ impl FastGAIntegration {
             .parent()
             .unwrap_or_else(|| std::path::Path::new("."));
 
-        // Build command - FastGA outputs PAF-like format directly to stdout
-        // Note: Not using -pafx because ALNtoPAF segfaults on some inputs
-        // The output is valid PAF without CIGAR strings (dv:f and df:i tags only)
+        // Create temporary .1aln file for FastGA output
+        let temp_aln = working_dir.join(format!("_tmp_{}_{}.1aln", std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_nanos())
+                .unwrap_or(0)));
+        let temp_aln_filename = temp_aln.file_name().unwrap();
+
+        // Build FastGA command - output to .1aln format
         let mut cmd = Command::new(&fastga_bin);
-        cmd.arg(format!("-T{}", self.config.num_threads));
+        cmd.arg(format!("-1:{}", temp_aln_filename.to_string_lossy()))
+            .arg(format!("-T{}", self.config.num_threads));
 
         if kmer_freq != 10 {
             cmd.arg(format!("-f{}", kmer_freq));
@@ -428,11 +438,61 @@ impl FastGAIntegration {
             .with_context(|| format!("Failed to run FastGA: {}", fastga_bin))?;
 
         if !output.status.success() {
+            let _ = std::fs::remove_file(&temp_aln);
             let stderr = String::from_utf8_lossy(&output.stderr);
             anyhow::bail!("FastGA failed: {}", stderr);
         }
 
-        Ok(output.stdout)
+        // Convert .1aln to PAF with CIGAR using ALNtoPAF -x
+        let paf_output = Command::new(&alnto_paf_bin)
+            .arg("-x")  // Generate CIGAR with X/= operators
+            .arg(temp_aln_filename)
+            .current_dir(working_dir)
+            .output();
+
+        // Clean up temp .1aln file
+        let _ = std::fs::remove_file(&temp_aln);
+
+        match paf_output {
+            Ok(output) if output.status.success() => {
+                Ok(output.stdout)
+            }
+            Ok(output) => {
+                // ALNtoPAF failed (possibly segfault) - fall back to direct PAF without CIGAR
+                let stderr = String::from_utf8_lossy(&output.stderr);
+                eprintln!("[FastGA] Warning: ALNtoPAF failed ({}), falling back to PAF without CIGAR",
+                    stderr.trim());
+
+                // Re-run FastGA with direct PAF output (no CIGAR)
+                let mut fallback_cmd = Command::new(&fastga_bin);
+                fallback_cmd.arg(format!("-T{}", self.config.num_threads));
+                if kmer_freq != 10 {
+                    fallback_cmd.arg(format!("-f{}", kmer_freq));
+                }
+                if self.config.min_alignment_length > 0 {
+                    fallback_cmd.arg(format!("-l{}", self.config.min_alignment_length));
+                }
+                if let Some(min_id) = self.config.min_identity {
+                    if min_id > 0.0 {
+                        fallback_cmd.arg(format!("-i{:.2}", min_id));
+                    }
+                }
+                fallback_cmd.arg(&query_abs).arg(&target_abs).current_dir(working_dir);
+
+                let fallback_output = fallback_cmd.output()
+                    .with_context(|| "FastGA fallback failed")?;
+
+                if !fallback_output.status.success() {
+                    let stderr = String::from_utf8_lossy(&fallback_output.stderr);
+                    anyhow::bail!("FastGA fallback failed: {}", stderr);
+                }
+
+                Ok(fallback_output.stdout)
+            }
+            Err(e) => {
+                anyhow::bail!("Failed to run ALNtoPAF: {}", e);
+            }
+        }
     }
 
     /// Clean up GIX index files only (.gix, .ktab.*, .ktab.*.zst) for a given base path

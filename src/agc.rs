@@ -233,6 +233,35 @@ impl AgcSource {
             decompressor,
         })
     }
+
+    /// Extract a sample's sequence directly to a Vec<u8> (ASCII bases)
+    /// This avoids creating temporary files for operations like minhash sketching
+    pub fn extract_sample_to_bytes(&mut self, sample_name: &str) -> Result<Vec<u8>> {
+        let sample_data = self
+            .decompressor
+            .get_sample(sample_name)
+            .with_context(|| format!("Failed to extract sample: {}", sample_name))?;
+
+        // Base conversion table (numeric to ASCII)
+        const BASE_MAP: [u8; 5] = [b'A', b'C', b'G', b'T', b'N'];
+
+        // Calculate total size for pre-allocation
+        let total_len: usize = sample_data.iter().map(|(_, data)| data.len()).sum();
+        let mut sequence = Vec::with_capacity(total_len);
+
+        for (_contig_name, contig_data) in sample_data {
+            for &base in &contig_data {
+                let ascii = if (base as usize) < BASE_MAP.len() {
+                    BASE_MAP[base as usize]
+                } else {
+                    b'N'
+                };
+                sequence.push(ascii);
+            }
+        }
+
+        Ok(sequence)
+    }
 }
 
 /// Parse a sample list specification
