@@ -182,6 +182,7 @@ pub fn extract_tree_pairs_from_matrix(
 
 /// Extract tree pairs and random pairs separately (for iterative alignment with early stopping)
 /// Returns (tree_pairs, random_pairs) where tree_pairs should be processed first to guarantee connectivity
+#[allow(clippy::type_complexity)]
 pub fn extract_tree_pairs_separated(
     sequences: &[Vec<u8>],
     k_nearest: usize,
