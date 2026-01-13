@@ -402,11 +402,14 @@ impl FastGAIntegration {
             .unwrap_or_else(|| std::path::Path::new("."));
 
         // Create temporary .1aln file for FastGA output
-        let temp_aln = working_dir.join(format!("_tmp_{}_{}.1aln", std::process::id(),
+        let temp_aln = working_dir.join(format!(
+            "_tmp_{}_{}.1aln",
+            std::process::id(),
             std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
                 .map(|d| d.as_nanos())
-                .unwrap_or(0)));
+                .unwrap_or(0)
+        ));
         let temp_aln_filename = temp_aln.file_name().unwrap();
 
         // Build FastGA command - output to .1aln format
@@ -445,7 +448,7 @@ impl FastGAIntegration {
 
         // Convert .1aln to PAF with CIGAR using ALNtoPAF -x
         let paf_output = Command::new(&alnto_paf_bin)
-            .arg("-x")  // Generate CIGAR with X/= operators
+            .arg("-x") // Generate CIGAR with X/= operators
             .arg(temp_aln_filename)
             .current_dir(working_dir)
             .output();
@@ -454,14 +457,14 @@ impl FastGAIntegration {
         let _ = std::fs::remove_file(&temp_aln);
 
         match paf_output {
-            Ok(output) if output.status.success() => {
-                Ok(output.stdout)
-            }
+            Ok(output) if output.status.success() => Ok(output.stdout),
             Ok(output) => {
                 // ALNtoPAF failed (possibly segfault) - fall back to direct PAF without CIGAR
                 let stderr = String::from_utf8_lossy(&output.stderr);
-                eprintln!("[FastGA] Warning: ALNtoPAF failed ({}), falling back to PAF without CIGAR",
-                    stderr.trim());
+                eprintln!(
+                    "[FastGA] Warning: ALNtoPAF failed ({}), falling back to PAF without CIGAR",
+                    stderr.trim()
+                );
 
                 // Re-run FastGA with direct PAF output (no CIGAR)
                 let mut fallback_cmd = Command::new(&fastga_bin);
@@ -477,9 +480,13 @@ impl FastGAIntegration {
                         fallback_cmd.arg(format!("-i{:.2}", min_id));
                     }
                 }
-                fallback_cmd.arg(&query_abs).arg(&target_abs).current_dir(working_dir);
+                fallback_cmd
+                    .arg(&query_abs)
+                    .arg(&target_abs)
+                    .current_dir(working_dir);
 
-                let fallback_output = fallback_cmd.output()
+                let fallback_output = fallback_cmd
+                    .output()
                     .with_context(|| "FastGA fallback failed")?;
 
                 if !fallback_output.status.success() {

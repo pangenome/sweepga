@@ -3,6 +3,8 @@
 //! This module provides functionality to compute pairwise mash distances between sequences
 //! using k-mer sketching with MinHash. Ported from allwave.
 
+#![allow(dead_code)]
+
 use std::collections::HashSet;
 use std::hash::{Hash, Hasher};
 

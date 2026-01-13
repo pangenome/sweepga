@@ -20,10 +20,7 @@ exclude = [
 ]
 
 [features]
-default = ["zstd"]
 enable_1aln_tests = []  # Enables .1aln roundtrip tests (disabled by default due to ONE library cleanup bug)
-# Enable zstd compression for FastGA index files (requires libzstd >= 1.4.1)
-zstd = ["fastga-rs/zstd"]
 
 [dependencies]
 clap = { version = "4.5", features = ["derive"] }
@@ -33,7 +30,7 @@ rayon = "1.10"
 byteorder = "1.5"
 tempfile = "3.8"
 ordered-float = "4.0"
-fastga-rs = { git = "https://github.com/pangenome/fastga-rs", branch = "unique-tmp-name", default-features = false }
+fastga-rs = { git = "https://github.com/pangenome/fastga-rs" }
 ragc-core = { git = "https://github.com/ekg/ragc", rev = "37af85a" }
 onecode = "0.1.0"
 chrono = "0.4"
@@ -44,7 +41,7 @@ rand = "0.8"
 
 [build-dependencies]
 cc = "1.0"
-fastga-rs = { git = "https://github.com/pangenome/fastga-rs", branch = "unique-tmp-name", default-features = false }
+fastga-rs = { git = "https://github.com/pangenome/fastga-rs" }
 
 [[bin]]
 name = "sweepga"
