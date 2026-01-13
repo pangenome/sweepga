@@ -6,6 +6,8 @@
 //!
 //! Ported from allwave.
 
+#![allow(dead_code)]
+
 use crate::mash;
 use std::collections::HashSet;
 

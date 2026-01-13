@@ -1656,7 +1656,7 @@ fn get_pairs_from_args(
     agc: &mut agc::AgcSource,
     args: &Args,
     timing: &TimingContext,
-    temp_base: Option<&std::path::Path>,
+    _temp_base: Option<&std::path::Path>,
 ) -> Result<Vec<SamplePair>> {
     // Option 1: Read pairs from file
     if let Some(ref pairs_file) = args.pairs_file {
