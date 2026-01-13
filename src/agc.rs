@@ -184,7 +184,11 @@ impl AgcSource {
     }
 
     /// Write a single sample to a writer in FASTA format
-    fn write_sample_to_writer<W: Write>(&mut self, sample_name: &str, writer: &mut W) -> Result<()> {
+    fn write_sample_to_writer<W: Write>(
+        &mut self,
+        sample_name: &str,
+        writer: &mut W,
+    ) -> Result<()> {
         // Get all contigs for this sample
         let sample_data = self
             .decompressor

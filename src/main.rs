@@ -459,15 +459,27 @@ struct Args {
     shuffle_seed: Option<u64>,
 
     /// Maximum number of pairs to process in this run (0 = unlimited)
-    #[clap(long = "max-pairs", default_value = "0", help_heading = "Pair selection")]
+    #[clap(
+        long = "max-pairs",
+        default_value = "0",
+        help_heading = "Pair selection"
+    )]
     max_pairs: usize,
 
     /// Start index for pair range (0-based, use with shuffle-seed for stable ordering)
-    #[clap(long = "pair-start", default_value = "0", help_heading = "Pair selection")]
+    #[clap(
+        long = "pair-start",
+        default_value = "0",
+        help_heading = "Pair selection"
+    )]
     pair_start: usize,
 
     /// Sparsification strategy for pair selection (none, auto, random:<frac>, giant:<prob>, tree:<near>:<far>:<random>[:<kmer>])
-    #[clap(long = "sparsify-pairs", default_value = "none", help_heading = "Pair selection")]
+    #[clap(
+        long = "sparsify-pairs",
+        default_value = "none",
+        help_heading = "Pair selection"
+    )]
     sparsify_pairs: String,
 }
 
@@ -1361,7 +1373,10 @@ fn process_agc_archive(
     }
 
     if !args.quiet {
-        timing.log("agc", &format!("Selected {} samples for alignment", samples.len()));
+        timing.log(
+            "agc",
+            &format!("Selected {} samples for alignment", samples.len()),
+        );
     }
 
     // Get sizes for batch planning
@@ -1593,7 +1608,10 @@ fn filter_done_pairs(pairs: Vec<SamplePair>, done_path: &str) -> Result<Vec<Samp
         std::collections::HashSet::new()
     };
 
-    Ok(pairs.into_iter().filter(|p| !done_pairs.contains(p)).collect())
+    Ok(pairs
+        .into_iter()
+        .filter(|p| !done_pairs.contains(p))
+        .collect())
 }
 
 /// Shuffle pairs with optional seed for reproducibility
@@ -1719,13 +1737,17 @@ fn get_pairs_from_args(
             let seq = agc.extract_sample_to_bytes(sample)?;
 
             // Compute sketch and discard sequence immediately
-            let sketch = mash::KmerSketch::from_sequence(&seq, kmer_size, mash::DEFAULT_SKETCH_SIZE);
+            let sketch =
+                mash::KmerSketch::from_sequence(&seq, kmer_size, mash::DEFAULT_SKETCH_SIZE);
             sketches.push(sketch);
             drop(seq); // Explicitly drop to free memory
 
             // Progress indicator for large sets
             if !args.quiet && samples.len() > 100 && (i + 1) % 50 == 0 {
-                timing.log("mash", &format!("  sketched {}/{} samples", i + 1, samples.len()));
+                timing.log(
+                    "mash",
+                    &format!("  sketched {}/{} samples", i + 1, samples.len()),
+                );
             }
         }
 
@@ -1817,7 +1839,11 @@ fn apply_pair_filters(
         if !args.quiet && filtered > 0 {
             timing.log(
                 "pairs",
-                &format!("Filtered {} done pairs, {} remaining", filtered, pairs.len()),
+                &format!(
+                    "Filtered {} done pairs, {} remaining",
+                    filtered,
+                    pairs.len()
+                ),
             );
         }
     }
@@ -1828,7 +1854,11 @@ fn apply_pair_filters(
         if !args.quiet {
             timing.log(
                 "pairs",
-                &format!("Wrote {} remaining pairs to {}", pairs.len(), remaining_path),
+                &format!(
+                    "Wrote {} remaining pairs to {}",
+                    pairs.len(),
+                    remaining_path
+                ),
             );
         }
     }
@@ -1922,7 +1952,10 @@ fn process_agc_pairs(
             fastga.create_index_only(&target_gdb)?;
 
             if args.zstd_compress {
-                fastga_integration::FastGAIntegration::compress_index(&target_gdb, args.zstd_level)?;
+                fastga_integration::FastGAIntegration::compress_index(
+                    &target_gdb,
+                    args.zstd_level,
+                )?;
             }
 
             let paf_bytes = fastga.align_direct_paf(&query_fasta, &target_fasta)?;
@@ -1945,8 +1978,7 @@ fn process_agc_pairs(
             let pair_alignments = total_alignments - prev_total;
             eprintln!(
                 "[pairs]   {} alignments (total: {})",
-                pair_alignments,
-                total_alignments
+                pair_alignments, total_alignments
             );
         }
     }
@@ -2012,7 +2044,11 @@ fn process_agc_batched(
 
     let num_batches = batches.len();
     if !args.quiet {
-        eprintln!("[batch] Partitioned {} samples into {} batches", samples.len(), num_batches);
+        eprintln!(
+            "[batch] Partitioned {} samples into {} batches",
+            samples.len(),
+            num_batches
+        );
     }
 
     // Phase 1: Extract all batches to temp FASTA files
@@ -2024,7 +2060,11 @@ fn process_agc_batched(
         let batch_file = batch_dir.join(format!("batch_{}.fa", i));
         agc.extract_samples_to_fasta(batch, &batch_file)?;
         if !args.quiet {
-            eprintln!("[batch] Extracted batch {} ({} samples)", i + 1, batch.len());
+            eprintln!(
+                "[batch] Extracted batch {} ({} samples)",
+                i + 1,
+                batch.len()
+            );
         }
         batch_files.push(batch_file);
     }
@@ -2114,7 +2154,10 @@ fn process_agc_batched(
     let _ = std::fs::remove_dir_all(&batch_dir);
 
     if !args.quiet {
-        eprintln!("[batch] Completed batch alignment: {} total alignments", total_alignments);
+        eprintln!(
+            "[batch] Completed batch alignment: {} total alignments",
+            total_alignments
+        );
     }
 
     Ok(output_paf)
@@ -2934,21 +2977,13 @@ fn main() -> Result<()> {
 
                 let agc_tempdir = args.agc_tempdir.as_deref().or(args.tempdir.as_deref());
 
-                let temp_paf = process_agc_archive(
-                    &args.files[0],
-                    &args,
-                    agc_tempdir,
-                    &timing,
-                )?;
+                let temp_paf = process_agc_archive(&args.files[0], &args, agc_tempdir, &timing)?;
 
                 alignment_time = Some(alignment_start.elapsed().as_secs_f64());
                 if !args.quiet {
                     timing.log(
                         "align",
-                        &format!(
-                            "AGC alignment complete ({:.1}s)",
-                            alignment_time.unwrap()
-                        ),
+                        &format!("AGC alignment complete ({:.1}s)", alignment_time.unwrap()),
                     );
                 }
 
@@ -3051,7 +3086,9 @@ fn main() -> Result<()> {
                 (Some(temp_paf), paf_path)
             }
             FileType::Agc => {
-                anyhow::bail!("AGC archives cannot be read from stdin - please provide a file path");
+                anyhow::bail!(
+                    "AGC archives cannot be read from stdin - please provide a file path"
+                );
             }
         }
     };

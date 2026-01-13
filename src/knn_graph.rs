@@ -493,7 +493,7 @@ mod tests {
         // Random fraction should produce approximately that fraction of pairs
         let pairs = select_pairs(10, None, &SparsificationStrategy::Random(0.5));
         let total_possible = 10 * 9 / 2; // 45 pairs
-        // Allow some variance due to randomness
+                                         // Allow some variance due to randomness
         assert!(pairs.len() > 0);
         assert!(pairs.len() <= total_possible);
     }
@@ -502,7 +502,7 @@ mod tests {
     fn test_generate_random_pairs() {
         let pairs = generate_random_pairs(5, 0.4);
         let total_possible = 5 * 4 / 2; // 10 pairs
-        // Should get roughly 40% = 4 pairs (allow variance)
+                                        // Should get roughly 40% = 4 pairs (allow variance)
         assert!(pairs.len() > 0);
         assert!(pairs.len() <= total_possible);
 
@@ -541,7 +541,7 @@ mod tests {
         ];
 
         let pairs = build_knn_graph(&distances, 1, true); // farthest=true
-        // Node 0's farthest is 2, node 1's farthest is 2, node 2's farthest is 0
+                                                          // Node 0's farthest is 2, node 1's farthest is 2, node 2's farthest is 0
         assert!(pairs.contains(&(0, 2)) || pairs.contains(&(2, 0)));
     }
 
