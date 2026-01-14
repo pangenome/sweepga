@@ -5,7 +5,7 @@
 use anyhow::{Context, Result};
 use fastga_rs::Config;
 use std::io::Write;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::str::FromStr;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
@@ -205,6 +205,85 @@ impl FastGAIntegration {
             .build();
 
         FastGAIntegration { config, temp_dir }
+    }
+
+    /// Get the effective temp directory for this integration
+    pub fn get_temp_dir(&self) -> String {
+        get_temp_dir(self.temp_dir.as_deref())
+    }
+
+    /// Copy or symlink a FASTA file to the temp directory for alignment
+    /// This ensures index files are created in tempdir, not next to the original file
+    /// Returns the path to the working copy (caller must clean up)
+    pub fn prepare_working_copy(&self, fasta_path: &Path) -> Result<PathBuf> {
+        let temp_dir = self.get_temp_dir();
+        let temp_path = Path::new(&temp_dir);
+
+        // Generate unique filename to avoid conflicts
+        let file_name = fasta_path
+            .file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or("input.fa");
+        let unique_name = format!(
+            "sweepga_{}_{}_{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_nanos())
+                .unwrap_or(0),
+            file_name
+        );
+        let working_path = temp_path.join(&unique_name);
+
+        // Try symlink first (faster, no extra disk space)
+        // Fall back to copy if symlink fails (e.g., cross-filesystem)
+        let canonical_source = std::fs::canonicalize(fasta_path)
+            .with_context(|| format!("Failed to resolve path: {}", fasta_path.display()))?;
+
+        #[cfg(unix)]
+        {
+            if std::os::unix::fs::symlink(&canonical_source, &working_path).is_ok() {
+                return Ok(working_path);
+            }
+        }
+
+        // Fall back to copy
+        std::fs::copy(&canonical_source, &working_path).with_context(|| {
+            format!(
+                "Failed to copy {} to {}",
+                fasta_path.display(),
+                working_path.display()
+            )
+        })?;
+
+        Ok(working_path)
+    }
+
+    /// Clean up a working copy and its associated index files
+    pub fn cleanup_working_copy(working_path: &Path) {
+        // Remove the working copy itself
+        let _ = std::fs::remove_file(working_path);
+
+        // Remove associated index files (GDB, GIX, ktab, etc.)
+        let base = working_path.with_extension("");
+        let base_str = base.to_string_lossy();
+
+        // Common FastGA index extensions
+        for ext in &[
+            "gdb", "gix", "ktab", "bps", "1gdb", "1aln", "gix.zst", "ktab.zst",
+        ] {
+            let index_path = format!("{}.{}", base_str, ext);
+            let _ = std::fs::remove_file(&index_path);
+        }
+
+        // Also try with the full path (for .fa.gz files)
+        let full_str = working_path.to_string_lossy();
+        for ext in &[
+            "gdb", "gix", "ktab", "bps", "1gdb", "1aln", "gix.zst", "ktab.zst",
+        ] {
+            let index_path = format!("{}.{}", full_str, ext);
+            let _ = std::fs::remove_file(&index_path);
+        }
     }
 
     /// Convert FASTA to GDB format (creates .gdb and .gix files)
@@ -776,5 +855,72 @@ impl FastGAIntegration {
         crate::disk_usage::track_file_created(temp_file.path());
 
         Ok(temp_file)
+    }
+
+    /// Run FastGA alignment with index files created in tempdir
+    /// This copies/symlinks input files to tempdir first, so all intermediate
+    /// files (GDB, GIX, ktab) are created there instead of next to the original files.
+    /// Use this when you want to control where disk-intensive index files are created.
+    pub fn align_to_temp_paf_in_tempdir(
+        &self,
+        queries: &Path,
+        targets: &Path,
+    ) -> Result<NamedTempFile> {
+        // If no temp_dir is configured, fall back to regular alignment
+        if self.temp_dir.is_none() {
+            return self.align_to_temp_paf(queries, targets);
+        }
+
+        // Prepare working copies in tempdir
+        let query_working = self.prepare_working_copy(queries)?;
+        let target_working = if queries == targets {
+            // Self-alignment: use same working copy for both
+            query_working.clone()
+        } else {
+            self.prepare_working_copy(targets)?
+        };
+
+        // Run alignment on working copies
+        let result = self.align_to_temp_paf(&query_working, &target_working);
+
+        // Clean up working copies and their index files
+        Self::cleanup_working_copy(&query_working);
+        if queries != targets {
+            Self::cleanup_working_copy(&target_working);
+        }
+
+        result
+    }
+
+    /// Run FastGA alignment to .1aln with index files created in tempdir
+    /// Similar to align_to_temp_paf_in_tempdir but returns .1aln format
+    pub fn align_to_temp_1aln_in_tempdir(
+        &self,
+        queries: &Path,
+        targets: &Path,
+    ) -> Result<NamedTempFile> {
+        // If no temp_dir is configured, fall back to regular alignment
+        if self.temp_dir.is_none() {
+            return self.align_to_temp_1aln(queries, targets);
+        }
+
+        // Prepare working copies in tempdir
+        let query_working = self.prepare_working_copy(queries)?;
+        let target_working = if queries == targets {
+            query_working.clone()
+        } else {
+            self.prepare_working_copy(targets)?
+        };
+
+        // Run alignment on working copies
+        let result = self.align_to_temp_1aln(&query_working, &target_working);
+
+        // Clean up working copies and their index files
+        Self::cleanup_working_copy(&query_working);
+        if queries != targets {
+            Self::cleanup_working_copy(&target_working);
+        }
+
+        result
     }
 }

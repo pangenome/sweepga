@@ -1288,7 +1288,8 @@ fn align_multiple_fastas(
         }
     }
 
-    let temp_paf = fastga.align_to_temp_paf(&input_path, &input_path)?;
+    // Use _in_tempdir variant to ensure index files go to tempdir, not next to input
+    let temp_paf = fastga.align_to_temp_paf_in_tempdir(&input_path, &input_path)?;
 
     if !quiet {
         let alignment_count = std::fs::read_to_string(temp_paf.path())?.lines().count();
@@ -2564,7 +2565,8 @@ fn main() -> Result<()> {
                     timing.log("align", &format!("Running FastGA on {}", args.files[0]));
                 }
 
-                let temp_1aln = fastga.align_to_temp_1aln(&path, &path)?;
+                // Use _in_tempdir variant to ensure index files go to tempdir, not next to input
+                let temp_1aln = fastga.align_to_temp_1aln_in_tempdir(&path, &path)?;
                 alignment_time = Some(alignment_start.elapsed().as_secs_f64());
 
                 if !args.quiet {
@@ -2800,7 +2802,8 @@ fn main() -> Result<()> {
                         args.block_length,
                         args.tempdir.clone(),
                     )?;
-                    let temp_paf = fastga.align_to_temp_paf(&path, &path)?;
+                    // Use _in_tempdir variant to ensure index files go to tempdir, not next to input
+                    let temp_paf = fastga.align_to_temp_paf_in_tempdir(&path, &path)?;
 
                     alignment_time = Some(alignment_start.elapsed().as_secs_f64());
                     if !args.quiet {
@@ -2890,7 +2893,8 @@ fn main() -> Result<()> {
                         args.block_length,
                         args.tempdir.clone(),
                     )?;
-                    let temp_paf = fastga.align_to_temp_paf(&target, &query)?;
+                    // Use _in_tempdir variant to ensure index files go to tempdir, not next to input
+                    let temp_paf = fastga.align_to_temp_paf_in_tempdir(&target, &query)?;
 
                     alignment_time = Some(alignment_start.elapsed().as_secs_f64());
                     if !args.quiet {
@@ -3045,7 +3049,8 @@ fn main() -> Result<()> {
                     args.block_length,
                     args.tempdir.clone(),
                 )?;
-                let temp_paf = fastga.align_to_temp_paf(&path, &path)?;
+                // Use _in_tempdir variant to ensure index files go to tempdir, not next to input
+                let temp_paf = fastga.align_to_temp_paf_in_tempdir(&path, &path)?;
 
                 alignment_time = Some(alignment_start.elapsed().as_secs_f64());
                 if !args.quiet {

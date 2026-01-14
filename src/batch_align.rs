@@ -499,6 +499,7 @@ pub fn run_batch_alignment(
 }
 
 /// Run alignment without batching (single FastGA run)
+/// Uses align_to_temp_paf_in_tempdir to ensure index files are created in tempdir
 fn run_single_batch_alignment(
     fasta_files: &[String],
     config: &BatchAlignConfig,
@@ -517,7 +518,8 @@ fn run_single_batch_alignment(
     let input_path = std::fs::canonicalize(&fasta_files[0])
         .with_context(|| format!("Failed to resolve path: {}", fasta_files[0]))?;
 
-    fastga.align_to_temp_paf(&input_path, &input_path)
+    // Use _in_tempdir variant to ensure index files go to tempdir, not next to input
+    fastga.align_to_temp_paf_in_tempdir(&input_path, &input_path)
 }
 
 #[cfg(test)]
