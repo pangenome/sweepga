@@ -170,19 +170,27 @@ fn extract_pansn_prefix(name: &str) -> String {
 }
 
 /// Partition genomes into batches based on max index size
+/// Note: max_index_bytes is the TOTAL peak disk limit. Since FastGA creates indexes
+/// for both query and target during cross-batch alignment, we use half the limit
+/// per batch to ensure peak usage (2 batches) stays within the user's limit.
 pub fn partition_into_batches(genomes: Vec<GenomeInfo>, max_index_bytes: u64) -> Vec<GenomeBatch> {
+    // Divide by 2 because during cross-batch alignment, both query and target
+    // indexes exist simultaneously on disk
+    let per_batch_limit = max_index_bytes / 2;
+
     let mut batches: Vec<GenomeBatch> = Vec::new();
     let mut current_batch = GenomeBatch::new();
 
     for genome in genomes {
         // Check if this genome alone exceeds the limit
         let single_genome_size = estimate_index_size(genome.total_bp);
-        if single_genome_size > max_index_bytes {
+        if single_genome_size > per_batch_limit {
             eprintln!(
-                "[batch] WARNING: Genome {} ({}) has estimated index {} which exceeds limit {}",
+                "[batch] WARNING: Genome {} ({}) has estimated index {} which exceeds per-batch limit {} (total limit {})",
                 genome.prefix,
                 format_bytes(genome.total_bp),
                 format_bytes(single_genome_size),
+                format_bytes(per_batch_limit),
                 format_bytes(max_index_bytes)
             );
             eprintln!("[batch] Including it as a single-genome batch anyway");
@@ -201,7 +209,7 @@ pub fn partition_into_batches(genomes: Vec<GenomeInfo>, max_index_bytes: u64) ->
         }
 
         // Check if adding to current batch would exceed limit
-        if current_batch.would_exceed(&genome, max_index_bytes) {
+        if current_batch.would_exceed(&genome, per_batch_limit) {
             // Start new batch
             if !current_batch.genomes.is_empty() {
                 batches.push(current_batch);
@@ -325,6 +333,17 @@ pub fn run_batch_alignment(
     tempdir: Option<&str>,
 ) -> Result<tempfile::NamedTempFile> {
     use crate::fastga_integration::{self, FastGAIntegration};
+
+    // partition_into_batches() handles dividing by 2 internally
+    let per_batch_limit = max_index_bytes / 2;
+
+    if !config.quiet {
+        eprintln!(
+            "[batch] Batch mode: max {} total index size ({} per batch)",
+            format_bytes(max_index_bytes),
+            format_bytes(per_batch_limit)
+        );
+    }
 
     // Determine temp directory
     let temp_base = if let Some(dir) = tempdir {

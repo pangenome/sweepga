@@ -2013,30 +2013,37 @@ fn process_agc_batched(
 ) -> Result<tempfile::NamedTempFile> {
     use std::io::Write;
 
+    // Divide by 2 because during cross-batch alignment, both query and target
+    // indexes exist simultaneously on disk
+    let per_batch_limit = max_index_bytes / 2;
+
     if !args.quiet {
         eprintln!(
-            "[batch] Batch mode: max {} index size",
-            batch_align::format_bytes(max_index_bytes)
+            "[batch] Batch mode: max {} total index size ({} per batch)",
+            batch_align::format_bytes(max_index_bytes),
+            batch_align::format_bytes(per_batch_limit)
         );
     }
 
     // Partition samples into batches based on estimated index size
-    // Index estimate: 0.1GB + 12 bytes per bp
+    // Index estimate: 0.1GB + 12 bytes per bp (for total genome size in batch)
     let mut batches: Vec<Vec<String>> = Vec::new();
     let mut current_batch: Vec<String> = Vec::new();
-    let mut current_size: u64 = 0;
+    let mut current_bp: u64 = 0; // Track basepairs, not estimated index size
 
     for sample in samples {
-        let sample_size = sizes.get(sample).copied().unwrap_or(0);
-        let estimated_index = 100_000_000 + sample_size * 12; // 0.1GB + 12 bytes/bp
+        let sample_bp = sizes.get(sample).copied().unwrap_or(0);
+        // Estimate what the batch index would be if we add this sample
+        let new_batch_bp = current_bp + sample_bp;
+        let estimated_batch_index = 100_000_000 + new_batch_bp * 12; // 0.1GB overhead + 12 bytes/bp
 
-        if current_size + estimated_index > max_index_bytes && !current_batch.is_empty() {
+        if estimated_batch_index > per_batch_limit && !current_batch.is_empty() {
             batches.push(std::mem::take(&mut current_batch));
-            current_size = 0;
+            current_bp = 0;
         }
 
         current_batch.push(sample.clone());
-        current_size += estimated_index;
+        current_bp += sample_bp;
     }
 
     if !current_batch.is_empty() {
