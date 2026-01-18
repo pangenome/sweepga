@@ -247,8 +247,15 @@ struct Args {
 
     /// Maximum index size per batch (e.g., "10G", "500M"). Partitions genomes to fit disk limits.
     /// Formula: index ≈ 0.1GB + 12 bytes/bp. Use when scratch space is limited.
+    /// With 2 input files: asymmetric mode (file1→file2), no self-alignment within each file.
+    /// With 1 input file: all-vs-all mode within the file.
     #[clap(long = "batch-bytes", value_parser = parse_metric_number, help_heading = "Alignment options")]
     batch_bytes: Option<u64>,
+
+    /// Enable bidirectional alignment in batch mode with 2 files (A→B and B→A).
+    /// Default is unidirectional (file1→file2 only).
+    #[clap(long = "batch-bidirectional", help_heading = "Alignment options")]
+    batch_bidirectional: bool,
 
     /// Compress k-mer index with zstd for ~2x disk savings and faster I/O
     #[clap(long = "zstd", help_heading = "Alignment options")]
@@ -1166,6 +1173,7 @@ fn align_multiple_fastas(
     frequency: Option<usize>,
     all_pairs: bool,
     batch_bytes: Option<u64>,
+    batch_bidirectional: bool,
     threads: usize,
     keep_self: bool,
     tempdir: Option<&str>,
@@ -1175,6 +1183,42 @@ fn align_multiple_fastas(
     zstd_compress: bool,
     zstd_level: u32,
 ) -> Result<tempfile::NamedTempFile> {
+    // Check for asymmetric batch mode: 2 input files + --batch-bytes
+    if fasta_files.len() == 2 {
+        if let Some(max_index_bytes) = batch_bytes {
+            if !quiet {
+                timing.log(
+                    "batch",
+                    &format!(
+                        "Asymmetric batch mode: {} → {}, max {} index size{}",
+                        fasta_files[0],
+                        fasta_files[1],
+                        batch_align::format_bytes(max_index_bytes),
+                        if batch_bidirectional { " (bidirectional)" } else { "" }
+                    ),
+                );
+            }
+
+            let config = batch_align::AsymmetricBatchConfig {
+                frequency,
+                threads,
+                min_alignment_length,
+                zstd_compress,
+                zstd_level,
+                quiet,
+                bidirectional: batch_bidirectional,
+            };
+
+            return batch_align::run_asymmetric_batch_alignment(
+                &[fasta_files[0].clone()],
+                &[fasta_files[1].clone()],
+                max_index_bytes,
+                &config,
+                tempdir,
+            );
+        }
+    }
+
     // Detect genome groups from input files
     let mut num_genomes = 0;
     for fasta_file in fasta_files {
@@ -2427,6 +2471,12 @@ fn main() -> Result<()> {
 
     let args = Args::parse();
 
+    // Set up rayon thread pool early, before any parallel operations
+    rayon::ThreadPoolBuilder::new()
+        .num_threads(args.threads)
+        .build_global()
+        .ok(); // Ignore error if already initialized
+
     // Handle --check-fastga diagnostic flag
     if args.check_fastga {
         println!("=== FastGA Binary Locations ===\n");
@@ -2766,6 +2816,7 @@ fn main() -> Result<()> {
                         args.frequency,
                         args.all_pairs,
                         args.batch_bytes,
+                        args.batch_bidirectional,
                         args.threads,
                         args.keep_self,
                         args.tempdir.as_deref(),
@@ -2852,6 +2903,7 @@ fn main() -> Result<()> {
                         args.frequency,
                         args.all_pairs,
                         args.batch_bytes,
+                        args.batch_bidirectional,
                         args.threads,
                         args.keep_self,
                         args.tempdir.as_deref(),
@@ -2891,6 +2943,7 @@ fn main() -> Result<()> {
                         args.frequency,
                         args.all_pairs,
                         args.batch_bytes,
+                        args.batch_bidirectional,
                         args.threads,
                         args.keep_self,
                         args.tempdir.as_deref(),
@@ -2975,6 +3028,7 @@ fn main() -> Result<()> {
                     args.frequency,
                     args.all_pairs,
                     args.batch_bytes,
+                    args.batch_bidirectional,
                     args.threads,
                     args.keep_self,
                     args.tempdir.as_deref(),
@@ -3144,10 +3198,7 @@ fn main() -> Result<()> {
         }
     };
 
-    // Set up rayon thread pool
-    rayon::ThreadPoolBuilder::new()
-        .num_threads(args.threads)
-        .build_global()?;
+    // Thread pool already initialized at start of main()
 
     // Handle no-filter mode - just copy input to stdout
     if args.no_filter {
