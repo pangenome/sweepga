@@ -33,6 +33,57 @@ pub struct GenomeInfo {
     pub source_file: PathBuf,
 }
 
+/// Information about a single sequence (chromosome/contig)
+#[derive(Debug, Clone)]
+pub struct SequenceInfo {
+    /// Full sequence name (e.g., "SGDref#1#chrI")
+    pub name: String,
+    /// Basepairs in this sequence
+    pub length: u64,
+    /// Source FASTA file
+    pub source_file: PathBuf,
+}
+
+/// A batch of sequences to align together (for sequence-level splitting)
+#[derive(Debug, Clone)]
+pub struct SequenceBatch {
+    /// Sequences in this batch
+    pub sequences: Vec<SequenceInfo>,
+    /// Total basepairs in batch
+    pub total_bp: u64,
+    /// Estimated index size in bytes
+    pub estimated_index_bytes: u64,
+}
+
+impl Default for SequenceBatch {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl SequenceBatch {
+    pub fn new() -> Self {
+        Self {
+            sequences: Vec::new(),
+            total_bp: 0,
+            estimated_index_bytes: INDEX_OVERHEAD_BYTES,
+        }
+    }
+
+    /// Add a sequence to this batch
+    pub fn add(&mut self, seq: SequenceInfo) {
+        self.total_bp += seq.length;
+        self.estimated_index_bytes = estimate_index_size(self.total_bp);
+        self.sequences.push(seq);
+    }
+
+    /// Check if adding a sequence would exceed the byte limit
+    pub fn would_exceed(&self, seq: &SequenceInfo, max_bytes: u64) -> bool {
+        let new_total = self.total_bp + seq.length;
+        estimate_index_size(new_total) > max_bytes
+    }
+}
+
 /// A batch of genomes to align together
 #[derive(Debug, Clone)]
 pub struct GenomeBatch {
@@ -166,6 +217,234 @@ fn extract_pansn_prefix(name: &str) -> String {
         format!("{}#{}#", parts[0], parts[1])
     } else {
         format!("{}#", name)
+    }
+}
+
+/// Parse individual sequences from FASTA file(s)
+/// Returns a list of all sequences with their sizes
+pub fn parse_sequences(fasta_files: &[String]) -> Result<Vec<SequenceInfo>> {
+    let mut sequences: Vec<SequenceInfo> = Vec::new();
+
+    for fasta_file in fasta_files {
+        let path = Path::new(fasta_file);
+        let file =
+            File::open(path).with_context(|| format!("Failed to open FASTA: {}", fasta_file))?;
+
+        let reader: Box<dyn BufRead> =
+            if fasta_file.ends_with(".gz") || fasta_file.ends_with(".bgz") {
+                Box::new(BufReader::new(noodles::bgzf::io::reader::Reader::new(file)))
+            } else {
+                Box::new(BufReader::new(file))
+            };
+
+        let mut current_name: Option<String> = None;
+        let mut current_bp: u64 = 0;
+
+        for line in reader.lines() {
+            let line = line?;
+            let trimmed = line.trim();
+
+            if trimmed.starts_with('>') {
+                // Save previous sequence
+                if let Some(name) = current_name.take() {
+                    sequences.push(SequenceInfo {
+                        name,
+                        length: current_bp,
+                        source_file: path.to_path_buf(),
+                    });
+                }
+
+                // Start new sequence
+                let name = trimmed
+                    .trim_start_matches('>')
+                    .split_whitespace()
+                    .next()
+                    .unwrap_or("")
+                    .to_string();
+                current_name = Some(name);
+                current_bp = 0;
+            } else if !trimmed.is_empty() {
+                current_bp += trimmed.len() as u64;
+            }
+        }
+
+        // Don't forget the last sequence
+        if let Some(name) = current_name {
+            sequences.push(SequenceInfo {
+                name,
+                length: current_bp,
+                source_file: path.to_path_buf(),
+            });
+        }
+    }
+
+    // Sort by size (largest first) for better bin packing
+    sequences.sort_by(|a, b| b.length.cmp(&a.length));
+
+    Ok(sequences)
+}
+
+/// Partition sequences into batches based on max index size
+/// Uses first-fit decreasing bin packing algorithm
+pub fn partition_sequences_into_batches(
+    sequences: Vec<SequenceInfo>,
+    max_index_bytes: u64,
+) -> Vec<SequenceBatch> {
+    // Divide by 2 because during cross-batch alignment, both query and target
+    // indexes exist simultaneously on disk
+    let per_batch_limit = max_index_bytes / 2;
+
+    let mut batches: Vec<SequenceBatch> = Vec::new();
+
+    for seq in sequences {
+        // Check if this sequence alone exceeds the limit
+        let single_seq_size = estimate_index_size(seq.length);
+        if single_seq_size > per_batch_limit {
+            eprintln!(
+                "[batch] WARNING: Sequence {} ({}) has estimated index {} which exceeds per-batch limit {}",
+                seq.name,
+                format_bytes(seq.length),
+                format_bytes(single_seq_size),
+                format_bytes(per_batch_limit)
+            );
+            eprintln!("[batch] Including it as a single-sequence batch anyway");
+
+            // Add as its own batch
+            let mut oversized = SequenceBatch::new();
+            oversized.add(seq);
+            batches.push(oversized);
+            continue;
+        }
+
+        // Try to fit into an existing batch (first-fit)
+        let mut added = false;
+        for batch in &mut batches {
+            if !batch.would_exceed(&seq, per_batch_limit) {
+                batch.add(seq.clone());
+                added = true;
+                break;
+            }
+        }
+
+        // If no batch has room, create a new one
+        if !added {
+            let mut new_batch = SequenceBatch::new();
+            new_batch.add(seq);
+            batches.push(new_batch);
+        }
+    }
+
+    batches
+}
+
+/// Write sequences from a batch to a FASTA file
+pub fn write_sequence_batch_fasta(batch: &SequenceBatch, output_path: &Path) -> Result<()> {
+    let mut output = File::create(output_path)
+        .with_context(|| format!("Failed to create batch FASTA: {}", output_path.display()))?;
+
+    // Group sequences by source file for efficient reading
+    let mut by_source: HashMap<PathBuf, Vec<&str>> = HashMap::new();
+    for seq in &batch.sequences {
+        by_source
+            .entry(seq.source_file.clone())
+            .or_default()
+            .push(&seq.name);
+    }
+
+    for (source_file, seq_names) in by_source {
+        let file = File::open(&source_file)
+            .with_context(|| format!("Failed to open source FASTA: {}", source_file.display()))?;
+
+        let source_str = source_file.to_string_lossy();
+        let reader: Box<dyn BufRead> =
+            if source_str.ends_with(".gz") || source_str.ends_with(".bgz") {
+                Box::new(BufReader::new(noodles::bgzf::io::reader::Reader::new(file)))
+            } else {
+                Box::new(BufReader::new(file))
+            };
+
+        let mut include_current = false;
+
+        for line in reader.lines() {
+            let line = line?;
+
+            if line.starts_with('>') {
+                // Check if this sequence is in our batch
+                let name = line
+                    .trim_start_matches('>')
+                    .split_whitespace()
+                    .next()
+                    .unwrap_or("");
+                include_current = seq_names.iter().any(|n| *n == name);
+            }
+
+            if include_current {
+                writeln!(output, "{}", line)?;
+            }
+        }
+    }
+
+    Ok(())
+}
+
+/// Report sequence batch statistics
+pub fn report_sequence_batch_plan(
+    batches: &[SequenceBatch],
+    total_bp: u64,
+    max_index_bytes: u64,
+    quiet: bool,
+) {
+    if quiet {
+        return;
+    }
+
+    let total_sequences: usize = batches.iter().map(|b| b.sequences.len()).sum();
+    let total_pairs = batches.len() * batches.len();
+    let self_pairs = batches.len();
+    let cross_pairs = total_pairs - self_pairs;
+
+    eprintln!(
+        "[batch] Partitioned {} sequences ({}) into {} batches (sequence-level splitting):",
+        total_sequences,
+        format_bytes(total_bp),
+        batches.len()
+    );
+
+    // Find the two largest batches
+    let mut batch_sizes: Vec<u64> = batches.iter().map(|b| b.estimated_index_bytes).collect();
+    batch_sizes.sort_by(|a, b| b.cmp(a));
+
+    let largest_batch = batch_sizes.first().copied().unwrap_or(0);
+    let second_largest = batch_sizes.get(1).copied().unwrap_or(0);
+    let peak_disk_estimate = largest_batch + second_largest;
+
+    for (i, batch) in batches.iter().enumerate() {
+        eprintln!(
+            "[batch]   Batch {}: {} sequences, {}, est. index {}",
+            i + 1,
+            batch.sequences.len(),
+            format_bytes(batch.total_bp),
+            format_bytes(batch.estimated_index_bytes)
+        );
+    }
+
+    eprintln!(
+        "[batch] Will run {} batch alignments ({} self + {} cross-batch)",
+        total_pairs, self_pairs, cross_pairs
+    );
+
+    if peak_disk_estimate > max_index_bytes {
+        eprintln!(
+            "[batch] WARNING: Peak disk usage (~{}) may exceed --batch-bytes limit ({})",
+            format_bytes(peak_disk_estimate),
+            format_bytes(max_index_bytes)
+        );
+    } else {
+        eprintln!(
+            "[batch] Peak disk usage estimate: {} (within {} limit)",
+            format_bytes(peak_disk_estimate),
+            format_bytes(max_index_bytes)
+        );
     }
 }
 
@@ -332,7 +611,7 @@ pub fn report_batch_plan(batches: &[GenomeBatch], total_bp: u64, max_index_bytes
             format_bytes(peak_disk_estimate + peak_disk_estimate / 10) // Add 10% margin
         );
         eprintln!(
-            "[batch] TIP: Large genomes cannot be split - batching only helps with many smaller genomes"
+            "[batch] TIP: Consider using a higher --batch-bytes limit, or split large genomes by chromosome"
         );
     }
 }
@@ -394,7 +673,23 @@ pub fn run_batch_alignment(
     }
 
     // Partition into batches
-    let batches = partition_into_batches(genomes, max_index_bytes);
+    let batches = partition_into_batches(genomes.clone(), max_index_bytes);
+
+    // Check if any batch exceeds the per-batch limit - if so, use sequence-level splitting
+    let any_oversized = batches
+        .iter()
+        .any(|b| b.estimated_index_bytes > per_batch_limit);
+
+    if any_oversized {
+        if !config.quiet {
+            eprintln!(
+                "[batch] Genome-level batching produces oversized batches, switching to sequence-level splitting..."
+            );
+        }
+        // Clean up and use sequence-level batching instead
+        let _ = std::fs::remove_dir_all(&batch_dir);
+        return run_sequence_batch_alignment(fasta_files, max_index_bytes, config, tempdir);
+    }
 
     if batches.len() == 1 {
         if !config.quiet {
@@ -405,6 +700,7 @@ pub fn run_batch_alignment(
             );
         }
         // Fall back to normal single-run alignment
+        let _ = std::fs::remove_dir_all(&batch_dir);
         return run_single_batch_alignment(fasta_files, config, tempdir);
     }
 
@@ -563,6 +859,189 @@ fn run_single_batch_alignment(
 
     // Use _in_tempdir variant to ensure index files go to tempdir, not next to input
     fastga.align_to_temp_paf_in_tempdir(&input_path, &input_path)
+}
+
+/// Run batch alignment with sequence-level splitting
+/// This is used when individual genomes are too large for genome-level batching
+pub fn run_sequence_batch_alignment(
+    fasta_files: &[String],
+    max_index_bytes: u64,
+    config: &BatchAlignConfig,
+    tempdir: Option<&str>,
+) -> Result<tempfile::NamedTempFile> {
+    use crate::fastga_integration::{self, FastGAIntegration};
+
+    // partition_sequences_into_batches() handles dividing by 2 internally
+    let _per_batch_limit = max_index_bytes / 2;
+
+    // Determine temp directory
+    let temp_base = if let Some(dir) = tempdir {
+        PathBuf::from(dir)
+    } else if let Ok(tmpdir) = std::env::var("TMPDIR") {
+        PathBuf::from(tmpdir)
+    } else {
+        PathBuf::from("/tmp")
+    };
+
+    // Create temp directory for batch FASTAs
+    let batch_dir = temp_base.join(format!("sweepga_seqbatch_{}", std::process::id()));
+    std::fs::create_dir_all(&batch_dir)?;
+
+    // Parse sequences
+    if !config.quiet {
+        eprintln!("[batch] Parsing individual sequences for sequence-level batching...");
+    }
+    let sequences = parse_sequences(fasta_files)?;
+    let total_bp: u64 = sequences.iter().map(|s| s.length).sum();
+
+    if sequences.is_empty() {
+        anyhow::bail!("No sequences found in input files");
+    }
+
+    if !config.quiet {
+        eprintln!(
+            "[batch] Found {} sequences totaling {}",
+            sequences.len(),
+            format_bytes(total_bp)
+        );
+    }
+
+    // Partition sequences into batches
+    let batches = partition_sequences_into_batches(sequences, max_index_bytes);
+
+    if batches.len() == 1 {
+        if !config.quiet {
+            eprintln!(
+                "[batch] All sequences fit in single batch (est. index {})",
+                format_bytes(batches[0].estimated_index_bytes)
+            );
+        }
+        // Clean up and fall back to normal single-run alignment
+        let _ = std::fs::remove_dir_all(&batch_dir);
+        return run_single_batch_alignment(fasta_files, config, tempdir);
+    }
+
+    report_sequence_batch_plan(&batches, total_bp, max_index_bytes, config.quiet);
+
+    // Write batch FASTAs to separate subdirectories
+    let mut batch_files: Vec<PathBuf> = Vec::new();
+    for (i, batch) in batches.iter().enumerate() {
+        let batch_subdir = batch_dir.join(format!("batch_{}", i));
+        std::fs::create_dir_all(&batch_subdir)?;
+        let batch_path = batch_subdir.join("sequences.fa");
+        if !config.quiet {
+            eprintln!(
+                "[batch] Writing batch {} ({} sequences, {})...",
+                i + 1,
+                batch.sequences.len(),
+                format_bytes(batch.total_bp)
+            );
+        }
+        write_sequence_batch_fasta(batch, &batch_path)?;
+        batch_files.push(batch_path);
+    }
+
+    // Create FastGA integration
+    let fastga = FastGAIntegration::new(
+        config.frequency,
+        config.threads,
+        config.min_alignment_length,
+        tempdir.map(String::from),
+    );
+
+    // Phase 1: Create GDBs for ALL batches upfront
+    if !config.quiet {
+        eprintln!("[batch] Creating GDB files for all batches...");
+    }
+    let mut gdb_bases: Vec<String> = Vec::new();
+    for (i, batch_file) in batch_files.iter().enumerate() {
+        if !config.quiet {
+            eprintln!("[batch]   GDB for batch {}...", i + 1);
+        }
+        let gdb_base = fastga.create_gdb_only(batch_file)?;
+        gdb_bases.push(gdb_base);
+    }
+
+    // Create merged output file
+    let merged_paf = tempfile::NamedTempFile::with_suffix(".paf")?;
+    let mut merged_output = File::create(merged_paf.path())?;
+
+    let mut total_alignments = 0;
+    let num_batches = batch_files.len();
+
+    // Phase 2: For each target batch, create index, run alignments, cleanup index
+    for i in 0..num_batches {
+        // Build index for batch i (target)
+        if !config.quiet {
+            eprintln!("[batch] Building index for batch {}...", i + 1);
+        }
+        fastga.create_index_only(&gdb_bases[i])?;
+
+        // Track disk usage of index files
+        let index_dir = std::path::Path::new(&gdb_bases[i])
+            .parent()
+            .unwrap_or(std::path::Path::new("."));
+        let index_size = crate::disk_usage::scan_fastga_index_files(index_dir).unwrap_or(0);
+        crate::disk_usage::add_bytes(index_size);
+
+        // Compress if requested
+        if config.zstd_compress {
+            fastga_integration::FastGAIntegration::compress_index(
+                &gdb_bases[i],
+                config.zstd_level,
+            )?;
+        }
+
+        for j in 0..num_batches {
+            if !config.quiet {
+                if i == j {
+                    eprintln!("[batch] Aligning batch {} to itself...", i + 1);
+                } else {
+                    eprintln!("[batch] Aligning batch {} vs batch {}...", j + 1, i + 1);
+                }
+            }
+
+            // Run alignment: query batch j against target batch i
+            let paf_bytes = fastga.align_direct_paf(&batch_files[j], &batch_files[i])?;
+
+            // Append to merged output
+            let line_count = paf_bytes.iter().filter(|&&b| b == b'\n').count();
+            total_alignments += line_count;
+
+            merged_output.write_all(&paf_bytes)?;
+
+            if !config.quiet {
+                eprintln!("[batch]   {} alignments", line_count);
+            }
+
+            // Clean up query index if FastGA auto-created one (j != i)
+            if j != i {
+                let _ = fastga_integration::FastGAIntegration::cleanup_index(&gdb_bases[j]);
+            }
+        }
+
+        // Clean up index for batch i to free disk space
+        if !config.quiet {
+            eprintln!("[batch] Cleaning up index for batch {}...", i + 1);
+        }
+        crate::disk_usage::remove_bytes(index_size);
+        let _ = fastga_integration::FastGAIntegration::cleanup_index(&gdb_bases[i]);
+    }
+
+    // Phase 3: Clean up all GDB files and batch directory
+    for gdb_base in &gdb_bases {
+        let _ = fastga_integration::FastGAIntegration::cleanup_all(gdb_base);
+    }
+    let _ = std::fs::remove_dir_all(&batch_dir);
+
+    if !config.quiet {
+        eprintln!(
+            "[batch] Completed sequence-level batch alignment: {} total alignments",
+            total_alignments
+        );
+    }
+
+    Ok(merged_paf)
 }
 
 #[cfg(test)]
