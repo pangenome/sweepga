@@ -2875,8 +2875,47 @@ fn main() -> Result<()> {
 
                     let paf_path = temp_paf.path().to_string_lossy().into_owned();
                     (Some(temp_paf), paf_path)
+                } else if args.batch_bytes.is_some() {
+                    // Two single-genome FASTAs with batch_bytes set - use batch mode
+                    // to control index size (both genomes may be very large)
+                    if !args.quiet {
+                        timing.log(
+                            "detect",
+                            "Two single-genome FASTAs with --batch-bytes, using batch alignment",
+                        );
+                    }
+
+                    let alignment_start = Instant::now();
+                    let temp_paf = align_multiple_fastas(
+                        &args.files,
+                        args.frequency,
+                        args.all_pairs,
+                        args.batch_bytes,
+                        args.threads,
+                        args.keep_self,
+                        args.tempdir.as_deref(),
+                        &timing,
+                        args.quiet,
+                        args.block_length,
+                        args.zstd_compress,
+                        args.zstd_level,
+                    )?;
+
+                    alignment_time = Some(alignment_start.elapsed().as_secs_f64());
+                    if !args.quiet {
+                        timing.log(
+                            "align",
+                            &format!(
+                                "Batch alignment complete ({:.1}s)",
+                                alignment_time.unwrap()
+                            ),
+                        );
+                    }
+
+                    let paf_path = temp_paf.path().to_string_lossy().into_owned();
+                    (Some(temp_paf), paf_path)
                 } else {
-                    // Simple pairwise alignment (legacy behavior)
+                    // Simple pairwise alignment (legacy behavior, no batch_bytes)
                     let alignment_start = Instant::now();
 
                     if !args.quiet {

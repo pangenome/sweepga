@@ -279,8 +279,8 @@ pub fn write_batch_fasta(batch: &GenomeBatch, output_path: &Path) -> Result<()> 
     Ok(())
 }
 
-/// Report batch statistics
-pub fn report_batch_plan(batches: &[GenomeBatch], total_bp: u64, quiet: bool) {
+/// Report batch statistics and warn about oversized batches
+pub fn report_batch_plan(batches: &[GenomeBatch], total_bp: u64, max_index_bytes: u64, quiet: bool) {
     if quiet {
         return;
     }
@@ -297,6 +297,14 @@ pub fn report_batch_plan(batches: &[GenomeBatch], total_bp: u64, quiet: bool) {
         batches.len()
     );
 
+    // Find the two largest batches (for peak disk estimate during cross-batch alignment)
+    let mut batch_sizes: Vec<u64> = batches.iter().map(|b| b.estimated_index_bytes).collect();
+    batch_sizes.sort_by(|a, b| b.cmp(a)); // Sort descending
+
+    let largest_batch = batch_sizes.first().copied().unwrap_or(0);
+    let second_largest = batch_sizes.get(1).copied().unwrap_or(0);
+    let peak_disk_estimate = largest_batch + second_largest;
+
     for (i, batch) in batches.iter().enumerate() {
         eprintln!(
             "[batch]   Batch {}: {} genomes, {}, est. index {}",
@@ -311,6 +319,22 @@ pub fn report_batch_plan(batches: &[GenomeBatch], total_bp: u64, quiet: bool) {
         "[batch] Will run {} batch alignments ({} self + {} cross-batch)",
         total_pairs, self_pairs, cross_pairs
     );
+
+    // Warn if peak disk usage will exceed the limit
+    if peak_disk_estimate > max_index_bytes {
+        eprintln!(
+            "[batch] WARNING: Peak disk usage (~{}) will exceed --batch-bytes limit ({})",
+            format_bytes(peak_disk_estimate),
+            format_bytes(max_index_bytes)
+        );
+        eprintln!(
+            "[batch] NOTE: Minimum --batch-bytes needed for these genomes: {}",
+            format_bytes(peak_disk_estimate + peak_disk_estimate / 10) // Add 10% margin
+        );
+        eprintln!(
+            "[batch] TIP: Large genomes cannot be split - batching only helps with many smaller genomes"
+        );
+    }
 }
 
 /// Configuration for batch alignment
@@ -384,7 +408,7 @@ pub fn run_batch_alignment(
         return run_single_batch_alignment(fasta_files, config, tempdir);
     }
 
-    report_batch_plan(&batches, total_bp, config.quiet);
+    report_batch_plan(&batches, total_bp, max_index_bytes, config.quiet);
 
     // Write batch FASTAs to separate subdirectories to avoid GDB conflicts
     let mut batch_files: Vec<PathBuf> = Vec::new();
