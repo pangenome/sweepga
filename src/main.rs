@@ -247,8 +247,15 @@ struct Args {
 
     /// Maximum index size per batch (e.g., "10G", "500M"). Partitions genomes to fit disk limits.
     /// Formula: index ≈ 0.1GB + 12 bytes/bp. Use when scratch space is limited.
+    /// With 2 input files: asymmetric mode (file1→file2), no self-alignment within each file.
+    /// With 1 input file: all-vs-all mode within the file.
     #[clap(long = "batch-bytes", value_parser = parse_metric_number, help_heading = "Alignment options")]
     batch_bytes: Option<u64>,
+
+    /// Enable bidirectional alignment in batch mode with 2 files (A→B and B→A).
+    /// Default is unidirectional (file1→file2 only).
+    #[clap(long = "batch-bidirectional", help_heading = "Alignment options")]
+    batch_bidirectional: bool,
 
     /// Compress k-mer index with zstd for ~2x disk savings and faster I/O
     #[clap(long = "zstd", help_heading = "Alignment options")]
@@ -1166,6 +1173,7 @@ fn align_multiple_fastas(
     frequency: Option<usize>,
     all_pairs: bool,
     batch_bytes: Option<u64>,
+    batch_bidirectional: bool,
     threads: usize,
     keep_self: bool,
     tempdir: Option<&str>,
@@ -1175,6 +1183,42 @@ fn align_multiple_fastas(
     zstd_compress: bool,
     zstd_level: u32,
 ) -> Result<tempfile::NamedTempFile> {
+    // Check for asymmetric batch mode: 2 input files + --batch-bytes
+    if fasta_files.len() == 2 {
+        if let Some(max_index_bytes) = batch_bytes {
+            if !quiet {
+                timing.log(
+                    "batch",
+                    &format!(
+                        "Asymmetric batch mode: {} → {}, max {} index size{}",
+                        fasta_files[0],
+                        fasta_files[1],
+                        batch_align::format_bytes(max_index_bytes),
+                        if batch_bidirectional { " (bidirectional)" } else { "" }
+                    ),
+                );
+            }
+
+            let config = batch_align::AsymmetricBatchConfig {
+                frequency,
+                threads,
+                min_alignment_length,
+                zstd_compress,
+                zstd_level,
+                quiet,
+                bidirectional: batch_bidirectional,
+            };
+
+            return batch_align::run_asymmetric_batch_alignment(
+                &[fasta_files[0].clone()],
+                &[fasta_files[1].clone()],
+                max_index_bytes,
+                &config,
+                tempdir,
+            );
+        }
+    }
+
     // Detect genome groups from input files
     let mut num_genomes = 0;
     for fasta_file in fasta_files {
@@ -1288,7 +1332,8 @@ fn align_multiple_fastas(
         }
     }
 
-    let temp_paf = fastga.align_to_temp_paf(&input_path, &input_path)?;
+    // Use _in_tempdir variant to ensure index files go to tempdir, not next to input
+    let temp_paf = fastga.align_to_temp_paf_in_tempdir(&input_path, &input_path)?;
 
     if !quiet {
         let alignment_count = std::fs::read_to_string(temp_paf.path())?.lines().count();
@@ -2012,30 +2057,37 @@ fn process_agc_batched(
 ) -> Result<tempfile::NamedTempFile> {
     use std::io::Write;
 
+    // Divide by 2 because during cross-batch alignment, both query and target
+    // indexes exist simultaneously on disk
+    let per_batch_limit = max_index_bytes / 2;
+
     if !args.quiet {
         eprintln!(
-            "[batch] Batch mode: max {} index size",
-            batch_align::format_bytes(max_index_bytes)
+            "[batch] Batch mode: max {} total index size ({} per batch)",
+            batch_align::format_bytes(max_index_bytes),
+            batch_align::format_bytes(per_batch_limit)
         );
     }
 
     // Partition samples into batches based on estimated index size
-    // Index estimate: 0.1GB + 12 bytes per bp
+    // Index estimate: 0.1GB + 12 bytes per bp (for total genome size in batch)
     let mut batches: Vec<Vec<String>> = Vec::new();
     let mut current_batch: Vec<String> = Vec::new();
-    let mut current_size: u64 = 0;
+    let mut current_bp: u64 = 0; // Track basepairs, not estimated index size
 
     for sample in samples {
-        let sample_size = sizes.get(sample).copied().unwrap_or(0);
-        let estimated_index = 100_000_000 + sample_size * 12; // 0.1GB + 12 bytes/bp
+        let sample_bp = sizes.get(sample).copied().unwrap_or(0);
+        // Estimate what the batch index would be if we add this sample
+        let new_batch_bp = current_bp + sample_bp;
+        let estimated_batch_index = 100_000_000 + new_batch_bp * 12; // 0.1GB overhead + 12 bytes/bp
 
-        if current_size + estimated_index > max_index_bytes && !current_batch.is_empty() {
+        if estimated_batch_index > per_batch_limit && !current_batch.is_empty() {
             batches.push(std::mem::take(&mut current_batch));
-            current_size = 0;
+            current_bp = 0;
         }
 
         current_batch.push(sample.clone());
-        current_size += estimated_index;
+        current_bp += sample_bp;
     }
 
     if !current_batch.is_empty() {
@@ -2419,6 +2471,12 @@ fn main() -> Result<()> {
 
     let args = Args::parse();
 
+    // Set up rayon thread pool early, before any parallel operations
+    rayon::ThreadPoolBuilder::new()
+        .num_threads(args.threads)
+        .build_global()
+        .ok(); // Ignore error if already initialized
+
     // Handle --check-fastga diagnostic flag
     if args.check_fastga {
         println!("=== FastGA Binary Locations ===\n");
@@ -2564,7 +2622,8 @@ fn main() -> Result<()> {
                     timing.log("align", &format!("Running FastGA on {}", args.files[0]));
                 }
 
-                let temp_1aln = fastga.align_to_temp_1aln(&path, &path)?;
+                // Use _in_tempdir variant to ensure index files go to tempdir, not next to input
+                let temp_1aln = fastga.align_to_temp_1aln_in_tempdir(&path, &path)?;
                 alignment_time = Some(alignment_start.elapsed().as_secs_f64());
 
                 if !args.quiet {
@@ -2757,6 +2816,7 @@ fn main() -> Result<()> {
                         args.frequency,
                         args.all_pairs,
                         args.batch_bytes,
+                        args.batch_bidirectional,
                         args.threads,
                         args.keep_self,
                         args.tempdir.as_deref(),
@@ -2800,7 +2860,8 @@ fn main() -> Result<()> {
                         args.block_length,
                         args.tempdir.clone(),
                     )?;
-                    let temp_paf = fastga.align_to_temp_paf(&path, &path)?;
+                    // Use _in_tempdir variant to ensure index files go to tempdir, not next to input
+                    let temp_paf = fastga.align_to_temp_paf_in_tempdir(&path, &path)?;
 
                     alignment_time = Some(alignment_start.elapsed().as_secs_f64());
                     if !args.quiet {
@@ -2842,6 +2903,7 @@ fn main() -> Result<()> {
                         args.frequency,
                         args.all_pairs,
                         args.batch_bytes,
+                        args.batch_bidirectional,
                         args.threads,
                         args.keep_self,
                         args.tempdir.as_deref(),
@@ -2865,8 +2927,48 @@ fn main() -> Result<()> {
 
                     let paf_path = temp_paf.path().to_string_lossy().into_owned();
                     (Some(temp_paf), paf_path)
+                } else if args.batch_bytes.is_some() {
+                    // Two single-genome FASTAs with batch_bytes set - use batch mode
+                    // to control index size (both genomes may be very large)
+                    if !args.quiet {
+                        timing.log(
+                            "detect",
+                            "Two single-genome FASTAs with --batch-bytes, using batch alignment",
+                        );
+                    }
+
+                    let alignment_start = Instant::now();
+                    let temp_paf = align_multiple_fastas(
+                        &args.files,
+                        args.frequency,
+                        args.all_pairs,
+                        args.batch_bytes,
+                        args.batch_bidirectional,
+                        args.threads,
+                        args.keep_self,
+                        args.tempdir.as_deref(),
+                        &timing,
+                        args.quiet,
+                        args.block_length,
+                        args.zstd_compress,
+                        args.zstd_level,
+                    )?;
+
+                    alignment_time = Some(alignment_start.elapsed().as_secs_f64());
+                    if !args.quiet {
+                        timing.log(
+                            "align",
+                            &format!(
+                                "Batch alignment complete ({:.1}s)",
+                                alignment_time.unwrap()
+                            ),
+                        );
+                    }
+
+                    let paf_path = temp_paf.path().to_string_lossy().into_owned();
+                    (Some(temp_paf), paf_path)
                 } else {
-                    // Simple pairwise alignment (legacy behavior)
+                    // Simple pairwise alignment (legacy behavior, no batch_bytes)
                     let alignment_start = Instant::now();
 
                     if !args.quiet {
@@ -2890,7 +2992,8 @@ fn main() -> Result<()> {
                         args.block_length,
                         args.tempdir.clone(),
                     )?;
-                    let temp_paf = fastga.align_to_temp_paf(&target, &query)?;
+                    // Use _in_tempdir variant to ensure index files go to tempdir, not next to input
+                    let temp_paf = fastga.align_to_temp_paf_in_tempdir(&target, &query)?;
 
                     alignment_time = Some(alignment_start.elapsed().as_secs_f64());
                     if !args.quiet {
@@ -2925,6 +3028,7 @@ fn main() -> Result<()> {
                     args.frequency,
                     args.all_pairs,
                     args.batch_bytes,
+                    args.batch_bidirectional,
                     args.threads,
                     args.keep_self,
                     args.tempdir.as_deref(),
@@ -3045,7 +3149,8 @@ fn main() -> Result<()> {
                     args.block_length,
                     args.tempdir.clone(),
                 )?;
-                let temp_paf = fastga.align_to_temp_paf(&path, &path)?;
+                // Use _in_tempdir variant to ensure index files go to tempdir, not next to input
+                let temp_paf = fastga.align_to_temp_paf_in_tempdir(&path, &path)?;
 
                 alignment_time = Some(alignment_start.elapsed().as_secs_f64());
                 if !args.quiet {
@@ -3093,10 +3198,7 @@ fn main() -> Result<()> {
         }
     };
 
-    // Set up rayon thread pool
-    rayon::ThreadPoolBuilder::new()
-        .num_threads(args.threads)
-        .build_global()?;
+    // Thread pool already initialized at start of main()
 
     // Handle no-filter mode - just copy input to stdout
     if args.no_filter {
