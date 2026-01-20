@@ -31,7 +31,7 @@ byteorder = "1.5"
 tempfile = "3.8"
 ordered-float = "4.0"
 fastga-rs = { git = "https://github.com/pangenome/fastga-rs", rev = "7d01c36" }
-ragc-core = { git = "https://github.com/ekg/ragc", rev = "37af85a" }
+ragc-core = { git = "https://github.com/ekg/ragc", rev = "40e5cad" }
 onecode = { git = "https://github.com/pangenome/onecode-rs", rev = "f531f5b" }
 chrono = "0.4"
 flate2 = "1.0"
