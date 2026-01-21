@@ -1242,6 +1242,14 @@ pub struct AsymmetricBatchConfig {
     pub zstd_level: u32,
     pub quiet: bool,
     pub bidirectional: bool,
+    /// Max index bytes for query batches (used in bidirectional mode)
+    pub query_max_bytes: u64,
+    /// Max index bytes for target batches
+    pub target_max_bytes: u64,
+    /// Temp directory for query batches
+    pub query_tempdir: Option<String>,
+    /// Temp directory for target batches
+    pub target_tempdir: Option<String>,
 }
 
 /// Run asymmetric batch alignment: queries → targets (optionally bidirectional)
@@ -1250,23 +1258,49 @@ pub struct AsymmetricBatchConfig {
 pub fn run_asymmetric_batch_alignment(
     query_files: &[String],
     target_files: &[String],
-    max_index_bytes: u64,
     config: &AsymmetricBatchConfig,
-    tempdir: Option<&str>,
 ) -> Result<tempfile::NamedTempFile> {
     use crate::fastga_integration::{self, FastGAIntegration};
 
-    // In asymmetric mode, query and target indexes don't coexist for the same batch
-    // The target index exists, and FastGA may create a query index temporarily
-    // So we still use max_index_bytes / 2 for safety
-    let per_batch_limit = max_index_bytes / 2;
+    // Use separate limits for query and target batches
+    // If using different temp directories, each has its own space limit (no division)
+    // If using same temp directory, divide by 2 because both query data and target index coexist
+    let separate_tempdirs = config.query_tempdir != config.target_tempdir
+        && config.query_tempdir.is_some()
+        && config.target_tempdir.is_some();
+
+    let (query_per_batch_limit, target_per_batch_limit) = if separate_tempdirs {
+        // Different temp directories = independent storage, use full limits
+        (config.query_max_bytes, config.target_max_bytes)
+    } else {
+        // Same temp directory = shared storage, divide by 2
+        (config.query_max_bytes / 2, config.target_max_bytes / 2)
+    };
 
     if !config.quiet {
-        eprintln!(
-            "[batch] Asymmetric batch mode: max {} total index size ({} per batch)",
-            format_bytes(max_index_bytes),
-            format_bytes(per_batch_limit)
-        );
+        if separate_tempdirs {
+            eprintln!(
+                "[batch] Asymmetric batch mode with separate tempdirs: query {} in {}, target {} in {}",
+                format_bytes(query_per_batch_limit),
+                config.query_tempdir.as_deref().unwrap_or("(default)"),
+                format_bytes(target_per_batch_limit),
+                config.target_tempdir.as_deref().unwrap_or("(default)")
+            );
+        } else if config.query_max_bytes == config.target_max_bytes {
+            eprintln!(
+                "[batch] Asymmetric batch mode: max {} index size ({} per batch, shared tempdir)",
+                format_bytes(config.target_max_bytes),
+                format_bytes(target_per_batch_limit)
+            );
+        } else {
+            eprintln!(
+                "[batch] Asymmetric batch mode: query max {} ({} per batch), target max {} ({} per batch)",
+                format_bytes(config.query_max_bytes),
+                format_bytes(query_per_batch_limit),
+                format_bytes(config.target_max_bytes),
+                format_bytes(target_per_batch_limit)
+            );
+        }
         if config.bidirectional {
             eprintln!("[batch] Bidirectional mode: will align A→B and B→A");
         } else {
@@ -1274,18 +1308,20 @@ pub fn run_asymmetric_batch_alignment(
         }
     }
 
-    // Determine temp directory
-    let temp_base = if let Some(dir) = tempdir {
-        PathBuf::from(dir)
-    } else if let Ok(tmpdir) = std::env::var("TMPDIR") {
-        PathBuf::from(tmpdir)
-    } else {
-        PathBuf::from("/tmp")
-    };
+    // Determine temp directories for query and target batches
+    let default_temp = std::env::var("TMPDIR").unwrap_or_else(|_| "/tmp".to_string());
+    let query_temp_base = PathBuf::from(
+        config.query_tempdir.as_deref().unwrap_or(&default_temp)
+    );
+    let target_temp_base = PathBuf::from(
+        config.target_tempdir.as_deref().unwrap_or(&default_temp)
+    );
 
-    // Create temp directory for batch FASTAs
-    let batch_dir = temp_base.join(format!("sweepga_asymbatch_{}", std::process::id()));
-    std::fs::create_dir_all(&batch_dir)?;
+    // Create temp directories for batch FASTAs (separate directories for query and target)
+    let query_batch_dir = query_temp_base.join(format!("sweepga_asymbatch_q_{}", std::process::id()));
+    let target_batch_dir = target_temp_base.join(format!("sweepga_asymbatch_t_{}", std::process::id()));
+    std::fs::create_dir_all(&query_batch_dir)?;
+    std::fs::create_dir_all(&target_batch_dir)?;
 
     // Parse and partition queries
     if !config.quiet {
@@ -1301,7 +1337,7 @@ pub fn run_asymmetric_batch_alignment(
                 g.prefix, g.total_bp, format_bytes(estimate_index_size(g.total_bp)));
         }
     }
-    let query_batches = partition_into_batches_with_limit(query_genomes, per_batch_limit);
+    let query_batches = partition_into_batches_with_limit(query_genomes, query_per_batch_limit);
 
     // Parse and partition targets
     if !config.quiet {
@@ -1323,11 +1359,11 @@ pub fn run_asymmetric_batch_alignment(
             }
         }
     }
-    let target_batches = partition_into_batches_with_limit(target_genomes, per_batch_limit);
+    let target_batches = partition_into_batches_with_limit(target_genomes, target_per_batch_limit);
 
     // Check if any batch exceeds the limit - if so, switch to sequence-level splitting
-    let query_oversized = query_batches.iter().any(|b| b.estimated_index_bytes > per_batch_limit);
-    let target_oversized = target_batches.iter().any(|b| b.estimated_index_bytes > per_batch_limit);
+    let query_oversized = query_batches.iter().any(|b| b.estimated_index_bytes > query_per_batch_limit);
+    let target_oversized = target_batches.iter().any(|b| b.estimated_index_bytes > target_per_batch_limit);
 
     if query_oversized || target_oversized {
         if !config.quiet {
@@ -1336,13 +1372,12 @@ pub fn run_asymmetric_batch_alignment(
             );
         }
         // Clean up and use sequence-level batching instead
-        let _ = std::fs::remove_dir_all(&batch_dir);
+        let _ = std::fs::remove_dir_all(&query_batch_dir);
+        let _ = std::fs::remove_dir_all(&target_batch_dir);
         return run_asymmetric_sequence_batch_alignment(
             query_files,
             target_files,
-            max_index_bytes,
             config,
-            tempdir,
         );
     }
 
@@ -1373,13 +1408,18 @@ pub fn run_asymmetric_batch_alignment(
             eprintln!("[batch]   Target batch {}: {} genomes, {} bp, est. index {}",
                 i, batch.genomes.len(), batch.total_bp, format_bytes(batch.estimated_index_bytes));
         }
-        eprintln!("[batch] Per-batch limit: {}", format_bytes(per_batch_limit));
+        if query_per_batch_limit == target_per_batch_limit {
+            eprintln!("[batch] Per-batch limit: {}", format_bytes(target_per_batch_limit));
+        } else {
+            eprintln!("[batch] Per-batch limits: query={}, target={}",
+                format_bytes(query_per_batch_limit), format_bytes(target_per_batch_limit));
+        }
         eprintln!("[batch] Will run {} batch alignments", num_alignments);
     }
 
-    // Create subdirectories for queries and targets
-    let query_dir = batch_dir.join("queries");
-    let target_dir = batch_dir.join("targets");
+    // Create subdirectories for queries and targets (in their respective temp directories)
+    let query_dir = query_batch_dir.join("queries");
+    let target_dir = target_batch_dir.join("targets");
     std::fs::create_dir_all(&query_dir)?;
     std::fs::create_dir_all(&target_dir)?;
 
@@ -1401,12 +1441,12 @@ pub fn run_asymmetric_batch_alignment(
     }
     let target_batch_files = write_batches_to_dir(&target_batches, &target_dir, "target")?;
 
-    // Create FastGA integration
+    // Create FastGA integration (uses target tempdir for index files)
     let fastga = FastGAIntegration::new(
         config.frequency,
         config.threads,
         config.min_alignment_length,
-        tempdir.map(String::from),
+        config.target_tempdir.clone(),
     );
 
     // Phase 1: Create GDBs for all batches
@@ -1568,7 +1608,8 @@ pub fn run_asymmetric_batch_alignment(
     for gdb_base in &target_gdb_bases {
         let _ = fastga_integration::FastGAIntegration::cleanup_all(gdb_base);
     }
-    let _ = std::fs::remove_dir_all(&batch_dir);
+    let _ = std::fs::remove_dir_all(&query_batch_dir);
+    let _ = std::fs::remove_dir_all(&target_batch_dir);
 
     if !config.quiet {
         eprintln!(
@@ -1590,20 +1631,49 @@ pub fn run_asymmetric_batch_alignment(
 fn run_asymmetric_sequence_batch_alignment(
     query_files: &[String],
     target_files: &[String],
-    max_index_bytes: u64,
     config: &AsymmetricBatchConfig,
-    tempdir: Option<&str>,
 ) -> Result<tempfile::NamedTempFile> {
     use crate::fastga_integration::{self, FastGAIntegration};
 
-    let per_batch_limit = max_index_bytes / 2;
+    // Use separate limits for query and target batches
+    // If using different temp directories, each has its own space limit (no division)
+    // If using same temp directory, divide by 2 because both query data and target index coexist
+    let separate_tempdirs = config.query_tempdir != config.target_tempdir
+        && config.query_tempdir.is_some()
+        && config.target_tempdir.is_some();
+
+    let (query_per_batch_limit, target_per_batch_limit) = if separate_tempdirs {
+        // Different temp directories = independent storage, use full limits
+        (config.query_max_bytes, config.target_max_bytes)
+    } else {
+        // Same temp directory = shared storage, divide by 2
+        (config.query_max_bytes / 2, config.target_max_bytes / 2)
+    };
 
     if !config.quiet {
-        eprintln!(
-            "[batch] Asymmetric SEQUENCE-level batch mode: max {} total index size ({} per batch)",
-            format_bytes(max_index_bytes),
-            format_bytes(per_batch_limit)
-        );
+        if separate_tempdirs {
+            eprintln!(
+                "[batch] Asymmetric SEQUENCE-level batch mode with separate tempdirs: query {} in {}, target {} in {}",
+                format_bytes(query_per_batch_limit),
+                config.query_tempdir.as_deref().unwrap_or("(default)"),
+                format_bytes(target_per_batch_limit),
+                config.target_tempdir.as_deref().unwrap_or("(default)")
+            );
+        } else if config.query_max_bytes == config.target_max_bytes {
+            eprintln!(
+                "[batch] Asymmetric SEQUENCE-level batch mode: max {} index size ({} per batch, shared tempdir)",
+                format_bytes(config.target_max_bytes),
+                format_bytes(target_per_batch_limit)
+            );
+        } else {
+            eprintln!(
+                "[batch] Asymmetric SEQUENCE-level batch mode: query max {} ({} per batch), target max {} ({} per batch)",
+                format_bytes(config.query_max_bytes),
+                format_bytes(query_per_batch_limit),
+                format_bytes(config.target_max_bytes),
+                format_bytes(target_per_batch_limit)
+            );
+        }
         if config.bidirectional {
             eprintln!("[batch] Bidirectional mode: will partition both queries and targets");
         } else {
@@ -1611,18 +1681,20 @@ fn run_asymmetric_sequence_batch_alignment(
         }
     }
 
-    // Determine temp directory
-    let temp_base = if let Some(dir) = tempdir {
-        PathBuf::from(dir)
-    } else if let Ok(tmpdir) = std::env::var("TMPDIR") {
-        PathBuf::from(tmpdir)
-    } else {
-        PathBuf::from("/tmp")
-    };
+    // Determine temp directories
+    let default_temp = std::env::var("TMPDIR").unwrap_or_else(|_| "/tmp".to_string());
+    let query_temp_base = PathBuf::from(
+        config.query_tempdir.as_deref().unwrap_or(&default_temp)
+    );
+    let target_temp_base = PathBuf::from(
+        config.target_tempdir.as_deref().unwrap_or(&default_temp)
+    );
 
-    // Create temp directory for batch FASTAs
-    let batch_dir = temp_base.join(format!("sweepga_asymseqbatch_{}", std::process::id()));
-    std::fs::create_dir_all(&batch_dir)?;
+    // Create temp directories for batch FASTAs (separate directories for query and target)
+    let query_batch_dir = query_temp_base.join(format!("sweepga_asymseqbatch_q_{}", std::process::id()));
+    let target_batch_dir = target_temp_base.join(format!("sweepga_asymseqbatch_t_{}", std::process::id()));
+    std::fs::create_dir_all(&query_batch_dir)?;
+    std::fs::create_dir_all(&target_batch_dir)?;
 
     // Parse sequences from target files (always needed)
     if !config.quiet {
@@ -1639,8 +1711,8 @@ fn run_asymmetric_sequence_batch_alignment(
         );
     }
 
-    // Partition target sequences into batches
-    let target_batches = partition_sequences_into_batches(target_sequences, max_index_bytes);
+    // Partition target sequences into batches using target limit
+    let target_batches = partition_sequences_into_batches(target_sequences, config.target_max_bytes);
     let num_target_batches = target_batches.len();
 
     // For bidirectional mode, we also need to partition queries (they become targets in reverse)
@@ -1659,7 +1731,8 @@ fn run_asymmetric_sequence_batch_alignment(
             );
         }
 
-        let batches = partition_sequences_into_batches(query_sequences, max_index_bytes);
+        // Use query limit for query batches
+        let batches = partition_sequences_into_batches(query_sequences, config.query_max_bytes);
         let num = batches.len();
         (Some(batches), num)
     } else {
@@ -1703,12 +1776,17 @@ fn run_asymmetric_sequence_batch_alignment(
         } else {
             eprintln!("[batch] Query files will be used directly (no partitioning)");
         }
-        eprintln!("[batch] Per-batch limit: {}", format_bytes(per_batch_limit));
+        if query_per_batch_limit == target_per_batch_limit {
+            eprintln!("[batch] Per-batch limit: {}", format_bytes(target_per_batch_limit));
+        } else {
+            eprintln!("[batch] Per-batch limits: query={}, target={}",
+                format_bytes(query_per_batch_limit), format_bytes(target_per_batch_limit));
+        }
         eprintln!("[batch] Will run {} batch alignments", num_alignments);
     }
 
-    // Create target directory
-    let target_dir = batch_dir.join("targets");
+    // Create target directory (in target temp directory)
+    let target_dir = target_batch_dir.join("targets");
     std::fs::create_dir_all(&target_dir)?;
 
     // Write target batch FASTAs
@@ -1720,9 +1798,9 @@ fn run_asymmetric_sequence_batch_alignment(
     }
     let target_batch_files = write_sequence_batches_to_dir(&target_batches, &target_dir, "target")?;
 
-    // Write query batch FASTAs only if bidirectional
+    // Write query batch FASTAs only if bidirectional (in query temp directory)
     let query_batch_files = if let Some(ref qb) = query_batches {
-        let query_dir = batch_dir.join("queries");
+        let query_dir = query_batch_dir.join("queries");
         std::fs::create_dir_all(&query_dir)?;
         if !config.quiet {
             eprintln!(
@@ -1735,12 +1813,12 @@ fn run_asymmetric_sequence_batch_alignment(
         None
     };
 
-    // Create FastGA integration
+    // Create FastGA integration (uses target tempdir for index files)
     let fastga = FastGAIntegration::new(
         config.frequency,
         config.threads,
         config.min_alignment_length,
-        tempdir.map(String::from),
+        config.target_tempdir.clone(),
     );
 
     // Phase 1: Create GDBs for target batches
@@ -1947,7 +2025,8 @@ fn run_asymmetric_sequence_batch_alignment(
     for gdb_base in &target_gdb_bases {
         let _ = fastga_integration::FastGAIntegration::cleanup_all(gdb_base);
     }
-    let _ = std::fs::remove_dir_all(&batch_dir);
+    let _ = std::fs::remove_dir_all(&query_batch_dir);
+    let _ = std::fs::remove_dir_all(&target_batch_dir);
 
     if !config.quiet {
         eprintln!(

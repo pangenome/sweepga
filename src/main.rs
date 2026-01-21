@@ -196,6 +196,60 @@ fn parse_metric_number(s: &str) -> Result<u64, String> {
     Ok(result as u64)
 }
 
+/// Parsed batch settings for asymmetric alignment
+#[derive(Debug, Clone)]
+struct BatchSettings {
+    /// Max index bytes for query batches
+    query_bytes: u64,
+    /// Max index bytes for target batches
+    target_bytes: u64,
+    /// Temp directory for query batches
+    query_tempdir: Option<String>,
+    /// Temp directory for target batches
+    target_tempdir: Option<String>,
+}
+
+/// Parse batch-bytes argument (single value or "query,target" pair)
+fn parse_batch_bytes(s: &str) -> Result<(u64, u64), String> {
+    if s.contains(',') {
+        let parts: Vec<&str> = s.split(',').collect();
+        if parts.len() != 2 {
+            return Err(format!(
+                "Expected 'VALUE' or 'QUERY_VALUE,TARGET_VALUE', got '{}'",
+                s
+            ));
+        }
+        let query = parse_metric_number(parts[0].trim())?;
+        let target = parse_metric_number(parts[1].trim())?;
+        Ok((query, target))
+    } else {
+        let value = parse_metric_number(s)?;
+        Ok((value, value))
+    }
+}
+
+/// Parse tempdir argument (single path or "query_dir,target_dir" pair)
+fn parse_tempdirs(s: &str) -> (Option<String>, Option<String>) {
+    if s.contains(',') {
+        let parts: Vec<&str> = s.split(',').collect();
+        if parts.len() >= 2 {
+            let query_dir = if parts[0].trim().is_empty() {
+                None
+            } else {
+                Some(parts[0].trim().to_string())
+            };
+            let target_dir = if parts[1].trim().is_empty() {
+                None
+            } else {
+                Some(parts[1].trim().to_string())
+            };
+            return (query_dir, target_dir);
+        }
+    }
+    let dir = Some(s.to_string());
+    (dir.clone(), dir)
+}
+
 /// SweepGA - Fast genome alignment with plane sweep filtering
 ///
 /// This tool wraps genome aligners (FastGA by default) and applies wfmash's filtering algorithms.
@@ -245,12 +299,13 @@ struct Args {
     #[clap(long = "all-pairs", help_heading = "Alignment options")]
     all_pairs: bool,
 
-    /// Maximum index size per batch (e.g., "10G", "500M"). Partitions genomes to fit disk limits.
+    /// Maximum index size per batch (e.g., "10G", "500M", or "20G,30G" for query,target).
     /// Formula: index ≈ 0.1GB + 12 bytes/bp. Use when scratch space is limited.
     /// With 2 input files: asymmetric mode (file1→file2), no self-alignment within each file.
     /// With 1 input file: all-vs-all mode within the file.
-    #[clap(long = "batch-bytes", value_parser = parse_metric_number, help_heading = "Alignment options")]
-    batch_bytes: Option<u64>,
+    /// Use comma-separated values for different query/target limits (e.g., "20G,30G").
+    #[clap(long = "batch-bytes", help_heading = "Alignment options")]
+    batch_bytes: Option<String>,
 
     /// Enable bidirectional alignment in batch mode with 2 files (A→B and B→A).
     /// Default is unidirectional (file1→file2 only).
@@ -403,7 +458,8 @@ struct Args {
     #[clap(long = "quiet", help_heading = "General options")]
     quiet: bool,
 
-    /// Temporary directory for intermediate files (defaults to TMPDIR env var, then /tmp)
+    /// Temporary directory for intermediate files (defaults to TMPDIR env var, then /tmp).
+    /// Use comma-separated paths for different query/target dirs (e.g., "/tmp,/dev/shm").
     #[clap(long = "tempdir", help_heading = "General options")]
     tempdir: Option<String>,
 
@@ -1172,7 +1228,7 @@ fn align_multiple_fastas(
     fasta_files: &[String],
     frequency: Option<usize>,
     all_pairs: bool,
-    batch_bytes: Option<u64>,
+    batch_settings: Option<&BatchSettings>,
     batch_bidirectional: bool,
     threads: usize,
     keep_self: bool,
@@ -1185,15 +1241,24 @@ fn align_multiple_fastas(
 ) -> Result<tempfile::NamedTempFile> {
     // Check for asymmetric batch mode: 2 input files + --batch-bytes
     if fasta_files.len() == 2 {
-        if let Some(max_index_bytes) = batch_bytes {
+        if let Some(settings) = batch_settings {
             if !quiet {
+                let size_info = if settings.query_bytes == settings.target_bytes {
+                    format!("max {} index size", batch_align::format_bytes(settings.target_bytes))
+                } else {
+                    format!(
+                        "query max {}, target max {}",
+                        batch_align::format_bytes(settings.query_bytes),
+                        batch_align::format_bytes(settings.target_bytes)
+                    )
+                };
                 timing.log(
                     "batch",
                     &format!(
-                        "Asymmetric batch mode: {} → {}, max {} index size{}",
+                        "Asymmetric batch mode: {} → {}, {}{}",
                         fasta_files[0],
                         fasta_files[1],
-                        batch_align::format_bytes(max_index_bytes),
+                        size_info,
                         if batch_bidirectional { " (bidirectional)" } else { "" }
                     ),
                 );
@@ -1207,14 +1272,16 @@ fn align_multiple_fastas(
                 zstd_level,
                 quiet,
                 bidirectional: batch_bidirectional,
+                query_max_bytes: settings.query_bytes,
+                target_max_bytes: settings.target_bytes,
+                query_tempdir: settings.query_tempdir.clone(),
+                target_tempdir: settings.target_tempdir.clone(),
             };
 
             return batch_align::run_asymmetric_batch_alignment(
                 &[fasta_files[0].clone()],
                 &[fasta_files[1].clone()],
-                max_index_bytes,
                 &config,
-                tempdir,
             );
         }
     }
@@ -1233,29 +1300,36 @@ fn align_multiple_fastas(
         }
     }
 
-    // Check for batch mode
-    if let Some(max_index_bytes) = batch_bytes {
-        if !quiet {
-            timing.log(
-                "batch",
-                &format!(
-                    "Batch mode enabled: max {} index size per batch",
-                    batch_align::format_bytes(max_index_bytes)
-                ),
-            );
+    // Check for non-asymmetric batch mode (single FASTA with multiple genomes)
+    // This is only used when we have 1 FASTA file with batch_settings (2 FASTAs use asymmetric mode above)
+    if fasta_files.len() == 1 {
+        if let Some(settings) = batch_settings {
+            // For single-file batch mode, use query_bytes as the batch size
+            let max_index_bytes = settings.query_bytes;
+            let batch_tempdir = settings.query_tempdir.as_deref().or(tempdir);
+
+            if !quiet {
+                timing.log(
+                    "batch",
+                    &format!(
+                        "Batch mode enabled: max {} index size per batch",
+                        batch_align::format_bytes(max_index_bytes)
+                    ),
+                );
+            }
+
+            let config = batch_align::BatchAlignConfig {
+                frequency,
+                threads,
+                min_alignment_length,
+                zstd_compress,
+                zstd_level,
+                keep_self,
+                quiet,
+            };
+
+            return batch_align::run_batch_alignment(fasta_files, max_index_bytes, &config, batch_tempdir);
         }
-
-        let config = batch_align::BatchAlignConfig {
-            frequency,
-            threads,
-            min_alignment_length,
-            zstd_compress,
-            zstd_level,
-            keep_self,
-            quiet,
-        };
-
-        return batch_align::run_batch_alignment(fasta_files, max_index_bytes, &config, tempdir);
     }
 
     // Decide on alignment mode
@@ -1440,7 +1514,11 @@ fn process_agc_archive(
     }
 
     // Check if we should use batch mode
-    if let Some(max_index_bytes) = args.batch_bytes {
+    if let Some(ref batch_bytes_str) = args.batch_bytes {
+        // Parse batch bytes string (use first value if comma-separated, or single value)
+        let max_index_bytes = parse_batch_bytes(batch_bytes_str)
+            .map(|(q, _t)| q)  // For AGC, use query bytes (or first value)
+            .unwrap_or(20_000_000_000);  // Default 20G
         // Batch mode: partition samples and process incrementally
         return process_agc_batched(
             &mut agc,
@@ -2789,6 +2867,19 @@ fn main() -> Result<()> {
             .filter(|ft| **ft == FileType::Fasta)
             .count();
 
+        // Parse batch settings from CLI arguments
+        let batch_settings = args.batch_bytes.as_ref().map(|s| {
+            let (query_bytes, target_bytes) = parse_batch_bytes(s)
+                .unwrap_or_else(|e| {
+                    eprintln!("Warning: Failed to parse --batch-bytes '{}': {}, using default", s, e);
+                    (20_000_000_000, 20_000_000_000)  // Default 20G
+                });
+            let (query_tempdir, target_tempdir) = args.tempdir.as_ref()
+                .map(|t| parse_tempdirs(t))
+                .unwrap_or((None, None));
+            BatchSettings { query_bytes, target_bytes, query_tempdir, target_tempdir }
+        });
+
         match (args.files.len(), all_fasta) {
             (1, true) => {
                 // Single FASTA - check if it has multiple genomes
@@ -2815,7 +2906,7 @@ fn main() -> Result<()> {
                         &args.files,
                         args.frequency,
                         args.all_pairs,
-                        args.batch_bytes,
+                        batch_settings.as_ref(),
                         args.batch_bidirectional,
                         args.threads,
                         args.keep_self,
@@ -2902,7 +2993,7 @@ fn main() -> Result<()> {
                         &args.files,
                         args.frequency,
                         args.all_pairs,
-                        args.batch_bytes,
+                        batch_settings.as_ref(),
                         args.batch_bidirectional,
                         args.threads,
                         args.keep_self,
@@ -2927,7 +3018,7 @@ fn main() -> Result<()> {
 
                     let paf_path = temp_paf.path().to_string_lossy().into_owned();
                     (Some(temp_paf), paf_path)
-                } else if args.batch_bytes.is_some() {
+                } else if batch_settings.is_some() {
                     // Two single-genome FASTAs with batch_bytes set - use batch mode
                     // to control index size (both genomes may be very large)
                     if !args.quiet {
@@ -2942,7 +3033,7 @@ fn main() -> Result<()> {
                         &args.files,
                         args.frequency,
                         args.all_pairs,
-                        args.batch_bytes,
+                        batch_settings.as_ref(),
                         args.batch_bidirectional,
                         args.threads,
                         args.keep_self,
@@ -2968,7 +3059,7 @@ fn main() -> Result<()> {
                     let paf_path = temp_paf.path().to_string_lossy().into_owned();
                     (Some(temp_paf), paf_path)
                 } else {
-                    // Simple pairwise alignment (legacy behavior, no batch_bytes)
+                    // Simple pairwise alignment (legacy behavior, no batch_settings)
                     let alignment_start = Instant::now();
 
                     if !args.quiet {
@@ -3027,7 +3118,7 @@ fn main() -> Result<()> {
                     &args.files,
                     args.frequency,
                     args.all_pairs,
-                    args.batch_bytes,
+                    batch_settings.as_ref(),
                     args.batch_bidirectional,
                     args.threads,
                     args.keep_self,
