@@ -526,6 +526,63 @@ impl PafFilter {
             }
         }
 
+        // Step 4b: Include inversions that are on the scaffold's diagonal.
+        // For each forward scaffold, check if any reverse alignments would be "on the diagonal"
+        // if they were flipped. This is equivalent to checking perpendicular distance to the
+        // diagonal line: for a forward scaffold with t = q + offset, the perpendicular distance
+        // from point (q, t) is |t - q - offset| / sqrt(2).
+        let max_diagonal_distance = self.config.scaffold_gap;
+
+        for (chain_idx, chain) in filtered_chains.iter().enumerate() {
+            // Only process forward scaffolds - inversions belong to forward diagonals
+            if chain.strand != '+' {
+                continue;
+            }
+
+            let chain_id = format!("chain_{}", chain_idx + 1);
+            let diagonal_offset = chain.target_start as i64 - chain.query_start as i64;
+
+            for mapping in &all_original_mappings {
+                // Only consider reverse alignments (inversions)
+                if mapping.strand != '-' {
+                    continue;
+                }
+
+                // Skip if already an anchor
+                if anchor_ranks.contains(&mapping.rank) {
+                    continue;
+                }
+
+                // Check if on the same chromosome pair
+                if mapping.query_name != chain.query_name
+                    || mapping.target_name != chain.target_name
+                {
+                    continue;
+                }
+
+                // Check if near the scaffold's query range (within scaffold_gap distance)
+                // This allows inversions just before/after the scaffold to be captured
+                let extended_query_start = chain.query_start.saturating_sub(max_diagonal_distance);
+                let extended_query_end = chain.query_end.saturating_add(max_diagonal_distance);
+                if mapping.query_end < extended_query_start || mapping.query_start > extended_query_end {
+                    continue;
+                }
+
+                // Calculate perpendicular distance to the scaffold's diagonal
+                // Diagonal line: t = q + offset
+                // Perpendicular distance = |t - q - offset| / sqrt(2)
+                let mapping_q_center = (mapping.query_start + mapping.query_end) / 2;
+                let mapping_t_center = (mapping.target_start + mapping.target_end) / 2;
+                let deviation = (mapping_t_center as i64 - mapping_q_center as i64 - diagonal_offset).unsigned_abs();
+                let perpendicular_distance = (deviation as f64 / std::f64::consts::SQRT_2) as u64;
+
+                if perpendicular_distance <= max_diagonal_distance {
+                    anchor_ranks.insert(mapping.rank);
+                    rank_to_chain_id.insert(mapping.rank, chain_id.clone());
+                }
+            }
+        }
+
         // Identify mappings that were in filtered-out scaffolds
         // These should NOT be rescued even if they're near surviving anchors
         let filtered_scaffold_members: HashSet<usize> = pre_sweep_scaffold_members

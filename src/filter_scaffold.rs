@@ -144,18 +144,21 @@ pub fn filter_by_scaffolds_with_rescue(
 
         // eprintln!("[SCAFFOLD_TRACE] After plane sweep: {} -> {} chains",
         //           scaffold_chains.len(), filtered_scaffolds.len());
-        for (i, chain) in filtered_scaffolds.iter().enumerate() {
-            // eprintln!("[SCAFFOLD_TRACE]   Scaffold[{}]: ref={} q={}-{} r={}-{} len={}",
-            //           i, chain.ref_seq_id, chain.query_start, chain.query_end,
+        for (_i, _chain) in filtered_scaffolds.iter().enumerate() {
+            // eprintln!("[SCAFFOLD_TRACE]   Scaffold[{}]: rev={} q={}-{} r={}-{} len={}",
+            //           i, chain.is_reverse, chain.query_start, chain.query_end,
             //           chain.ref_start, chain.ref_end, chain.total_length);
         }
 
         // Step 4: Identify anchors - FILTERED mappings within scaffold bounds
+        // NOTE: We do NOT check orientation here - inversions geometrically contained
+        // within a scaffold's bounding box should be included as anchors. This ensures
+        // small inversions on the main diagonal are kept with the surrounding forward
+        // alignments.
         let mut anchor_indices = Vec::new();
         for &(orig_idx, ref orig_mapping, _) in &filtered_for_scaffolds {
             for scaffold in &filtered_scaffolds {
                 if orig_mapping.ref_seq_id == scaffold.ref_seq_id &&
-                   orig_mapping.is_reverse() == scaffold.is_reverse &&
                    orig_mapping.query_start_pos >= scaffold.query_start &&
                    orig_mapping.query_end_pos() <= scaffold.query_end &&
                    orig_mapping.ref_start_pos >= scaffold.ref_start &&
