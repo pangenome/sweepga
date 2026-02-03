@@ -29,6 +29,18 @@ pub fn extract_1aln_metadata<P: AsRef<Path>>(
     // Get all sequence names upfront (efficient bulk lookup)
     let id_to_name = reader.get_all_seq_names();
 
+    // WORKAROUND: onecode-rs get_all_contig_offsets() consumes the first 'A' record
+    // and fails to properly restore file position. We need to explicitly seek to
+    // the first alignment before reading.
+    // See: https://github.com/pangenome/onecode-rs/issues/XXX (TODO: file bug)
+    if let Err(e) = reader.file.goto('A', 1) {
+        // If goto fails (e.g., no alignments), that's OK - read_alignment will return None
+        eprintln!(
+            "[unified_filter] Warning: could not seek to first alignment: {}",
+            e
+        );
+    }
+
     // Build reverse mapping for writing
     let mut name_to_id = HashMap::new();
     for (id, name) in &id_to_name {
