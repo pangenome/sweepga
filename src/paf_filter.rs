@@ -564,7 +564,9 @@ impl PafFilter {
                 // This allows inversions just before/after the scaffold to be captured
                 let extended_query_start = chain.query_start.saturating_sub(max_diagonal_distance);
                 let extended_query_end = chain.query_end.saturating_add(max_diagonal_distance);
-                if mapping.query_end < extended_query_start || mapping.query_start > extended_query_end {
+                if mapping.query_end < extended_query_start
+                    || mapping.query_start > extended_query_end
+                {
                     continue;
                 }
 
@@ -573,7 +575,9 @@ impl PafFilter {
                 // Perpendicular distance = |t - q - offset| / sqrt(2)
                 let mapping_q_center = (mapping.query_start + mapping.query_end) / 2;
                 let mapping_t_center = (mapping.target_start + mapping.target_end) / 2;
-                let deviation = (mapping_t_center as i64 - mapping_q_center as i64 - diagonal_offset).unsigned_abs();
+                let deviation =
+                    (mapping_t_center as i64 - mapping_q_center as i64 - diagonal_offset)
+                        .unsigned_abs();
                 let perpendicular_distance = (deviation as f64 / std::f64::consts::SQRT_2) as u64;
 
                 if perpendicular_distance <= max_diagonal_distance {
