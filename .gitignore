@@ -46,6 +46,9 @@ minimal.fa
 all_seqs.fa
 s288c*.fa
 
+# Workgraph
+.workgraph/
+
 # Wfmash temp files
 wfmash-*
 
