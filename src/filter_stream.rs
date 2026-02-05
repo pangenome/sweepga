@@ -228,18 +228,68 @@ impl StreamFilter {
             }
 
             // Step 4: Identify anchors - use the actual member mappings of scaffold chains
-            // NOT all mappings within the bounding box!
             let mut anchor_ranks = HashSet::new();
             for chain in &filtered_chains {
-                // Only the actual members of this chain are anchors
+                // The actual members of this chain are anchors
                 for &member_idx in &chain.member_indices {
                     if member_idx < metadata.len() {
                         anchor_ranks.insert(metadata[member_idx].rank);
                     }
                 }
             }
-            // eprintln!("[DEBUG] Anchors identified: {} mappings (members of {} scaffold chains)",
-            //           anchor_ranks.len(), filtered_chains.len());
+
+            // Step 4b: Include inversions that are on the scaffold's diagonal.
+            // For each forward scaffold, check if reverse alignments are "on the diagonal"
+            // using perpendicular distance: |t - q - offset| / sqrt(2)
+            let max_diagonal_distance = self.config.scaffold_gap;
+
+            for chain in &filtered_chains {
+                // Only process forward scaffolds
+                if chain.strand != '+' {
+                    continue;
+                }
+
+                let diagonal_offset = chain.target_start as i64 - chain.query_start as i64;
+
+                for mapping in &all_original_mappings {
+                    // Only consider reverse alignments (inversions)
+                    if mapping.strand != '-' {
+                        continue;
+                    }
+
+                    // Skip if already an anchor
+                    if anchor_ranks.contains(&mapping.rank) {
+                        continue;
+                    }
+
+                    // Check if on the same chromosome pair
+                    if mapping.query_name != chain.query_name
+                        || mapping.target_name != chain.target_name
+                    {
+                        continue;
+                    }
+
+                    // Check if near the scaffold's query range (within scaffold_gap distance)
+                    // This allows inversions just before/after the scaffold to be captured
+                    let extended_query_start = (chain.query_start as u64).saturating_sub(max_diagonal_distance as u64);
+                    let extended_query_end = (chain.query_end as u64).saturating_add(max_diagonal_distance as u64);
+                    if mapping.query_end < extended_query_start
+                        || mapping.query_start > extended_query_end
+                    {
+                        continue;
+                    }
+
+                    // Calculate perpendicular distance to the scaffold's diagonal
+                    let mapping_q_center = (mapping.query_start + mapping.query_end) / 2;
+                    let mapping_t_center = (mapping.target_start + mapping.target_end) / 2;
+                    let deviation = (mapping_t_center as i64 - mapping_q_center as i64 - diagonal_offset).unsigned_abs();
+                    let perpendicular_distance = (deviation as f64 / std::f64::consts::SQRT_2) as u64;
+
+                    if perpendicular_distance <= max_diagonal_distance as u64 {
+                        anchor_ranks.insert(mapping.rank);
+                    }
+                }
+            }
 
             // Map ranks to indices in all_original_mappings
             let mut rank_to_idx = HashMap::new();
