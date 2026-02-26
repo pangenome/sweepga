@@ -533,6 +533,18 @@ impl PafFilter {
         // from point (q, t) is |t - q - offset| / sqrt(2).
         let max_diagonal_distance = self.config.scaffold_gap;
 
+        // Pre-group reverse-strand mappings by (query_name, target_name) to avoid
+        // scanning all mappings for every chain (was O(chains * all_mappings)).
+        let mut reverse_by_chr_pair: HashMap<(&str, &str), Vec<usize>> = HashMap::new();
+        for (idx, mapping) in all_original_mappings.iter().enumerate() {
+            if mapping.strand == '-' {
+                reverse_by_chr_pair
+                    .entry((&mapping.query_name, &mapping.target_name))
+                    .or_default()
+                    .push(idx);
+            }
+        }
+
         for (chain_idx, chain) in filtered_chains.iter().enumerate() {
             // Only process forward scaffolds - inversions belong to forward diagonals
             if chain.strand != '+' {
@@ -542,21 +554,17 @@ impl PafFilter {
             let chain_id = format!("chain_{}", chain_idx + 1);
             let diagonal_offset = chain.target_start as i64 - chain.query_start as i64;
 
-            for mapping in &all_original_mappings {
-                // Only consider reverse alignments (inversions)
-                if mapping.strand != '-' {
-                    continue;
-                }
+            // Only check reverse mappings on the same chromosome pair
+            let candidates = reverse_by_chr_pair
+                .get(&(chain.query_name.as_str(), chain.target_name.as_str()));
+            let empty_vec = Vec::new();
+            let candidates = candidates.unwrap_or(&empty_vec);
+
+            for &idx in candidates {
+                let mapping = &all_original_mappings[idx];
 
                 // Skip if already an anchor
                 if anchor_ranks.contains(&mapping.rank) {
-                    continue;
-                }
-
-                // Check if on the same chromosome pair
-                if mapping.query_name != chain.query_name
-                    || mapping.target_name != chain.target_name
-                {
                     continue;
                 }
 
