@@ -555,8 +555,8 @@ impl PafFilter {
             let diagonal_offset = chain.target_start as i64 - chain.query_start as i64;
 
             // Only check reverse mappings on the same chromosome pair
-            let candidates = reverse_by_chr_pair
-                .get(&(chain.query_name.as_str(), chain.target_name.as_str()));
+            let candidates =
+                reverse_by_chr_pair.get(&(chain.query_name.as_str(), chain.target_name.as_str()));
             let empty_vec = Vec::new();
             let candidates = candidates.unwrap_or(&empty_vec);
 
