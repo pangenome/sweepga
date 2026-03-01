@@ -396,7 +396,7 @@ struct Args {
     #[clap(long = "quiet", help_heading = "General options")]
     quiet: bool,
 
-    /// Temporary directory for intermediate files (defaults to TMPDIR env var, then /tmp)
+    /// Temporary directory for intermediate files (defaults to TMPDIR env var, then current directory; use "ramdisk" for /dev/shm)
     #[clap(long = "tempdir", help_heading = "General options")]
     tempdir: Option<String>,
 
