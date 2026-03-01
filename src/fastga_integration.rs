@@ -24,8 +24,7 @@ fn get_temp_dir(override_dir: Option<&str>) -> String {
             if dir == "ramdisk" {
                 let dev_shm = std::path::Path::new("/dev/shm");
                 if dev_shm.is_dir() {
-                    let test_path =
-                        dev_shm.join(format!(".sweepga_test_{}", std::process::id()));
+                    let test_path = dev_shm.join(format!(".sweepga_test_{}", std::process::id()));
                     if std::fs::write(&test_path, b"test").is_ok() {
                         let _ = std::fs::remove_file(&test_path);
                         return "/dev/shm".to_string();
