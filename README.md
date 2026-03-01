@@ -227,6 +227,8 @@ sweepga alignments.paf -j 50k -m many:many > filtered.paf
 
 **`--paf`** - Force PAF output format (overrides .1aln default for .1aln inputs)
 
+**`--1aln`** - Output .1aln binary format instead of default PAF
+
 ### Advanced Filtering
 
 **`-x/--sparsify`** - Tree sparsification pattern (default: `1.0` = keep all)
@@ -245,7 +247,7 @@ sweepga alignments.paf -j 50k -m many:many > filtered.paf
 
 **`--quiet`** - Quiet mode (no progress output)
 
-**`--tempdir <DIR>`** - Temporary directory for intermediate files
+**`--tempdir <DIR>`** - Temporary directory for intermediate files (defaults to `TMPDIR` env var, then current directory). Use `--tempdir ramdisk` for `/dev/shm` (Linux RAM-backed tmpfs)
 
 **`--check-fastga`** - Check FastGA binary locations and exit (diagnostic)
 
@@ -254,6 +256,46 @@ sweepga alignments.paf -j 50k -m many:many > filtered.paf
 **`-f/--frequency <N>`** - FastGA k-mer frequency threshold
 
 **`--all-pairs`** - Align all genome pairs separately (for many genomes)
+
+**`--disk-usage`** - Report disk usage statistics (current, peak, cumulative bytes written)
+
+### Batch Processing
+
+**`--batch-bytes <SIZE>`** - Maximum index size per batch (e.g., `10G`, `500M`). Partitions genomes to fit disk limits when scratch space is limited.
+
+**`--zstd`** - Compress k-mer index with zstd for ~2x disk savings and faster I/O
+
+**`--zstd-level <N>`** - Zstd compression level 1-19 (default: 3). Higher = smaller files but slower
+
+### AGC Archive Input
+
+SweepGA can process [AGC](https://github.com/refresh-bio/agc) genome archives directly:
+
+**`--agc-prefix <PREFIX>`** - Extract only samples matching this prefix
+
+**`--agc-samples <LIST>`** - Extract only these samples (comma-separated or `@file`)
+
+**`--agc-queries <LIST>`** / **`--agc-targets <LIST>`** - Query/target samples for asymmetric alignment
+
+**`--agc-tempdir <DIR>`** - Temp directory for AGC extraction (defaults to `--tempdir`)
+
+### Pair Selection
+
+For controlling which genome pairs are aligned:
+
+**`--pairs <FILE>`** - File of sample pairs to align (TSV: `query<tab>target`)
+
+**`--list-pairs`** - List all sample pairs and exit
+
+**`--max-pairs <N>`** - Maximum number of pairs to process (0 = unlimited)
+
+**`--shuffle-pairs`** / **`--shuffle-seed <N>`** - Shuffle pair order for load balancing
+
+**`--pairs-done <FILE>`** / **`--pairs-remaining <FILE>`** - Resume capability
+
+**`--pair-start <N>`** - Start index for pair range (0-based)
+
+**`--sparsify-pairs <STRATEGY>`** - Pair sparsification (none, auto, `random:<frac>`, `giant:<prob>`, `tree:<near>:<far>:<random>`)
 
 ## How Scaffolding Works
 
@@ -266,9 +308,9 @@ When scaffolding is enabled (with `-j > 0`), the filtering process follows these
 3. **Scaffold Creation** - Merge nearby alignments into chains using union-find algorithm
    - Alignments within `-j` gap distance on both query and target are merged
    - Chains shorter than `-s` minimum length are discarded
-4. **Scaffold Filter** - Apply plane sweep filter to scaffold chains (`-m`, default: `N:N`)
+4. **Scaffold Filter** - Apply plane sweep filter to scaffold chains (`-m`, default: `many:many`)
    - `1:1` mode: Keep single best scaffold per chromosome pair (aggressive)
-   - `N:N` mode: Keep all non-overlapping scaffolds (moderate, default)
+   - `many:many` mode: Keep all non-overlapping scaffolds (moderate, default)
 5. **Rescue Phase** - Recover alignments near kept scaffolds (`-d`, default: `0` = disabled)
    - When enabled, alignments within Euclidean distance of scaffold anchors are rescued
    - Works per chromosome pair only
