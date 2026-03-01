@@ -12,12 +12,29 @@ use std::sync::Arc;
 use tempfile::NamedTempFile;
 
 /// Get the preferred temp directory for FastGA operations.
-/// Priority: explicit override > TMPDIR env var > /dev/shm (if available) > current directory
+/// Priority: explicit override > TMPDIR env var > current directory.
+///
+/// The special value "ramdisk" maps to /dev/shm (Linux shared-memory tmpfs)
+/// for users who want RAM-backed temp storage without knowing the path.
 fn get_temp_dir(override_dir: Option<&str>) -> String {
     // First check explicit override (from --tempdir CLI option)
     if let Some(dir) = override_dir {
-        if !dir.is_empty() && std::path::Path::new(dir).is_dir() {
-            return dir.to_string();
+        if !dir.is_empty() {
+            // "ramdisk" is a convenience alias for /dev/shm
+            if dir == "ramdisk" {
+                let dev_shm = std::path::Path::new("/dev/shm");
+                if dev_shm.is_dir() {
+                    let test_path =
+                        dev_shm.join(format!(".sweepga_test_{}", std::process::id()));
+                    if std::fs::write(&test_path, b"test").is_ok() {
+                        let _ = std::fs::remove_file(&test_path);
+                        return "/dev/shm".to_string();
+                    }
+                }
+                eprintln!("[sweepga] warning: --temp-dir ramdisk requested but /dev/shm is not available, falling back to current directory");
+            } else if std::path::Path::new(dir).is_dir() {
+                return dir.to_string();
+            }
         }
     }
 
@@ -28,18 +45,7 @@ fn get_temp_dir(override_dir: Option<&str>) -> String {
         }
     }
 
-    // Check if /dev/shm exists and is writable (preferred for performance)
-    let dev_shm = std::path::Path::new("/dev/shm");
-    if dev_shm.is_dir() {
-        // Try to create a test file to verify write access
-        let test_path = dev_shm.join(format!(".sweepga_test_{}", std::process::id()));
-        if std::fs::write(&test_path, b"test").is_ok() {
-            let _ = std::fs::remove_file(&test_path);
-            return "/dev/shm".to_string();
-        }
-    }
-
-    // Fallback to current directory
+    // Default: current directory (avoids silently consuming RAM via /dev/shm)
     ".".to_string()
 }
 
