@@ -1309,6 +1309,7 @@ dependencies = [
  "rand 0.8.5",
  "rayon",
  "tempfile",
+ "wfmash-rs",
 ]
 
 [[package]]
@@ -1511,6 +1512,18 @@ checksum = "9b32828d774c412041098d182a8b38b16ea816958e07cf40eec2bc080ae137ac"
 dependencies = [
  "js-sys",
  "wasm-bindgen",
+]
+
+[[package]]
+name = "wfmash-rs"
+version = "0.1.0"
+source = "git+https://github.com/pangenome/wfmash-rs?rev=30d9b94#30d9b941cadb7ce39f440d58782e1aea351fe532"
+dependencies = [
+ "anyhow",
+ "num_cpus",
+ "tempfile",
+ "thiserror",
+ "which",
 ]
 
 [[package]]
