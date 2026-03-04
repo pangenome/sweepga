@@ -6,7 +6,6 @@ mod binary_paths;
 mod compact_mapping;
 mod disk_usage;
 mod fastga_integration;
-mod wfmash_integration;
 mod filter_types;
 mod grouped_mappings;
 mod knn_graph;
@@ -22,6 +21,7 @@ mod sequence_index;
 mod tree_sparsify;
 mod unified_filter;
 mod union_find;
+mod wfmash_integration;
 
 use anyhow::{Context, Result};
 use clap::Parser;
@@ -2463,12 +2463,8 @@ fn create_aligner(
 ) -> Result<Box<dyn aligner::Aligner>> {
     match aligner_name {
         "fastga" => {
-            let fastga = create_fastga_integration(
-                frequency,
-                num_threads,
-                min_alignment_length,
-                temp_dir,
-            )?;
+            let fastga =
+                create_fastga_integration(frequency, num_threads, min_alignment_length, temp_dir)?;
             Ok(Box::new(fastga))
         }
         "wfmash" => {
