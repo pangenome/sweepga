@@ -1,5 +1,6 @@
 // Library exports for sweepga
 pub mod agc;
+pub mod aligner;
 pub mod batch_align;
 pub mod binary_paths;
 pub mod compact_mapping;
@@ -19,3 +20,4 @@ pub mod seq_registry;
 pub mod sequence_index;
 pub mod unified_filter;
 pub mod union_find;
+pub mod wfmash_integration;

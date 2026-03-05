@@ -1,4 +1,5 @@
 mod agc;
+mod aligner;
 mod aln_filter;
 mod batch_align;
 mod binary_paths;
@@ -20,6 +21,7 @@ mod sequence_index;
 mod tree_sparsify;
 mod unified_filter;
 mod union_find;
+mod wfmash_integration;
 
 use anyhow::{Context, Result};
 use clap::Parser;
@@ -233,7 +235,7 @@ struct Args {
     // Alignment (FASTA input only)
     // ============================================================================
     /// Aligner to use for FASTA input
-    #[clap(long = "aligner", default_value = "fastga", value_parser = ["fastga"],
+    #[clap(long = "aligner", default_value = "fastga", value_parser = ["fastga", "wfmash"],
            help_heading = "Alignment options")]
     aligner: String,
 
@@ -1174,6 +1176,7 @@ fn align_multiple_fastas(
     min_alignment_length: u64,
     zstd_compress: bool,
     zstd_level: u32,
+    aligner_name: &str,
 ) -> Result<tempfile::NamedTempFile> {
     // Detect genome groups from input files
     let mut num_genomes = 0;
@@ -1228,6 +1231,7 @@ fn align_multiple_fastas(
             min_alignment_length,
             zstd_compress,
             zstd_level,
+            aligner_name,
         );
     }
 
@@ -1251,30 +1255,37 @@ fn align_multiple_fastas(
     if !quiet {
         timing.log(
             "align",
-            &format!("Aligning {num_genomes} genomes in single FastGA run"),
+            &format!("Aligning {num_genomes} genomes in single {aligner_name} run"),
         );
     }
 
-    // Create FastGA integration with effective frequency
-    let fastga = create_fastga_integration(
+    // Create aligner
+    let aligner = create_aligner(
+        aligner_name,
         effective_frequency,
         threads,
         min_alignment_length,
         tempdir.map(String::from),
     )?;
 
-    // Run single FastGA alignment on the original input (all genomes together)
+    // Run alignment on the original input (all genomes together)
     // Use first file as both query and target for self-alignment
     let input_file = &fasta_files[0];
     // Canonicalize path to avoid empty parent directory issues in fastga-rs
     let input_path = std::fs::canonicalize(input_file)
         .with_context(|| format!("Failed to resolve path: {input_file}"))?;
 
-    // If zstd compression is requested, pre-build and compress the index
-    if zstd_compress {
+    // If zstd compression is requested and using FastGA, pre-build and compress the index
+    if zstd_compress && aligner_name == "fastga" {
         if !quiet {
             timing.log("index", "Building index for compression...");
         }
+        let fastga = create_fastga_integration(
+            effective_frequency,
+            threads,
+            min_alignment_length,
+            tempdir.map(String::from),
+        )?;
         let gdb_base = fastga.prepare_gdb(&input_path)?;
         // Strip .fa extension if present (fastga-rs returns path with .fa but index uses base name)
         let gdb_base_stripped = gdb_base
@@ -1288,13 +1299,13 @@ fn align_multiple_fastas(
         }
     }
 
-    let temp_paf = fastga.align_to_temp_paf(&input_path, &input_path)?;
+    let temp_paf = aligner.align_to_temp_paf(&input_path, &input_path)?;
 
     if !quiet {
         let alignment_count = std::fs::read_to_string(temp_paf.path())?.lines().count();
         timing.log(
             "align",
-            &format!("FastGA produced {alignment_count} alignments"),
+            &format!("{aligner_name} produced {alignment_count} alignments"),
         );
     }
 
@@ -1420,8 +1431,9 @@ fn process_agc_archive(
         timing.log("agc", &format!("Extracted to: {}", fasta_path.display()));
     }
 
-    // Run FastGA alignment using direct PAF output (bypasses ALNtoPAF segfaults)
-    let fastga = create_fastga_integration(
+    // Run alignment using direct PAF output
+    let aligner = create_aligner(
+        &args.aligner,
         args.frequency,
         args.threads,
         args.block_length,
@@ -1429,10 +1441,10 @@ fn process_agc_archive(
     )?;
 
     if !args.quiet {
-        timing.log("align", "Running FastGA alignment...");
+        timing.log("align", &format!("Running {} alignment...", args.aligner));
     }
 
-    let paf_bytes = fastga.align_direct_paf(&fasta_path, &fasta_path)?;
+    let paf_bytes = aligner.align_direct_paf(&fasta_path, &fasta_path)?;
 
     // Write to temp file
     use std::io::Write;
@@ -1893,8 +1905,9 @@ fn process_agc_pairs(
         timing.log("pairs", &format!("Processing {} pairs", pairs.len()));
     }
 
-    // Create FastGA integration
-    let fastga = create_fastga_integration(
+    // Create aligner
+    let aligner = create_aligner(
+        &args.aligner,
         args.frequency,
         args.threads,
         args.block_length,
@@ -1913,6 +1926,18 @@ fn process_agc_pairs(
 
     let mut total_alignments = 0usize;
     let mut processed = 0;
+
+    // For FastGA pair mode, we also need a FastGA instance for GDB/index operations
+    let fastga_for_index = if args.aligner == "fastga" {
+        Some(create_fastga_integration(
+            args.frequency,
+            args.threads,
+            args.block_length,
+            Some(temp_base.to_string_lossy().to_string()),
+        )?)
+    } else {
+        None
+    };
 
     for pair in pairs {
         processed += 1;
@@ -1935,7 +1960,7 @@ fn process_agc_pairs(
         if pair.query == pair.target {
             agc.extract_sample_to_fasta(&pair.query, &query_fasta)?;
             // Run self-alignment
-            let paf_bytes = fastga.align_direct_paf(&query_fasta, &query_fasta)?;
+            let paf_bytes = aligner.align_direct_paf(&query_fasta, &query_fasta)?;
             let line_count = paf_bytes.iter().filter(|&&b| b == b'\n').count();
             total_alignments += line_count;
             output_paf.as_file_mut().write_all(&paf_bytes)?;
@@ -1947,24 +1972,33 @@ fn process_agc_pairs(
             agc.extract_sample_to_fasta(&pair.query, &query_fasta)?;
             agc.extract_sample_to_fasta(&pair.target, &target_fasta)?;
 
-            // Create index for target and align query to it
-            let target_gdb = fastga.create_gdb_only(&target_fasta)?;
-            fastga.create_index_only(&target_gdb)?;
+            if let Some(ref fastga) = fastga_for_index {
+                // FastGA: create index for target and align query to it
+                let target_gdb = fastga.create_gdb_only(&target_fasta)?;
+                fastga.create_index_only(&target_gdb)?;
 
-            if args.zstd_compress {
-                fastga_integration::FastGAIntegration::compress_index(
-                    &target_gdb,
-                    args.zstd_level,
-                )?;
+                if args.zstd_compress {
+                    fastga_integration::FastGAIntegration::compress_index(
+                        &target_gdb,
+                        args.zstd_level,
+                    )?;
+                }
+
+                let paf_bytes = aligner.align_direct_paf(&query_fasta, &target_fasta)?;
+                let line_count = paf_bytes.iter().filter(|&&b| b == b'\n').count();
+                total_alignments += line_count;
+                output_paf.as_file_mut().write_all(&paf_bytes)?;
+
+                // Cleanup
+                let _ = fastga_integration::FastGAIntegration::cleanup_all(&target_gdb);
+            } else {
+                // wfmash: handles indexing internally
+                let paf_bytes = aligner.align_direct_paf(&query_fasta, &target_fasta)?;
+                let line_count = paf_bytes.iter().filter(|&&b| b == b'\n').count();
+                total_alignments += line_count;
+                output_paf.as_file_mut().write_all(&paf_bytes)?;
             }
 
-            let paf_bytes = fastga.align_direct_paf(&query_fasta, &target_fasta)?;
-            let line_count = paf_bytes.iter().filter(|&&b| b == b'\n').count();
-            total_alignments += line_count;
-            output_paf.as_file_mut().write_all(&paf_bytes)?;
-
-            // Cleanup
-            let _ = fastga_integration::FastGAIntegration::cleanup_all(&target_gdb);
             let _ = std::fs::remove_file(&query_fasta);
             let _ = std::fs::remove_file(&target_fasta);
         }
@@ -2176,6 +2210,7 @@ fn align_all_pairs_mode(
     min_alignment_length: u64,
     zstd_compress: bool,
     zstd_level: u32,
+    aligner_name: &str,
 ) -> Result<tempfile::NamedTempFile> {
     use std::io::Write;
 
@@ -2250,37 +2285,49 @@ fn align_all_pairs_mode(
         );
     }
 
-    // Create FastGA integration
-    let fastga = create_fastga_integration(
+    // Create aligner
+    let aligner = create_aligner(
+        aligner_name,
         frequency,
         threads,
         min_alignment_length,
         tempdir.map(String::from),
     )?;
 
-    // Step 1: Build GDB and GIX indices for all genomes (once each)
-    for genome_prefix in &genome_prefixes {
-        let fasta_path = &genome_files[genome_prefix];
+    // Step 1: Build GDB and GIX indices for all genomes (FastGA only)
+    if aligner_name == "fastga" {
+        let fastga = create_fastga_integration(
+            frequency,
+            threads,
+            min_alignment_length,
+            tempdir.map(String::from),
+        )?;
+        for genome_prefix in &genome_prefixes {
+            let fasta_path = &genome_files[genome_prefix];
 
-        if !quiet {
-            timing.log(
-                "index",
-                &format!("Building index for {}", genome_prefix.trim_end_matches('#')),
-            );
-        }
+            if !quiet {
+                timing.log(
+                    "index",
+                    &format!("Building index for {}", genome_prefix.trim_end_matches('#')),
+                );
+            }
 
-        // Create .gdb and .gix files
-        let gdb_base = fastga.prepare_gdb(fasta_path)?;
+            // Create .gdb and .gix files
+            let gdb_base = fastga.prepare_gdb(fasta_path)?;
 
-        // Compress index if requested
-        if zstd_compress {
-            // Strip .fa extension if present (fastga-rs returns path with .fa but index uses base name)
-            let gdb_base_stripped = gdb_base
-                .strip_suffix(".fa")
-                .or_else(|| gdb_base.strip_suffix(".fna"))
-                .or_else(|| gdb_base.strip_suffix(".fasta"))
-                .unwrap_or(&gdb_base);
-            fastga_integration::FastGAIntegration::compress_index(gdb_base_stripped, zstd_level)?;
+            // Compress index if requested
+            if zstd_compress {
+                // Strip .fa extension if present (fastga-rs returns path with .fa but index uses base name)
+                let gdb_base_stripped = gdb_base
+                    .strip_suffix(".fa")
+                    .or_else(|| gdb_base.strip_suffix(".fna"))
+                    .or_else(|| gdb_base.strip_suffix(".fasta"))
+                    .unwrap_or(&gdb_base);
+                fastga_integration::FastGAIntegration::compress_index(
+                    gdb_base_stripped,
+                    zstd_level,
+                )?;
+            }
         }
     }
 
@@ -2323,8 +2370,8 @@ fn align_all_pairs_mode(
                 );
             }
 
-            // Align using pre-built GDB/GIX indices (FastGA auto-detects them)
-            let temp_paf = fastga.align_to_temp_paf(fasta_i, fasta_j)?;
+            // Align (FastGA uses pre-built GDB/GIX indices, wfmash handles internally)
+            let temp_paf = aligner.align_to_temp_paf(fasta_i, fasta_j)?;
 
             // Append to merged output
             let paf_content = std::fs::read_to_string(temp_paf.path())?;
@@ -2348,7 +2395,7 @@ fn align_all_pairs_mode(
                 );
             }
 
-            let temp_paf = fastga.align_to_temp_paf(fasta_i, fasta_i)?;
+            let temp_paf = aligner.align_to_temp_paf(fasta_i, fasta_i)?;
 
             let paf_content = std::fs::read_to_string(temp_paf.path())?;
             merged_output.write_all(paf_content.as_bytes())?;
@@ -2377,10 +2424,12 @@ fn align_all_pairs_mode(
         // Remove FASTA file
         let _ = std::fs::remove_file(genome_path);
 
-        // Remove GIX files based on FASTA path (GDB is now embedded in .1aln)
-        let gdb_base = genome_path.with_extension("");
-        let _ = std::fs::remove_file(format!("{}.gix", gdb_base.display()));
-        let _ = std::fs::remove_file(format!("{}.ktab", gdb_base.display()));
+        // Remove FastGA GIX files if present
+        if aligner_name == "fastga" {
+            let gdb_base = genome_path.with_extension("");
+            let _ = std::fs::remove_file(format!("{}.gix", gdb_base.display()));
+            let _ = std::fs::remove_file(format!("{}.ktab", gdb_base.display()));
+        }
     }
 
     let _ = std::fs::remove_dir(&temp_genome_dir);
@@ -2402,6 +2451,32 @@ fn create_fastga_integration(
         min_alignment_length,
         temp_dir,
     ))
+}
+
+/// Create an aligner backend based on the --aligner flag.
+fn create_aligner(
+    aligner_name: &str,
+    frequency: Option<usize>,
+    num_threads: usize,
+    min_alignment_length: u64,
+    temp_dir: Option<String>,
+) -> Result<Box<dyn aligner::Aligner>> {
+    match aligner_name {
+        "fastga" => {
+            let fastga =
+                create_fastga_integration(frequency, num_threads, min_alignment_length, temp_dir)?;
+            Ok(Box::new(fastga))
+        }
+        "wfmash" => {
+            let wfmash = wfmash_integration::WfmashIntegration::new(
+                num_threads,
+                min_alignment_length,
+                temp_dir,
+            )?;
+            Ok(Box::new(wfmash))
+        }
+        _ => anyhow::bail!("Unknown aligner: {aligner_name}"),
+    }
 }
 
 fn main() -> Result<()> {
@@ -2495,6 +2570,27 @@ fn main() -> Result<()> {
         std::env::set_var("TMPDIR", tempdir);
         if !args.quiet {
             timing.log("tempdir", &format!("Using temp directory: {tempdir}"));
+        }
+    }
+
+    // Validate aligner-specific constraints
+    if args.aligner == "wfmash" {
+        if args.batch_bytes.is_some() {
+            anyhow::bail!(
+                "Batch mode (--batch-bytes) is only supported with --aligner fastga.\n\
+                 wfmash handles batching internally via its -b flag."
+            );
+        }
+        if args.output_1aln
+            || args
+                .output_file
+                .as_ref()
+                .is_some_and(|f| f.ends_with(".1aln"))
+        {
+            anyhow::bail!(
+                ".1aln output is only supported with --aligner fastga.\n\
+                 wfmash does not produce .1aln format."
+            );
         }
     }
 
@@ -2765,6 +2861,7 @@ fn main() -> Result<()> {
                         args.block_length,
                         args.zstd_compress,
                         args.zstd_level,
+                        &args.aligner,
                     )?;
 
                     alignment_time = Some(alignment_start.elapsed().as_secs_f64());
@@ -2794,13 +2891,14 @@ fn main() -> Result<()> {
                         );
                     }
 
-                    let fastga = create_fastga_integration(
+                    let aligner = create_aligner(
+                        &args.aligner,
                         args.frequency,
                         args.threads,
                         args.block_length,
                         args.tempdir.clone(),
                     )?;
-                    let temp_paf = fastga.align_to_temp_paf(&path, &path)?;
+                    let temp_paf = aligner.align_to_temp_paf(&path, &path)?;
 
                     alignment_time = Some(alignment_start.elapsed().as_secs_f64());
                     if !args.quiet {
@@ -2850,6 +2948,7 @@ fn main() -> Result<()> {
                         args.block_length,
                         args.zstd_compress,
                         args.zstd_level,
+                        &args.aligner,
                     )?;
 
                     alignment_time = Some(alignment_start.elapsed().as_secs_f64());
@@ -2884,13 +2983,14 @@ fn main() -> Result<()> {
                         .with_context(|| format!("Failed to resolve path: {}", args.files[0]))?;
                     let query = std::fs::canonicalize(&args.files[1])
                         .with_context(|| format!("Failed to resolve path: {}", args.files[1]))?;
-                    let fastga = create_fastga_integration(
+                    let aligner = create_aligner(
+                        &args.aligner,
                         args.frequency,
                         args.threads,
                         args.block_length,
                         args.tempdir.clone(),
                     )?;
-                    let temp_paf = fastga.align_to_temp_paf(&target, &query)?;
+                    let temp_paf = aligner.align_to_temp_paf(&target, &query)?;
 
                     alignment_time = Some(alignment_start.elapsed().as_secs_f64());
                     if !args.quiet {
@@ -2933,6 +3033,7 @@ fn main() -> Result<()> {
                     args.block_length,
                     args.zstd_compress,
                     args.zstd_level,
+                    &args.aligner,
                 )?;
 
                 alignment_time = Some(alignment_start.elapsed().as_secs_f64());
@@ -3039,13 +3140,14 @@ fn main() -> Result<()> {
                 // Canonicalize path to avoid empty parent directory issues in fastga-rs
                 let path = std::fs::canonicalize(&temp_path)
                     .with_context(|| format!("Failed to resolve path: {temp_path}"))?;
-                let fastga = create_fastga_integration(
+                let aligner = create_aligner(
+                    &args.aligner,
                     args.frequency,
                     args.threads,
                     args.block_length,
                     args.tempdir.clone(),
                 )?;
-                let temp_paf = fastga.align_to_temp_paf(&path, &path)?;
+                let temp_paf = aligner.align_to_temp_paf(&path, &path)?;
 
                 alignment_time = Some(alignment_start.elapsed().as_secs_f64());
                 if !args.quiet {

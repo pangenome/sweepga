@@ -783,3 +783,21 @@ impl FastGAIntegration {
         Ok(temp_file)
     }
 }
+
+impl crate::aligner::Aligner for FastGAIntegration {
+    fn align_to_temp_paf(&self, queries: &Path, targets: &Path) -> Result<NamedTempFile> {
+        self.align_to_temp_paf(queries, targets)
+    }
+
+    fn align_direct_paf(&self, queries: &Path, targets: &Path) -> Result<Vec<u8>> {
+        self.align_direct_paf(queries, targets)
+    }
+
+    fn align_to_temp_1aln(&self, queries: &Path, targets: &Path) -> Result<NamedTempFile> {
+        self.align_to_temp_1aln(queries, targets)
+    }
+
+    fn name(&self) -> &str {
+        "fastga"
+    }
+}
