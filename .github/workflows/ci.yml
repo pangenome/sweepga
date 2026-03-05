@@ -121,8 +121,6 @@ jobs:
         os: [ubuntu-latest, macos-latest]
         rust:
           - stable
-          - beta
-          - nightly
     steps:
       - uses: actions/checkout@v3
 
