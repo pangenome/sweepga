@@ -14,6 +14,7 @@ jobs:
     name: Test Suite
     runs-on: ${{ matrix.os }}
     strategy:
+      fail-fast: false
       matrix:
         os: [ubuntu-latest, macos-latest]
     steps:
@@ -25,11 +26,13 @@ jobs:
             sudo apt-get update
             sudo apt-get install -y libzstd-dev cmake libbz2-dev liblzma-dev libcurl4-openssl-dev
           elif [[ "${{ runner.os }}" == "macOS" ]]; then
-            brew install zstd cmake xz
-            # Set paths for homebrew zstd
-            echo "CFLAGS=-I$(brew --prefix zstd)/include" >> $GITHUB_ENV
-            echo "LDFLAGS=-L$(brew --prefix zstd)/lib" >> $GITHUB_ENV
-            echo "CPPFLAGS=-I$(brew --prefix zstd)/include" >> $GITHUB_ENV
+            brew install zstd cmake xz libomp gsl
+            # Set paths for homebrew dependencies (zstd + libomp for wfmash OpenMP)
+            echo "CFLAGS=-I$(brew --prefix zstd)/include -I$(brew --prefix libomp)/include" >> $GITHUB_ENV
+            echo "LDFLAGS=-L$(brew --prefix zstd)/lib -L$(brew --prefix libomp)/lib" >> $GITHUB_ENV
+            echo "CPPFLAGS=-I$(brew --prefix zstd)/include -I$(brew --prefix libomp)/include" >> $GITHUB_ENV
+            # Help CMake find OpenMP with Apple clang
+            echo "OpenMP_ROOT=$(brew --prefix libomp)" >> $GITHUB_ENV
           fi
 
       - name: Install Rust
@@ -115,6 +118,7 @@ jobs:
     name: Build Check
     runs-on: ${{ matrix.os }}
     strategy:
+      fail-fast: false
       matrix:
         os: [ubuntu-latest, macos-latest]
         rust:
@@ -130,11 +134,13 @@ jobs:
             sudo apt-get update
             sudo apt-get install -y libzstd-dev cmake libbz2-dev liblzma-dev libcurl4-openssl-dev
           elif [[ "${{ runner.os }}" == "macOS" ]]; then
-            brew install zstd cmake xz
-            # Set paths for homebrew zstd
-            echo "CFLAGS=-I$(brew --prefix zstd)/include" >> $GITHUB_ENV
-            echo "LDFLAGS=-L$(brew --prefix zstd)/lib" >> $GITHUB_ENV
-            echo "CPPFLAGS=-I$(brew --prefix zstd)/include" >> $GITHUB_ENV
+            brew install zstd cmake xz libomp gsl
+            # Set paths for homebrew dependencies (zstd + libomp for wfmash OpenMP)
+            echo "CFLAGS=-I$(brew --prefix zstd)/include -I$(brew --prefix libomp)/include" >> $GITHUB_ENV
+            echo "LDFLAGS=-L$(brew --prefix zstd)/lib -L$(brew --prefix libomp)/lib" >> $GITHUB_ENV
+            echo "CPPFLAGS=-I$(brew --prefix zstd)/include -I$(brew --prefix libomp)/include" >> $GITHUB_ENV
+            # Help CMake find OpenMP with Apple clang
+            echo "OpenMP_ROOT=$(brew --prefix libomp)" >> $GITHUB_ENV
           fi
 
       - name: Install Rust
