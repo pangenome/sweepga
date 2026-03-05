@@ -150,7 +150,7 @@ The filtering process follows this exact sequence:
 - `-s/--scaffold-mass`: Minimum scaffold length (default: 10kb)
 - `-j/--scaffold-jump`: Maximum gap to merge mappings into scaffolds (default: 10kb)
 - `-d/--scaffold-dist`: Maximum distance for rescue (default: 20kb)
-- `--aligner`: Alignment method for FASTA input (default: "fastga")
+- `--aligner`: Alignment method for FASTA input (default: "wfmash")
 
 ## Implementation Notes
 

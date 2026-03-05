@@ -14,14 +14,27 @@ pub struct WfmashIntegration {
 
 impl WfmashIntegration {
     /// Create a new WfmashIntegration instance.
+    ///
+    /// `map_pct_identity` sets the minimum percent identity for mapping (-p).
+    /// Accepts a float (e.g. "90") or an ANI preset (e.g. "ani50-2").
+    /// When `None`, wfmash uses its default (~70%).
     pub fn new(
         num_threads: usize,
-        min_alignment_length: u64,
+        min_alignment_length: Option<u64>,
+        map_pct_identity: Option<String>,
         temp_dir: Option<String>,
     ) -> Result<Self> {
         let mut builder = wfmash_rs::Config::builder()
             .num_threads(num_threads)
-            .block_length(min_alignment_length);
+            .no_filter(true);
+
+        if let Some(len) = min_alignment_length {
+            builder = builder.block_length(len);
+        }
+
+        if let Some(ref pct) = map_pct_identity {
+            builder = builder.map_pct_identity(pct);
+        }
 
         if let Some(ref dir) = temp_dir {
             builder = builder.temp_dir(PathBuf::from(dir));

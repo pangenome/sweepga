@@ -235,13 +235,17 @@ struct Args {
     // Alignment (FASTA input only)
     // ============================================================================
     /// Aligner to use for FASTA input
-    #[clap(long = "aligner", default_value = "fastga", value_parser = ["fastga", "wfmash"],
+    #[clap(long = "aligner", default_value = "wfmash", value_parser = ["fastga", "wfmash"],
            help_heading = "Alignment options")]
     aligner: String,
 
     /// FastGA k-mer frequency threshold (use k-mers occurring ≤ N times)
     #[clap(short = 'f', long = "frequency", help_heading = "Alignment options")]
     frequency: Option<usize>,
+
+    /// Minimum percent identity for wfmash mapping (e.g. "90" or ANI preset "ani50-2")
+    #[clap(short = 'p', long = "map-pct-identity", help_heading = "Alignment options")]
+    map_pct_identity: Option<String>,
 
     /// Align all genome pairs separately (slower, uses more memory, but handles many genomes)
     #[clap(long = "all-pairs", help_heading = "Alignment options")]
@@ -267,10 +271,10 @@ struct Args {
     // ============================================================================
     // Basic Filtering
     // ============================================================================
-    /// Minimum block length
-    #[clap(short = 'b', long = "block-length", default_value = "0", value_parser = parse_metric_number,
+    /// Minimum block length (omit to use aligner default)
+    #[clap(short = 'b', long = "block-length", value_parser = parse_metric_number,
            help_heading = "Basic filtering")]
-    block_length: u64,
+    block_length: Option<u64>,
 
     /// n:m-best mappings kept in query:target dimensions. 1:1 (orthogonal), use ∞/many for unbounded
     #[clap(
@@ -1166,6 +1170,7 @@ fn write_genome_fasta(input_path: &Path, output_path: &Path, genome_prefix: &str
 fn align_multiple_fastas(
     fasta_files: &[String],
     frequency: Option<usize>,
+    map_pct_identity: Option<String>,
     all_pairs: bool,
     batch_bytes: Option<u64>,
     threads: usize,
@@ -1173,7 +1178,7 @@ fn align_multiple_fastas(
     tempdir: Option<&str>,
     timing: &TimingContext,
     quiet: bool,
-    min_alignment_length: u64,
+    min_alignment_length: Option<u64>,
     zstd_compress: bool,
     zstd_level: u32,
     aligner_name: &str,
@@ -1207,7 +1212,7 @@ fn align_multiple_fastas(
         let config = batch_align::BatchAlignConfig {
             frequency,
             threads,
-            min_alignment_length,
+            min_alignment_length: min_alignment_length.unwrap_or(0),
             zstd_compress,
             zstd_level,
             keep_self,
@@ -1223,6 +1228,7 @@ fn align_multiple_fastas(
         return align_all_pairs_mode(
             fasta_files,
             frequency,
+            map_pct_identity,
             threads,
             keep_self,
             tempdir,
@@ -1235,8 +1241,8 @@ fn align_multiple_fastas(
         );
     }
 
-    // Default mode: single FastGA run with adaptive frequency
-    // Let fastga_integration.rs handle auto-detection via PanSN haplotype counting
+    // Default mode: single alignment run with adaptive frequency
+    // For FastGA, let fastga_integration.rs handle auto-detection via PanSN haplotype counting
     let effective_frequency = if let Some(f) = frequency {
         // User specified -f, use it as-is
         if !quiet {
@@ -1263,6 +1269,7 @@ fn align_multiple_fastas(
     let aligner = create_aligner(
         aligner_name,
         effective_frequency,
+        map_pct_identity,
         threads,
         min_alignment_length,
         tempdir.map(String::from),
@@ -1283,7 +1290,7 @@ fn align_multiple_fastas(
         let fastga = create_fastga_integration(
             effective_frequency,
             threads,
-            min_alignment_length,
+            min_alignment_length.unwrap_or(0),
             tempdir.map(String::from),
         )?;
         let gdb_base = fastga.prepare_gdb(&input_path)?;
@@ -1435,6 +1442,7 @@ fn process_agc_archive(
     let aligner = create_aligner(
         &args.aligner,
         args.frequency,
+        args.map_pct_identity.clone(),
         args.threads,
         args.block_length,
         args.tempdir.clone(),
@@ -1909,6 +1917,7 @@ fn process_agc_pairs(
     let aligner = create_aligner(
         &args.aligner,
         args.frequency,
+        args.map_pct_identity.clone(),
         args.threads,
         args.block_length,
         Some(temp_base.to_string_lossy().to_string()),
@@ -1932,7 +1941,7 @@ fn process_agc_pairs(
         Some(create_fastga_integration(
             args.frequency,
             args.threads,
-            args.block_length,
+            args.block_length.unwrap_or(0),
             Some(temp_base.to_string_lossy().to_string()),
         )?)
     } else {
@@ -2108,7 +2117,7 @@ fn process_agc_batched(
     let fastga = create_fastga_integration(
         args.frequency,
         args.threads,
-        args.block_length,
+        args.block_length.unwrap_or(0),
         Some(temp_base.to_string_lossy().to_string()),
     )?;
 
@@ -2202,12 +2211,13 @@ fn process_agc_batched(
 fn align_all_pairs_mode(
     fasta_files: &[String],
     frequency: Option<usize>,
+    map_pct_identity: Option<String>,
     threads: usize,
     keep_self: bool,
     tempdir: Option<&str>,
     timing: &TimingContext,
     quiet: bool,
-    min_alignment_length: u64,
+    min_alignment_length: Option<u64>,
     zstd_compress: bool,
     zstd_level: u32,
     aligner_name: &str,
@@ -2289,6 +2299,7 @@ fn align_all_pairs_mode(
     let aligner = create_aligner(
         aligner_name,
         frequency,
+        map_pct_identity,
         threads,
         min_alignment_length,
         tempdir.map(String::from),
@@ -2299,7 +2310,7 @@ fn align_all_pairs_mode(
         let fastga = create_fastga_integration(
             frequency,
             threads,
-            min_alignment_length,
+            min_alignment_length.unwrap_or(0),
             tempdir.map(String::from),
         )?;
         for genome_prefix in &genome_prefixes {
@@ -2457,20 +2468,32 @@ fn create_fastga_integration(
 fn create_aligner(
     aligner_name: &str,
     frequency: Option<usize>,
+    map_pct_identity: Option<String>,
     num_threads: usize,
-    min_alignment_length: u64,
+    min_alignment_length: Option<u64>,
     temp_dir: Option<String>,
 ) -> Result<Box<dyn aligner::Aligner>> {
     match aligner_name {
         "fastga" => {
-            let fastga =
-                create_fastga_integration(frequency, num_threads, min_alignment_length, temp_dir)?;
+            if map_pct_identity.is_some() {
+                eprintln!("[sweepga] Warning: --map-pct-identity/-p is ignored when using --aligner fastga");
+            }
+            let fastga = create_fastga_integration(
+                frequency,
+                num_threads,
+                min_alignment_length.unwrap_or(0),
+                temp_dir,
+            )?;
             Ok(Box::new(fastga))
         }
         "wfmash" => {
+            if frequency.is_some() {
+                eprintln!("[sweepga] Warning: --frequency/-f is ignored when using --aligner wfmash");
+            }
             let wfmash = wfmash_integration::WfmashIntegration::new(
                 num_threads,
                 min_alignment_length,
+                map_pct_identity,
                 temp_dir,
             )?;
             Ok(Box::new(wfmash))
@@ -2652,7 +2675,7 @@ fn main() -> Result<()> {
                 let fastga = create_fastga_integration(
                     args.frequency,
                     args.threads,
-                    args.block_length,
+                    args.block_length.unwrap_or(0),
                     args.tempdir.clone(),
                 )?;
 
@@ -2710,7 +2733,7 @@ fn main() -> Result<()> {
 
         let filter_config = FilterConfig {
             chain_gap: args.scaffold_jump,
-            min_block_length: args.block_length,
+            min_block_length: args.block_length.unwrap_or(0),
             mapping_filter_mode: plane_sweep_mode,
             mapping_max_per_query: plane_sweep_query_limit,
             mapping_max_per_target: plane_sweep_target_limit,
@@ -2851,6 +2874,7 @@ fn main() -> Result<()> {
                     let temp_paf = align_multiple_fastas(
                         &args.files,
                         args.frequency,
+                        args.map_pct_identity.clone(),
                         args.all_pairs,
                         args.batch_bytes,
                         args.threads,
@@ -2894,6 +2918,7 @@ fn main() -> Result<()> {
                     let aligner = create_aligner(
                         &args.aligner,
                         args.frequency,
+                        args.map_pct_identity.clone(),
                         args.threads,
                         args.block_length,
                         args.tempdir.clone(),
@@ -2938,6 +2963,7 @@ fn main() -> Result<()> {
                     let temp_paf = align_multiple_fastas(
                         &args.files,
                         args.frequency,
+                        args.map_pct_identity.clone(),
                         args.all_pairs,
                         args.batch_bytes,
                         args.threads,
@@ -2986,6 +3012,7 @@ fn main() -> Result<()> {
                     let aligner = create_aligner(
                         &args.aligner,
                         args.frequency,
+                        args.map_pct_identity.clone(),
                         args.threads,
                         args.block_length,
                         args.tempdir.clone(),
@@ -3023,6 +3050,7 @@ fn main() -> Result<()> {
                 let temp_paf = align_multiple_fastas(
                     &args.files,
                     args.frequency,
+                    args.map_pct_identity.clone(),
                     args.all_pairs,
                     args.batch_bytes,
                     args.threads,
@@ -3143,6 +3171,7 @@ fn main() -> Result<()> {
                 let aligner = create_aligner(
                     &args.aligner,
                     args.frequency,
+                    args.map_pct_identity.clone(),
                     args.threads,
                     args.block_length,
                     args.tempdir.clone(),
@@ -3244,7 +3273,7 @@ fn main() -> Result<()> {
     // Placeholder for identity values - will be calculated after we have input path
     let temp_config = FilterConfig {
         chain_gap: args.scaffold_jump,
-        min_block_length: args.block_length,
+        min_block_length: args.block_length.unwrap_or(0),
         mapping_filter_mode: plane_sweep_mode,
         mapping_max_per_query: plane_sweep_query_limit,
         mapping_max_per_target: plane_sweep_target_limit,
