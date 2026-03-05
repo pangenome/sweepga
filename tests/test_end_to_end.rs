@@ -359,3 +359,79 @@ fn test_filtering_mode_comparison() -> Result<()> {
     eprintln!("✓ Filtering modes behave as expected");
     Ok(())
 }
+
+/// Test end-to-end pipeline with wfmash aligner backend
+///
+/// Validates that the wfmash backend produces good coverage on yeast genomes,
+/// similar to FastGA but potentially with different alignment characteristics.
+#[test]
+fn test_wfmash_end_to_end() -> Result<()> {
+    let input = Path::new("data/scerevisiae8.fa.gz");
+    assert!(
+        input.exists(),
+        "Test data not found: data/scerevisiae8.fa.gz"
+    );
+
+    let temp_dir = TempDir::new()?;
+    let temp_input = temp_dir.path().join("test_input.fa.gz");
+    fs::copy(input, &temp_input)?;
+
+    // wfmash needs a .fai index for bgzipped FASTA
+    let faidx_status = Command::new("samtools")
+        .args(["faidx", temp_input.to_str().unwrap()])
+        .status();
+    match faidx_status {
+        Ok(s) if s.success() => {}
+        _ => {
+            eprintln!("samtools faidx not available, skipping wfmash test");
+            return Ok(());
+        }
+    }
+
+    let output_paf = temp_dir.path().join("wfmash_output.paf");
+
+    eprintln!("Running end-to-end pipeline with wfmash aligner...");
+
+    let status = Command::new("cargo")
+        .args([
+            "run",
+            "--release",
+            "--quiet",
+            "--bin",
+            "sweepga",
+            "--",
+            temp_input.to_str().unwrap(),
+            "--paf",
+            "--aligner",
+            "wfmash",
+        ])
+        .stdout(fs::File::create(&output_paf)?)
+        .status()?;
+
+    assert!(
+        status.success(),
+        "wfmash pipeline should complete successfully"
+    );
+
+    let stats = calculate_coverage_stats(&output_paf)?;
+
+    eprintln!("wfmash coverage statistics:");
+    eprintln!("  Total alignments: {}", stats.total_alignments);
+    eprintln!("  Genome pairs: {}", stats.genome_pairs);
+
+    // For 8 yeast genomes (99% identical), expect good coverage
+    assert!(
+        stats.genome_pairs >= 20,
+        "Expected at least 20 genome pairs with wfmash, got {}",
+        stats.genome_pairs
+    );
+
+    assert!(
+        stats.total_alignments >= 1000,
+        "Expected at least 1000 alignments with wfmash, got {}",
+        stats.total_alignments
+    );
+
+    eprintln!("✓ wfmash end-to-end pipeline produces good coverage");
+    Ok(())
+}
