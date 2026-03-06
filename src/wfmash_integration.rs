@@ -73,10 +73,6 @@ impl WfmashIntegration {
             .num_threads(num_threads)
             .no_filter(true);
 
-        if let Some(len) = min_alignment_length {
-            builder = builder.block_length(len);
-        }
-
         if let Some(ref pct) = map_pct_identity {
             builder = builder.map_pct_identity(pct);
         }
@@ -91,6 +87,19 @@ impl WfmashIntegration {
         });
         if let Some(s) = effective_segment_length {
             builder = builder.segment_length(s as usize);
+        }
+
+        // Set block length (-l): use explicit value, or adapt to min(s*3, avg/2)
+        // For short sequences this gives l == s
+        let effective_block_length = min_alignment_length.or_else(|| {
+            match (effective_segment_length, avg_seq_len) {
+                (Some(s), Some(avg)) => Some((s * 3).min(avg / 2)),
+                (Some(s), None) => Some(s * 3),
+                _ => None,
+            }
+        });
+        if let Some(l) = effective_block_length {
+            builder = builder.block_length(l);
         }
 
         let mut extra_args = Vec::new();
