@@ -35,13 +35,8 @@ impl WfmashIntegration {
 
     /// Create a new WfmashIntegration with adaptive parameters for input sequence sizes.
     ///
-    /// `segment_length` sets the wfmash `-w` parameter. When `None`, wfmash
-    /// uses its default (1000). Use a smaller value (e.g. 500) when input
-    /// sequences are shorter than the default window size.
-    ///
-    /// `avg_seq_len` is used to adapt wfmash's scaffold mass (`-S`).
-    /// When sequences are shorter than the default scaffold mass (10k),
-    /// the scaffold mass is reduced to avoid filtering all mappings.
+    /// `segment_length` sets the wfmash segment length (`-s`). When `None`,
+    /// wfmash uses its default.
     pub fn with_segment_length(
         num_threads: usize,
         min_alignment_length: Option<u64>,
@@ -60,16 +55,17 @@ impl WfmashIntegration {
         )
     }
 
-    /// Create a new WfmashIntegration with adaptive window and scaffold parameters.
+    /// Create a new WfmashIntegration with full control over parameters.
     ///
     /// `sparsify`: fraction of mappings to keep (wfmash `-x`). `None` or `Some(1.0)` = keep all.
+    /// `avg_seq_len`: reserved for future use (not passed to wfmash).
     pub fn adaptive(
         num_threads: usize,
         min_alignment_length: Option<u64>,
         map_pct_identity: Option<String>,
         temp_dir: Option<String>,
         segment_length: Option<u64>,
-        avg_seq_len: Option<u64>,
+        _avg_seq_len: Option<u64>,
         sparsify: Option<f64>,
     ) -> Result<Self> {
         let mut builder = wfmash_rs::Config::builder()
@@ -88,22 +84,11 @@ impl WfmashIntegration {
             builder = builder.temp_dir(PathBuf::from(dir));
         }
 
-        let mut extra_args = Vec::new();
-
         if let Some(w) = segment_length {
-            builder = builder.sketch_size(w as usize);
+            builder = builder.segment_length(w as usize);
         }
 
-        // Adapt scaffold mass to input sequence sizes.
-        // wfmash's -S defaults to 10k, which filters out scaffolds shorter than that.
-        // For sequences shorter than 10k, use avg_seq_len / 2 (clamped to [100, 10000]).
-        let effective_avg = avg_seq_len.or(segment_length.map(|w| w * 2));
-        if let Some(avg) = effective_avg {
-            if avg < 10000 {
-                let scaffold_mass = (avg / 2).clamp(100, 10000);
-                extra_args.push(format!("-S{}", scaffold_mass));
-            }
-        }
+        let mut extra_args = Vec::new();
 
         // Sparsify mappings: keep only this fraction (-x flag).
         if let Some(frac) = sparsify {
