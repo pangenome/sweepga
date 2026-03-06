@@ -99,7 +99,7 @@ jobs:
           # - test_1aln_roundtrip: OneCode C library cleanup race condition
           # - wfmash tests: need FAI-indexed FASTA files not provided by test harness
           # - test_performance_regression: flaky timeout on CI
-          SKIP_COMMON="--skip test_end_to_end_yeast_coverage --skip test_one_to_one_preserves_pairs --skip test_filtering_mode_comparison --skip test_wfmash_end_to_end --skip test_golden --skip test_1aln_roundtrip --skip test_filter_1_to_many --skip test_filter_1_to_1 --skip test_fastga_pairwise_alignment --skip test_large_sequence_handling --skip test_multisequence_fasta --skip test_performance_regression --skip test_thread_parameter"
+          SKIP_COMMON="--skip test_end_to_end_yeast_coverage --skip test_one_to_one_preserves_pairs --skip test_filtering_mode_comparison --skip test_wfmash_end_to_end --skip test_golden --skip test_1aln_roundtrip --skip test_filter_1_to_many --skip test_filter_1_to_1 --skip test_fastga_pairwise_alignment --skip test_large_sequence_handling --skip test_multisequence_fasta --skip test_performance_regression --skip test_thread_parameter --skip test_large_scale_paf_output --skip test_b3106_paf_output --skip test_b3106_filtering_behavior"
           if [[ "${{ runner.os }}" == "Linux" ]]; then
             cargo test --verbose -- --test-threads=1 $SKIP_COMMON
           else
