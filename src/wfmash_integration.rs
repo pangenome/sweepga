@@ -57,15 +57,16 @@ impl WfmashIntegration {
 
     /// Create a new WfmashIntegration with full control over parameters.
     ///
+    /// `segment_length`: explicit wfmash segment length (`-s`). When `None`, adapts from `avg_seq_len`.
+    /// `avg_seq_len`: used to compute adaptive segment length as `avg_seq_len / 2` (capped at 5000).
     /// `sparsify`: fraction of mappings to keep (wfmash `-x`). `None` or `Some(1.0)` = keep all.
-    /// `avg_seq_len`: reserved for future use (not passed to wfmash).
     pub fn adaptive(
         num_threads: usize,
         min_alignment_length: Option<u64>,
         map_pct_identity: Option<String>,
         temp_dir: Option<String>,
         segment_length: Option<u64>,
-        _avg_seq_len: Option<u64>,
+        avg_seq_len: Option<u64>,
         sparsify: Option<f64>,
     ) -> Result<Self> {
         let mut builder = wfmash_rs::Config::builder()
@@ -84,8 +85,12 @@ impl WfmashIntegration {
             builder = builder.temp_dir(PathBuf::from(dir));
         }
 
-        if let Some(w) = segment_length {
-            builder = builder.segment_length(w as usize);
+        // Set segment length (-s): use explicit value, or adapt to avg_seq_len/2, capped at 5000
+        let effective_segment_length = segment_length.or_else(|| {
+            avg_seq_len.map(|avg| (avg / 2).min(5000))
+        });
+        if let Some(s) = effective_segment_length {
+            builder = builder.segment_length(s as usize);
         }
 
         let mut extra_args = Vec::new();
