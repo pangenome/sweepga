@@ -1517,7 +1517,7 @@ dependencies = [
 [[package]]
 name = "wfmash-rs"
 version = "0.1.0"
-source = "git+https://github.com/pangenome/wfmash-rs?rev=ee6f6771#ee6f677196acede85b3ef6a0068d0278df2e5657"
+source = "git+https://github.com/pangenome/wfmash-rs?rev=96690762#966907620e997daeeb3aa98cfdb1f32bb5ea1783"
 dependencies = [
  "anyhow",
  "num_cpus",
