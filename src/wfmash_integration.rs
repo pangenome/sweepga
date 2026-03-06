@@ -70,8 +70,7 @@ impl WfmashIntegration {
         sparsify: Option<f64>,
     ) -> Result<Self> {
         let mut builder = wfmash_rs::Config::builder()
-            .num_threads(num_threads)
-            .no_filter(true);
+            .num_threads(num_threads);
 
         if let Some(ref pct) = map_pct_identity {
             builder = builder.map_pct_identity(pct);
