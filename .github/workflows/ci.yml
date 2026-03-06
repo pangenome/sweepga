@@ -26,11 +26,11 @@ jobs:
             sudo apt-get update
             sudo apt-get install -y libzstd-dev cmake libbz2-dev liblzma-dev libcurl4-openssl-dev samtools
           elif [[ "${{ runner.os }}" == "macOS" ]]; then
-            brew install zstd cmake xz gcc samtools
-            # Set paths for homebrew zstd
-            echo "CFLAGS=-I$(brew --prefix zstd)/include" >> $GITHUB_ENV
-            echo "LDFLAGS=-L$(brew --prefix zstd)/lib" >> $GITHUB_ENV
-            echo "CPPFLAGS=-I$(brew --prefix zstd)/include" >> $GITHUB_ENV
+            brew install zstd cmake xz gcc libomp samtools
+            # Set paths for homebrew zstd and libomp
+            echo "CFLAGS=-I$(brew --prefix zstd)/include -I$(brew --prefix libomp)/include" >> $GITHUB_ENV
+            echo "LDFLAGS=-L$(brew --prefix zstd)/lib -L$(brew --prefix libomp)/lib" >> $GITHUB_ENV
+            echo "CPPFLAGS=-I$(brew --prefix zstd)/include -I$(brew --prefix libomp)/include" >> $GITHUB_ENV
           fi
 
       - name: Install Rust
@@ -100,7 +100,7 @@ jobs:
             cargo test --verbose -- --test-threads=1 --skip test_end_to_end_yeast_coverage --skip test_one_to_one_preserves_pairs --skip test_filtering_mode_comparison --skip test_wfmash_end_to_end --skip test_golden --skip test_1aln_roundtrip --skip test_filter_1_to_many
           else
             # Skip all end-to-end integration tests on macOS (FastGA has macOS-specific issues)
-            cargo test --verbose -- --skip test_end_to_end_yeast_coverage --skip test_one_to_one_preserves_pairs --skip test_filtering_mode_comparison --skip test_wfmash_end_to_end --skip test_golden --skip test_1aln_roundtrip --skip test_fastga_pairwise_alignment --skip test_large_sequence_handling
+            cargo test --verbose -- --skip test_end_to_end_yeast_coverage --skip test_one_to_one_preserves_pairs --skip test_filtering_mode_comparison --skip test_wfmash_end_to_end --skip test_golden --skip test_1aln_roundtrip --skip test_fastga_pairwise_alignment --skip test_large_sequence_handling --skip test_filter_1_to_many
           fi
 
       - name: Check for forbidden files
@@ -130,11 +130,11 @@ jobs:
             sudo apt-get update
             sudo apt-get install -y libzstd-dev cmake libbz2-dev liblzma-dev libcurl4-openssl-dev
           elif [[ "${{ runner.os }}" == "macOS" ]]; then
-            brew install zstd cmake xz gcc
-            # Set paths for homebrew zstd
-            echo "CFLAGS=-I$(brew --prefix zstd)/include" >> $GITHUB_ENV
-            echo "LDFLAGS=-L$(brew --prefix zstd)/lib" >> $GITHUB_ENV
-            echo "CPPFLAGS=-I$(brew --prefix zstd)/include" >> $GITHUB_ENV
+            brew install zstd cmake xz gcc libomp
+            # Set paths for homebrew zstd and libomp
+            echo "CFLAGS=-I$(brew --prefix zstd)/include -I$(brew --prefix libomp)/include" >> $GITHUB_ENV
+            echo "LDFLAGS=-L$(brew --prefix zstd)/lib -L$(brew --prefix libomp)/lib" >> $GITHUB_ENV
+            echo "CPPFLAGS=-I$(brew --prefix zstd)/include -I$(brew --prefix libomp)/include" >> $GITHUB_ENV
           fi
 
       - name: Install Rust
