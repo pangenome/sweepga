@@ -244,7 +244,11 @@ struct Args {
     frequency: Option<usize>,
 
     /// Minimum percent identity for wfmash mapping (e.g. "90" or ANI preset "ani50-2")
-    #[clap(short = 'p', long = "map-pct-identity", help_heading = "Alignment options")]
+    #[clap(
+        short = 'p',
+        long = "map-pct-identity",
+        help_heading = "Alignment options"
+    )]
     map_pct_identity: Option<String>,
 
     /// Align all genome pairs separately (slower, uses more memory, but handles many genomes)
@@ -2488,7 +2492,9 @@ fn create_aligner(
         }
         "wfmash" => {
             if frequency.is_some() {
-                eprintln!("[sweepga] Warning: --frequency/-f is ignored when using --aligner wfmash");
+                eprintln!(
+                    "[sweepga] Warning: --frequency/-f is ignored when using --aligner wfmash"
+                );
             }
             let wfmash = wfmash_integration::WfmashIntegration::new(
                 num_threads,

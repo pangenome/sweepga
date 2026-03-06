@@ -24,20 +24,53 @@ impl WfmashIntegration {
         map_pct_identity: Option<String>,
         temp_dir: Option<String>,
     ) -> Result<Self> {
-        Self::with_segment_length(num_threads, min_alignment_length, map_pct_identity, temp_dir, None)
+        Self::with_segment_length(
+            num_threads,
+            min_alignment_length,
+            map_pct_identity,
+            temp_dir,
+            None,
+        )
     }
 
-    /// Create a new WfmashIntegration with explicit segment (window) length.
+    /// Create a new WfmashIntegration with adaptive parameters for input sequence sizes.
     ///
     /// `segment_length` sets the wfmash `-w` parameter. When `None`, wfmash
     /// uses its default (1000). Use a smaller value (e.g. 500) when input
     /// sequences are shorter than the default window size.
+    ///
+    /// `avg_seq_len` is used to adapt wfmash's scaffold mass (`-S`).
+    /// When sequences are shorter than the default scaffold mass (10k),
+    /// the scaffold mass is reduced to avoid filtering all mappings.
     pub fn with_segment_length(
         num_threads: usize,
         min_alignment_length: Option<u64>,
         map_pct_identity: Option<String>,
         temp_dir: Option<String>,
         segment_length: Option<u64>,
+    ) -> Result<Self> {
+        Self::adaptive(
+            num_threads,
+            min_alignment_length,
+            map_pct_identity,
+            temp_dir,
+            segment_length,
+            None,
+            None,
+        )
+    }
+
+    /// Create a new WfmashIntegration with adaptive window and scaffold parameters.
+    ///
+    /// `sparsify`: fraction of mappings to keep (wfmash `-x`). `None` or `Some(1.0)` = keep all.
+    pub fn adaptive(
+        num_threads: usize,
+        min_alignment_length: Option<u64>,
+        map_pct_identity: Option<String>,
+        temp_dir: Option<String>,
+        segment_length: Option<u64>,
+        avg_seq_len: Option<u64>,
+        sparsify: Option<f64>,
     ) -> Result<Self> {
         let mut builder = wfmash_rs::Config::builder()
             .num_threads(num_threads)
@@ -55,16 +88,32 @@ impl WfmashIntegration {
             builder = builder.temp_dir(PathBuf::from(dir));
         }
 
+        let mut extra_args = Vec::new();
+
         if let Some(w) = segment_length {
             builder = builder.window_size(&w.to_string());
-            // Also scale scaffold mass (default 10k) proportionally.
-            // wfmash's -S flag filters out scaffolds shorter than this.
-            // For short sequences, the default 10k is too large.
-            // Use segment_length as scaffold mass (each mapping covers ~w bp).
-            let scaffold_mass = w.clamp(100, 10000);
-            builder = builder.extra_args(vec![
-                format!("-S{}", scaffold_mass),
-            ]);
+        }
+
+        // Adapt scaffold mass to input sequence sizes.
+        // wfmash's -S defaults to 10k, which filters out scaffolds shorter than that.
+        // For sequences shorter than 10k, use avg_seq_len / 2 (clamped to [100, 10000]).
+        let effective_avg = avg_seq_len.or(segment_length.map(|w| w * 2));
+        if let Some(avg) = effective_avg {
+            if avg < 10000 {
+                let scaffold_mass = (avg / 2).clamp(100, 10000);
+                extra_args.push(format!("-S{}", scaffold_mass));
+            }
+        }
+
+        // Sparsify mappings: keep only this fraction (-x flag).
+        if let Some(frac) = sparsify {
+            if frac < 1.0 {
+                extra_args.push(format!("-x{}", frac));
+            }
+        }
+
+        if !extra_args.is_empty() {
+            builder = builder.extra_args(extra_args);
         }
 
         let config = builder.build();
