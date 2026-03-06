@@ -91,7 +91,7 @@ impl WfmashIntegration {
         let mut extra_args = Vec::new();
 
         if let Some(w) = segment_length {
-            builder = builder.window_size(&w.to_string());
+            builder = builder.sketch_size(w as usize);
         }
 
         // Adapt scaffold mass to input sequence sizes.
