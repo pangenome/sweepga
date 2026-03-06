@@ -24,6 +24,21 @@ impl WfmashIntegration {
         map_pct_identity: Option<String>,
         temp_dir: Option<String>,
     ) -> Result<Self> {
+        Self::with_segment_length(num_threads, min_alignment_length, map_pct_identity, temp_dir, None)
+    }
+
+    /// Create a new WfmashIntegration with explicit segment (window) length.
+    ///
+    /// `segment_length` sets the wfmash `-w` parameter. When `None`, wfmash
+    /// uses its default (1000). Use a smaller value (e.g. 500) when input
+    /// sequences are shorter than the default window size.
+    pub fn with_segment_length(
+        num_threads: usize,
+        min_alignment_length: Option<u64>,
+        map_pct_identity: Option<String>,
+        temp_dir: Option<String>,
+        segment_length: Option<u64>,
+    ) -> Result<Self> {
         let mut builder = wfmash_rs::Config::builder()
             .num_threads(num_threads)
             .no_filter(true);
@@ -38,6 +53,18 @@ impl WfmashIntegration {
 
         if let Some(ref dir) = temp_dir {
             builder = builder.temp_dir(PathBuf::from(dir));
+        }
+
+        if let Some(w) = segment_length {
+            builder = builder.window_size(&w.to_string());
+            // Also scale scaffold mass (default 10k) proportionally.
+            // wfmash's -S flag filters out scaffolds shorter than this.
+            // For short sequences, the default 10k is too large.
+            // Use segment_length as scaffold mass (each mapping covers ~w bp).
+            let scaffold_mass = w.clamp(100, 10000);
+            builder = builder.extra_args(vec![
+                format!("-S{}", scaffold_mass),
+            ]);
         }
 
         let config = builder.build();
