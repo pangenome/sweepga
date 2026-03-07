@@ -25,6 +25,23 @@ fn round_nice(v: u64) -> u64 {
     ((v + step / 2) / step * step).max(step)
 }
 
+/// Compute auto-sparsification fraction from the number of haplotypes.
+///
+/// Uses pggb's giant-component heuristic: `ln(n) / n * 10`, capped at 1.0.
+/// Returns `None` when no sparsification is needed (n ≤ 1 or fraction ≥ 1.0).
+pub fn auto_sparsify(n_haps: usize) -> Option<f64> {
+    if n_haps <= 1 {
+        return None;
+    }
+    let n = n_haps as f64;
+    let frac = n.ln() / n * 10.0;
+    if frac >= 1.0 {
+        None
+    } else {
+        Some(frac)
+    }
+}
+
 /// Wfmash alignment backend
 pub struct WfmashIntegration {
     wfmash: wfmash_rs::Wfmash,
