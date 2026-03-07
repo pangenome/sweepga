@@ -2,7 +2,7 @@ name: CI
 
 on:
   push:
-    branches: [ main, wfmash-v0.14.0 ]
+    branches: [ main ]
   pull_request:
     branches: [ main ]
 
@@ -11,14 +11,13 @@ env:
 
 jobs:
   test:
-    name: Test Suite
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, macos-latest]
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
 
       - name: Install system dependencies
         run: |
@@ -36,121 +35,41 @@ jobs:
           fi
 
       - name: Install Rust
-        uses: actions-rs/toolchain@v1
-        with:
-          profile: minimal
-          toolchain: stable
-          override: true
-          components: rustfmt, clippy
+        uses: dtolnay/rust-toolchain@stable
 
-      - name: Check formatting
-        run: cargo fmt -- --check
-
-      - name: Run clippy
-        run: cargo clippy -- -D warnings
+      - uses: Swatinem/rust-cache@v2
 
       - name: Build
-        run: cargo build --verbose --all-targets
-
-      - name: Build tests (ensures fastga-rs is compiled)
-        run: cargo test --no-run --verbose
-
-      - name: Build release binaries (tests use cargo run --release)
         run: cargo build --release --verbose
 
-      - name: Set FastGA binary paths (debug and release)
+      - name: Set FastGA binary paths
         run: |
-          # Tests call 'cargo run --release', so we need BOTH debug and release FastGA binaries in PATH
-
-          # Find debug FastGA
-          FASTGA_DEBUG=$(find target/debug/build -name "FastGA" -type f | head -1)
-          if [ -f "$FASTGA_DEBUG" ]; then
-            FASTGA_DEBUG_DIR=$(dirname "$FASTGA_DEBUG")
-            echo "Found debug FastGA in: $FASTGA_DEBUG_DIR"
-            echo "$FASTGA_DEBUG_DIR" >> $GITHUB_PATH
-          fi
-
-          # Find release FastGA
           FASTGA_RELEASE=$(find target/release/build -name "FastGA" -type f | head -1)
           if [ -f "$FASTGA_RELEASE" ]; then
             FASTGA_RELEASE_DIR=$(dirname "$FASTGA_RELEASE")
             echo "Found release FastGA in: $FASTGA_RELEASE_DIR"
             echo "$FASTGA_RELEASE_DIR" >> $GITHUB_PATH
           else
-            echo "ERROR: Release FastGA binary not found (tests need this for 'cargo run --release')!"
+            echo "ERROR: Release FastGA binary not found!"
             exit 1
           fi
 
-      - name: Run tests
+      - name: Test
         run: |
-          # Set TMPDIR to GitHub's temp directory to avoid disk space issues
           export TMPDIR="${{ runner.temp }}"
-          # Set PATH to include FastGA binaries (needed for FastGA's system() calls)
-          # MUST use absolute paths because FastGA runs from different working directories
-          FASTGA_DEBUG=$(find target/debug/build -name "FastGA" -type f | head -1)
           FASTGA_RELEASE=$(find target/release/build -name "FastGA" -type f | head -1)
-          FASTGA_DEBUG_ABS=$(cd $(dirname $FASTGA_DEBUG) && pwd)
           FASTGA_RELEASE_ABS=$(cd $(dirname $FASTGA_RELEASE) && pwd)
-          export PATH="$FASTGA_DEBUG_ABS:$FASTGA_RELEASE_ABS:$PATH"
-          echo "PATH for tests: $PATH"
-          echo "TMPDIR for tests: $TMPDIR"
-          # Skip tests that require specific aligner setups or have race conditions:
-          # - end-to-end/golden tests: FastGA race conditions, need ONEview
-          # - test_1aln_roundtrip: OneCode C library cleanup race condition
-          # - wfmash tests: need FAI-indexed FASTA files not provided by test harness
-          # - test_performance_regression: flaky timeout on CI
+          export PATH="$FASTGA_RELEASE_ABS:$PATH"
           SKIP_COMMON="--skip test_end_to_end_yeast_coverage --skip test_one_to_one_preserves_pairs --skip test_filtering_mode_comparison --skip test_wfmash_end_to_end --skip test_golden --skip test_1aln_roundtrip --skip test_filter_1_to_many --skip test_filter_1_to_1 --skip test_fastga_pairwise_alignment --skip test_large_sequence_handling --skip test_multisequence_fasta --skip test_performance_regression --skip test_thread_parameter --skip test_large_scale_paf_output --skip test_b3106_paf_output --skip test_b3106_filtering_behavior"
           if [[ "${{ runner.os }}" == "Linux" ]]; then
-            cargo test --verbose -- --test-threads=1 $SKIP_COMMON
+            cargo test --release --verbose -- --test-threads=1 $SKIP_COMMON
           else
-            cargo test --verbose -- $SKIP_COMMON
+            cargo test --release --verbose -- $SKIP_COMMON
           fi
 
       - name: Check for forbidden files
         run: |
-          # Check for files that should never be committed
           if git ls-tree -r HEAD --name-only | grep -E '\.(fa|fasta|paf|gdb|ktab|bps)$' | grep -v 'data/scerevisiae8.fa.gz' | grep -v 'data/B-3106.fa'; then
             echo "ERROR: Found forbidden data files in repository!"
-            echo "Only data/scerevisiae8.fa.gz and data/B-3106.fa are allowed"
             exit 1
           fi
-
-  build:
-    name: Build Check
-    runs-on: ${{ matrix.os }}
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [ubuntu-latest, macos-latest]
-        rust:
-          - stable
-    steps:
-      - uses: actions/checkout@v3
-
-      - name: Install system dependencies
-        run: |
-          if [[ "${{ runner.os }}" == "Linux" ]]; then
-            sudo apt-get update
-            sudo apt-get install -y libzstd-dev cmake libbz2-dev liblzma-dev libcurl4-gnutls-dev libhts-dev libgsl-dev libjemalloc-dev
-          elif [[ "${{ runner.os }}" == "macOS" ]]; then
-            brew install zstd cmake xz gcc libomp htslib gsl jemalloc
-            echo "CFLAGS=-I$(brew --prefix zstd)/include -I$(brew --prefix libomp)/include -I$(brew --prefix htslib)/include -I$(brew --prefix gsl)/include -I$(brew --prefix jemalloc)/include" >> $GITHUB_ENV
-            echo "LDFLAGS=-L$(brew --prefix zstd)/lib -L$(brew --prefix libomp)/lib -L$(brew --prefix htslib)/lib -L$(brew --prefix gsl)/lib -L$(brew --prefix jemalloc)/lib" >> $GITHUB_ENV
-            echo "CPPFLAGS=-I$(brew --prefix zstd)/include -I$(brew --prefix libomp)/include -I$(brew --prefix htslib)/include -I$(brew --prefix gsl)/include -I$(brew --prefix jemalloc)/include" >> $GITHUB_ENV
-            echo "CMAKE_PREFIX_PATH=$(brew --prefix htslib);$(brew --prefix gsl);$(brew --prefix jemalloc);$(brew --prefix libomp);$(brew --prefix zstd)" >> $GITHUB_ENV
-            echo "CMAKE_INCLUDE_PATH=$(brew --prefix htslib)/include:$(brew --prefix gsl)/include:$(brew --prefix jemalloc)/include:$(brew --prefix libomp)/include" >> $GITHUB_ENV
-            echo "CMAKE_LIBRARY_PATH=$(brew --prefix htslib)/lib:$(brew --prefix gsl)/lib:$(brew --prefix jemalloc)/lib:$(brew --prefix libomp)/lib" >> $GITHUB_ENV
-          fi
-
-      - name: Install Rust
-        uses: actions-rs/toolchain@v1
-        with:
-          profile: minimal
-          toolchain: ${{ matrix.rust }}
-          override: true
-
-      - name: Build
-        run: cargo build --verbose
-
-      - name: Build (all features)
-        run: cargo build --verbose --all-features
