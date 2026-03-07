@@ -52,6 +52,7 @@ impl WfmashIntegration {
             segment_length,
             None,
             None,
+            None,
         )
     }
 
@@ -60,6 +61,7 @@ impl WfmashIntegration {
     /// `segment_length`: explicit wfmash segment length (`-s`). When `None`, adapts from `avg_seq_len`.
     /// `avg_seq_len`: used to compute adaptive segment length as `avg_seq_len / 2` (capped at 5000).
     /// `sparsify`: fraction of mappings to keep (wfmash `-x`). `None` or `Some(1.0)` = keep all.
+    /// `num_mappings`: number of mappings per segment pair (`-n`). `None` = wfmash default (1).
     pub fn adaptive(
         num_threads: usize,
         min_alignment_length: Option<u64>,
@@ -68,9 +70,14 @@ impl WfmashIntegration {
         segment_length: Option<u64>,
         avg_seq_len: Option<u64>,
         sparsify: Option<f64>,
+        num_mappings: Option<usize>,
     ) -> Result<Self> {
         let mut builder = wfmash_rs::Config::builder()
             .num_threads(num_threads);
+
+        if let Some(n) = num_mappings {
+            builder = builder.num_mappings(n);
+        }
 
         if let Some(ref pct) = map_pct_identity {
             builder = builder.map_pct_identity(pct);
