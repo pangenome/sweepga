@@ -7,6 +7,24 @@ use anyhow::Result;
 use std::path::{Path, PathBuf};
 use tempfile::NamedTempFile;
 
+/// Round a value to a "nice" multiple based on its magnitude:
+/// ≤500 → multiple of 50, ≤1000 → 100, ≤3000 → 200, >3000 → 500.
+fn round_nice(v: u64) -> u64 {
+    if v == 0 {
+        return 0;
+    }
+    let step = if v <= 500 {
+        50
+    } else if v <= 1000 {
+        100
+    } else if v <= 3000 {
+        200
+    } else {
+        500
+    };
+    ((v + step / 2) / step * step).max(step)
+}
+
 /// Wfmash alignment backend
 pub struct WfmashIntegration {
     wfmash: wfmash_rs::Wfmash,
@@ -90,7 +108,7 @@ impl WfmashIntegration {
 
         // Set segment length (-s): use explicit value, or adapt to avg_seq_len/2, capped at 5000
         let effective_segment_length = segment_length.or_else(|| {
-            avg_seq_len.map(|avg| (avg / 2).min(5000))
+            avg_seq_len.map(|avg| round_nice((avg / 2).min(5000)))
         });
         if let Some(s) = effective_segment_length {
             builder = builder.segment_length(s as usize);
@@ -100,8 +118,8 @@ impl WfmashIntegration {
         // For short sequences this gives l == s
         let effective_block_length = min_alignment_length.or_else(|| {
             match (effective_segment_length, avg_seq_len) {
-                (Some(s), Some(avg)) => Some((s * 3).min(avg / 2)),
-                (Some(s), None) => Some(s * 3),
+                (Some(s), Some(avg)) => Some(round_nice((s * 3).min(avg / 2))),
+                (Some(s), None) => Some(round_nice(s * 3)),
                 _ => None,
             }
         });
