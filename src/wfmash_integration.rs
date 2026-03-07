@@ -73,7 +73,8 @@ impl WfmashIntegration {
         num_mappings: Option<usize>,
     ) -> Result<Self> {
         let mut builder = wfmash_rs::Config::builder()
-            .num_threads(num_threads);
+            .num_threads(num_threads)
+            .prefix_delimiter('#');
 
         if let Some(n) = num_mappings {
             builder = builder.num_mappings(n);
