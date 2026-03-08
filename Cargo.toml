@@ -40,9 +40,6 @@ libc = "0.2"
 noodles = { version = "0.100.0", features = ["bgzf"] }
 rand = "0.8"
 
-[build-dependencies]
-cc = "1.0"
-
 [[bin]]
 name = "sweepga"
 path = "src/main.rs"
