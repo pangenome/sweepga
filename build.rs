@@ -39,7 +39,9 @@ fn main() {
                     .unwrap_or(false)
             {
                 let fastga_out_dir = path.join("out");
-                if fastga_out_dir.exists() {
+                // Only use this directory if it actually contains FastGA binaries
+                // (cargo creates multiple fastga-rs-* dirs; only one has the build output)
+                if fastga_out_dir.exists() && fastga_out_dir.join("FastGA").exists() {
                     println!(
                         "cargo:warning=Found FastGA binaries in: {}",
                         fastga_out_dir.display()

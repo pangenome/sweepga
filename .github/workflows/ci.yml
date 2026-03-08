@@ -8,6 +8,7 @@ on:
 
 env:
   CARGO_TERM_COLOR: always
+  WFMASH_PORTABLE: 1
 
 jobs:
   test:
@@ -38,34 +39,21 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
 
       - uses: Swatinem/rust-cache@v2
+        with:
+          prefix-key: v1-rust
 
       - name: Build
-        run: cargo build --release --verbose
+        run: cargo build --release
 
-      - name: Set FastGA binary paths
-        run: |
-          FASTGA_RELEASE=$(find target/release/build -name "FastGA" -type f | head -1)
-          if [ -f "$FASTGA_RELEASE" ]; then
-            FASTGA_RELEASE_DIR=$(dirname "$FASTGA_RELEASE")
-            echo "Found release FastGA in: $FASTGA_RELEASE_DIR"
-            echo "$FASTGA_RELEASE_DIR" >> $GITHUB_PATH
-          else
-            echo "ERROR: Release FastGA binary not found!"
-            exit 1
-          fi
-
-      - name: Test
+      - name: Unit tests
         run: |
           export TMPDIR="${{ runner.temp }}"
-          FASTGA_RELEASE=$(find target/release/build -name "FastGA" -type f | head -1)
-          FASTGA_RELEASE_ABS=$(cd $(dirname $FASTGA_RELEASE) && pwd)
-          export PATH="$FASTGA_RELEASE_ABS:$PATH"
-          SKIP_COMMON="--skip test_end_to_end_yeast_coverage --skip test_one_to_one_preserves_pairs --skip test_filtering_mode_comparison --skip test_wfmash_end_to_end --skip test_golden --skip test_1aln_roundtrip --skip test_filter_1_to_many --skip test_filter_1_to_1 --skip test_fastga_pairwise_alignment --skip test_large_sequence_handling --skip test_multisequence_fasta --skip test_performance_regression --skip test_thread_parameter --skip test_large_scale_paf_output --skip test_b3106_paf_output --skip test_b3106_filtering_behavior --skip test_fastga_alignment_with_b3106 --skip test_pairwise_b3106 --skip test_multisequence_synthetic --skip test_small_sequence_alignment --skip test_1aln_filtering_api --skip test_filtering_api"
-          if [[ "${{ runner.os }}" == "Linux" ]]; then
-            cargo test --release --verbose -- --test-threads=1 $SKIP_COMMON
-          else
-            cargo test --release --verbose -- $SKIP_COMMON
-          fi
+          cargo test --release --lib -- --test-threads=1
+
+      - name: Integration tests (wfmash + FastGA)
+        run: |
+          export TMPDIR="${{ runner.temp }}"
+          cargo test --release --test test_ci_integration -- --test-threads=1
 
       - name: Check for forbidden files
         run: |

@@ -486,7 +486,7 @@ dependencies = [
 [[package]]
 name = "fastga-rs"
 version = "0.1.2"
-source = "git+https://github.com/pangenome/fastga-rs?rev=e7a6d93#e7a6d93621e53d141df5fbecb47651564555d43b"
+source = "git+https://github.com/pangenome/fastga-rs?rev=eacb79b#eacb79b343a74c22c2b3f642b23a07cc98fe7b94"
 dependencies = [
  "anyhow",
  "cc",

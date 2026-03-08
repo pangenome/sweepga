@@ -1269,7 +1269,8 @@ fn align_multiple_fastas(
         );
     }
 
-    // Create aligner
+    // Create aligner with adaptive parameters based on average sequence length
+    let avg_seq = avg_seq_len_from_fai(Path::new(&fasta_files[0]))?;
     let aligner = create_aligner(
         aligner_name,
         effective_frequency,
@@ -1277,6 +1278,7 @@ fn align_multiple_fastas(
         threads,
         min_alignment_length,
         tempdir.map(String::from),
+        Some(avg_seq),
     )?;
 
     // Run alignment on the original input (all genomes together)
@@ -1443,6 +1445,7 @@ fn process_agc_archive(
     }
 
     // Run alignment using direct PAF output
+    let avg_seq = avg_seq_len_from_fai(&fasta_path)?;
     let aligner = create_aligner(
         &args.aligner,
         args.frequency,
@@ -1450,6 +1453,7 @@ fn process_agc_archive(
         args.threads,
         args.block_length,
         args.tempdir.clone(),
+        Some(avg_seq),
     )?;
 
     if !args.quiet {
@@ -1917,7 +1921,7 @@ fn process_agc_pairs(
         timing.log("pairs", &format!("Processing {} pairs", pairs.len()));
     }
 
-    // Create aligner
+    // Create aligner (AGC pairs mode: avg_seq_len not known until extraction)
     let aligner = create_aligner(
         &args.aligner,
         args.frequency,
@@ -1925,6 +1929,7 @@ fn process_agc_pairs(
         args.threads,
         args.block_length,
         Some(temp_base.to_string_lossy().to_string()),
+        None,
     )?;
 
     // Create work directory for extractions
@@ -2299,7 +2304,8 @@ fn align_all_pairs_mode(
         );
     }
 
-    // Create aligner
+    // Create aligner with adaptive parameters
+    let avg_seq = avg_seq_len_from_fai(Path::new(&fasta_files[0]))?;
     let aligner = create_aligner(
         aligner_name,
         frequency,
@@ -2307,6 +2313,7 @@ fn align_all_pairs_mode(
         threads,
         min_alignment_length,
         tempdir.map(String::from),
+        Some(avg_seq),
     )?;
 
     // Step 1: Build GDB and GIX indices for all genomes (FastGA only)
@@ -2469,6 +2476,31 @@ fn create_fastga_integration(
 }
 
 /// Create an aligner backend based on the --aligner flag.
+/// Compute average sequence length from a FASTA index (.fai).
+/// Returns an error if the .fai file does not exist.
+fn avg_seq_len_from_fai(path: &Path) -> Result<u64> {
+    let fai_path = path.with_extension(
+        path.extension()
+            .map(|e| format!("{}.fai", e.to_string_lossy()))
+            .unwrap_or_else(|| "fai".to_string()),
+    );
+    let fai = std::fs::read_to_string(&fai_path)
+        .with_context(|| format!("FASTA index not found: {}", fai_path.display()))?;
+    let mut total_bases: u64 = 0;
+    let mut num_seqs: u64 = 0;
+    for line in fai.lines() {
+        let fields: Vec<&str> = line.split('\t').collect();
+        if fields.len() >= 2 {
+            if let Ok(len) = fields[1].parse::<u64>() {
+                total_bases += len;
+                num_seqs += 1;
+            }
+        }
+    }
+    anyhow::ensure!(num_seqs > 0, "FASTA index {} contains no sequences", fai_path.display());
+    Ok(total_bases / num_seqs)
+}
+
 fn create_aligner(
     aligner_name: &str,
     frequency: Option<usize>,
@@ -2476,6 +2508,7 @@ fn create_aligner(
     num_threads: usize,
     min_alignment_length: Option<u64>,
     temp_dir: Option<String>,
+    avg_seq_len: Option<u64>,
 ) -> Result<Box<dyn aligner::Aligner>> {
     match aligner_name {
         "fastga" => {
@@ -2496,11 +2529,15 @@ fn create_aligner(
                     "[sweepga] Warning: --frequency/-f is ignored when using --aligner wfmash"
                 );
             }
-            let wfmash = wfmash_integration::WfmashIntegration::new(
+            let wfmash = wfmash_integration::WfmashIntegration::adaptive(
                 num_threads,
                 min_alignment_length,
                 map_pct_identity,
                 temp_dir,
+                None, // segment_length: adaptive from avg_seq_len
+                avg_seq_len,
+                None, // sparsify
+                None, // num_mappings
             )?;
             Ok(Box::new(wfmash))
         }
@@ -2921,6 +2958,7 @@ fn main() -> Result<()> {
                         );
                     }
 
+                    let avg_seq = avg_seq_len_from_fai(&path)?;
                     let aligner = create_aligner(
                         &args.aligner,
                         args.frequency,
@@ -2928,6 +2966,7 @@ fn main() -> Result<()> {
                         args.threads,
                         args.block_length,
                         args.tempdir.clone(),
+                        Some(avg_seq),
                     )?;
                     let temp_paf = aligner.align_to_temp_paf(&path, &path)?;
 
@@ -3015,6 +3054,7 @@ fn main() -> Result<()> {
                         .with_context(|| format!("Failed to resolve path: {}", args.files[0]))?;
                     let query = std::fs::canonicalize(&args.files[1])
                         .with_context(|| format!("Failed to resolve path: {}", args.files[1]))?;
+                    let avg_seq = avg_seq_len_from_fai(&target)?;
                     let aligner = create_aligner(
                         &args.aligner,
                         args.frequency,
@@ -3022,6 +3062,7 @@ fn main() -> Result<()> {
                         args.threads,
                         args.block_length,
                         args.tempdir.clone(),
+                        Some(avg_seq),
                     )?;
                     let temp_paf = aligner.align_to_temp_paf(&target, &query)?;
 
@@ -3174,6 +3215,7 @@ fn main() -> Result<()> {
                 // Canonicalize path to avoid empty parent directory issues in fastga-rs
                 let path = std::fs::canonicalize(&temp_path)
                     .with_context(|| format!("Failed to resolve path: {temp_path}"))?;
+                let avg_seq = avg_seq_len_from_fai(&path)?;
                 let aligner = create_aligner(
                     &args.aligner,
                     args.frequency,
@@ -3181,6 +3223,7 @@ fn main() -> Result<()> {
                     args.threads,
                     args.block_length,
                     args.tempdir.clone(),
+                    Some(avg_seq),
                 )?;
                 let temp_paf = aligner.align_to_temp_paf(&path, &path)?;
 

@@ -25,73 +25,13 @@ fn round_nice(v: u64) -> u64 {
     ((v + step / 2) / step * step).max(step)
 }
 
-/// Compute auto-sparsification fraction from the number of haplotypes.
-///
-/// Uses pggb's giant-component heuristic: `ln(n) / n * 10`, capped at 1.0.
-/// Returns `None` when no sparsification is needed (n ≤ 1 or fraction ≥ 1.0).
-pub fn auto_sparsify(n_haps: usize) -> Option<f64> {
-    if n_haps <= 1 {
-        return None;
-    }
-    let n = n_haps as f64;
-    let frac = n.ln() / n * 10.0;
-    if frac >= 1.0 {
-        None
-    } else {
-        Some(frac)
-    }
-}
-
 /// Wfmash alignment backend
 pub struct WfmashIntegration {
     wfmash: wfmash_rs::Wfmash,
 }
 
 impl WfmashIntegration {
-    /// Create a new WfmashIntegration instance.
-    ///
-    /// `map_pct_identity` sets the minimum percent identity for mapping (-p).
-    /// Accepts a float (e.g. "90") or an ANI preset (e.g. "ani50-2").
-    /// When `None`, wfmash uses its default (~70%).
-    pub fn new(
-        num_threads: usize,
-        min_alignment_length: Option<u64>,
-        map_pct_identity: Option<String>,
-        temp_dir: Option<String>,
-    ) -> Result<Self> {
-        Self::with_segment_length(
-            num_threads,
-            min_alignment_length,
-            map_pct_identity,
-            temp_dir,
-            None,
-        )
-    }
-
-    /// Create a new WfmashIntegration with adaptive parameters for input sequence sizes.
-    ///
-    /// `segment_length` sets the wfmash segment length (`-s`). When `None`,
-    /// wfmash uses its default.
-    pub fn with_segment_length(
-        num_threads: usize,
-        min_alignment_length: Option<u64>,
-        map_pct_identity: Option<String>,
-        temp_dir: Option<String>,
-        segment_length: Option<u64>,
-    ) -> Result<Self> {
-        Self::adaptive(
-            num_threads,
-            min_alignment_length,
-            map_pct_identity,
-            temp_dir,
-            segment_length,
-            None,
-            None,
-            None,
-        )
-    }
-
-    /// Create a new WfmashIntegration with full control over parameters.
+    /// Create a new WfmashIntegration with adaptive parameters.
     ///
     /// `segment_length`: explicit wfmash segment length (`-s`). When `None`, adapts from `avg_seq_len`.
     /// `avg_seq_len`: used to compute adaptive segment length as `avg_seq_len / 2` (capped at 5000).
