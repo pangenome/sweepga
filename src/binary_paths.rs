@@ -16,6 +16,7 @@ pub fn get_embedded_binary_path(binary_name: &str) -> Result<PathBuf> {
     // Get the executable's directory to find target/
     let exe_dir = env::current_exe()
         .ok()
+        .and_then(|p| p.canonicalize().ok())
         .and_then(|exe| exe.parent().map(|p| p.to_path_buf()));
 
     if let Some(mut target_dir) = exe_dir {
@@ -44,7 +45,7 @@ pub fn get_embedded_binary_path(binary_name: &str) -> Result<PathBuf> {
                             {
                                 let binary_path = path.join("out").join(binary_name);
                                 if binary_path.exists() {
-                                    return Ok(binary_path);
+                                    return Ok(binary_path.canonicalize().unwrap_or(binary_path));
                                 }
                             }
                         }
