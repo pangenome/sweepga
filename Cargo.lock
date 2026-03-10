@@ -492,7 +492,7 @@ dependencies = [
 [[package]]
 name = "fastga-rs"
 version = "0.1.2"
-source = "git+https://github.com/pangenome/fastga-rs?rev=c0bf620#c0bf6202506f51c77e47cf8707e58b7b61e2b621"
+source = "git+https://github.com/pangenome/fastga-rs?rev=c0bf6202506f51c77e47cf8707e58b7b61e2b621#c0bf6202506f51c77e47cf8707e58b7b61e2b621"
 dependencies = [
  "anyhow",
  "cc",
@@ -880,7 +880,7 @@ checksum = "384b8ab6d37215f3c5301a95a4accb5d64aa607f1fcb26a11b5303878451b4fe"
 [[package]]
 name = "onecode"
 version = "0.1.0"
-source = "git+https://github.com/pangenome/onecode-rs?rev=f531f5b#f531f5b0ff54001a898ec4e0c0c761b2bd0a1f34"
+source = "git+https://github.com/pangenome/onecode-rs?rev=f531f5b0ff54001a898ec4e0c0c761b2bd0a1f34#f531f5b0ff54001a898ec4e0c0c761b2bd0a1f34"
 dependencies = [
  "cc",
  "libc",
@@ -1050,7 +1050,7 @@ checksum = "f8dcc9c7d52a811697d2151c701e0d08956f92b0e24136cf4cf27b57a6a0d9bf"
 [[package]]
 name = "ragc-common"
 version = "0.1.1"
-source = "git+https://github.com/ekg/ragc?rev=40e5cad#40e5cad11cab7d4df07a72d6b16d68c2d60b0742"
+source = "git+https://github.com/ekg/ragc?rev=40e5cad11cab7d4df07a72d6b16d68c2d60b0742#40e5cad11cab7d4df07a72d6b16d68c2d60b0742"
 dependencies = [
  "ahash",
  "anyhow",
@@ -1065,7 +1065,7 @@ dependencies = [
 [[package]]
 name = "ragc-core"
 version = "0.1.1"
-source = "git+https://github.com/ekg/ragc?rev=40e5cad#40e5cad11cab7d4df07a72d6b16d68c2d60b0742"
+source = "git+https://github.com/ekg/ragc?rev=40e5cad11cab7d4df07a72d6b16d68c2d60b0742#40e5cad11cab7d4df07a72d6b16d68c2d60b0742"
 dependencies = [
  "ahash",
  "anyhow",
@@ -1386,7 +1386,7 @@ dependencies = [
  "nom",
  "noodles",
  "num_cpus",
- "onecode 0.1.0 (git+https://github.com/pangenome/onecode-rs?rev=f531f5b)",
+ "onecode 0.1.0 (git+https://github.com/pangenome/onecode-rs?rev=f531f5b0ff54001a898ec4e0c0c761b2bd0a1f34)",
  "ordered-float",
  "pretty_assertions",
  "proptest",
@@ -1651,7 +1651,7 @@ dependencies = [
 [[package]]
 name = "wfmash-rs"
 version = "0.1.0"
-source = "git+https://github.com/pangenome/wfmash-rs?rev=e3fb64ef#e3fb64efa040aac4e09cd5d1fd71d5d2db5e6375"
+source = "git+https://github.com/pangenome/wfmash-rs?rev=e1207fc50487fb5065f4211d175b3c238fcca167#e1207fc50487fb5065f4211d175b3c238fcca167"
 dependencies = [
  "anyhow",
  "num_cpus",

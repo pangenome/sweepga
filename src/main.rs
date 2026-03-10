@@ -255,8 +255,8 @@ struct Args {
     #[clap(long = "all-pairs", help_heading = "Alignment options")]
     all_pairs: bool,
 
-    /// Maximum index size per batch (e.g., "10G", "500M"). Partitions genomes to fit disk limits.
-    /// Formula: index ≈ 0.1GB + 12 bytes/bp. Use when scratch space is limited.
+    /// Maximum resource usage per batch (e.g., "10G", "500M"). Partitions genomes into batches.
+    /// FastGA: limits disk (index ≈ 0.1GB + 12 bytes/bp). Wfmash: limits memory (≈ 0.5GB + 20 bytes/bp).
     #[clap(long = "batch-bytes", value_parser = parse_metric_number, help_heading = "Alignment options")]
     batch_bytes: Option<u64>,
 
@@ -1203,17 +1203,7 @@ fn align_multiple_fastas(
 
     // Check for batch mode
     if let Some(max_index_bytes) = batch_bytes {
-        if !quiet {
-            timing.log(
-                "batch",
-                &format!(
-                    "Batch mode enabled: max {} index size per batch",
-                    batch_align::format_bytes(max_index_bytes)
-                ),
-            );
-        }
-
-        let config = batch_align::BatchAlignConfig {
+        let batch_config = batch_align::BatchAlignConfig {
             frequency,
             threads,
             min_alignment_length: min_alignment_length.unwrap_or(0),
@@ -1223,7 +1213,42 @@ fn align_multiple_fastas(
             quiet,
         };
 
-        return batch_align::run_batch_alignment(fasta_files, max_index_bytes, &config, tempdir);
+        let aligner: Box<dyn batch_align::BatchAligner> = match aligner_name {
+            "wfmash" => Box::new(batch_align::WfmashBatchAligner::new(
+                threads,
+                min_alignment_length,
+                map_pct_identity.clone(),
+                tempdir.map(String::from),
+            )),
+            _ => Box::new(batch_align::FastGABatchAligner::new(
+                frequency,
+                threads,
+                min_alignment_length.unwrap_or(0),
+                tempdir.map(String::from),
+                zstd_compress,
+                zstd_level,
+            )),
+        };
+
+        if !quiet {
+            timing.log(
+                "batch",
+                &format!(
+                    "Batch mode enabled: max {} {} per batch ({})",
+                    batch_align::format_bytes(max_index_bytes),
+                    aligner.resource_label(),
+                    aligner_name,
+                ),
+            );
+        }
+
+        return batch_align::run_batch_alignment_generic(
+            fasta_files,
+            max_index_bytes,
+            aligner.as_ref(),
+            &batch_config,
+            tempdir,
+        );
     }
 
     // Decide on alignment mode
@@ -2642,12 +2667,6 @@ fn main() -> Result<()> {
 
     // Validate aligner-specific constraints
     if args.aligner == "wfmash" {
-        if args.batch_bytes.is_some() {
-            anyhow::bail!(
-                "Batch mode (--batch-bytes) is only supported with --aligner fastga.\n\
-                 wfmash handles batching internally via its -b flag."
-            );
-        }
         if args.output_1aln
             || args
                 .output_file
