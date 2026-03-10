@@ -11,6 +11,7 @@ pub mod grouped_mappings;
 pub mod knn_graph;
 pub mod mapping;
 pub mod mash;
+pub mod orchestrator;
 pub mod paf;
 pub mod paf_filter;
 pub mod plane_sweep_core;

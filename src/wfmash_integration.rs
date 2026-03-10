@@ -46,6 +46,7 @@ impl WfmashIntegration {
         avg_seq_len: Option<u64>,
         sparsify: Option<f64>,
         num_mappings: Option<usize>,
+        pairs_file: Option<PathBuf>,
     ) -> Result<Self> {
         let mut builder = wfmash_rs::Config::builder()
             .num_threads(num_threads)
@@ -95,6 +96,10 @@ impl WfmashIntegration {
 
         if !extra_args.is_empty() {
             builder = builder.extra_args(extra_args);
+        }
+
+        if let Some(ref pf) = pairs_file {
+            builder = builder.pairs_file(pf.clone());
         }
 
         let config = builder.build();
