@@ -2538,6 +2538,7 @@ fn create_aligner(
                 avg_seq_len,
                 None, // sparsify
                 None, // num_mappings
+                None, // pairs_file
             )?;
             Ok(Box::new(wfmash))
         }
