@@ -22,6 +22,33 @@ const INDEX_OVERHEAD_BYTES: u64 = 100_000_000; // 100 MB
 /// Estimated bytes of index per basepair of genome
 const INDEX_BYTES_PER_BP: f64 = 12.0;
 
+/// Resource limits for batch alignment.
+#[derive(Debug, Clone)]
+pub struct BatchLimits {
+    /// Maximum disk bytes for index files per batch.
+    pub max_disk_bytes: u64,
+    /// Optional maximum memory bytes. When set, batches are also bounded by
+    /// estimated peak RAM usage.
+    pub max_memory_bytes: Option<u64>,
+}
+
+impl Default for BatchLimits {
+    fn default() -> Self {
+        Self {
+            max_disk_bytes: 50_000_000_000, // 50 GB
+            max_memory_bytes: None,
+        }
+    }
+}
+
+/// Estimate peak memory usage for aligning a batch of genomes.
+/// Empirical formula: ~20 bytes per basepair (index + working set).
+pub fn estimate_memory_usage(genome_bp: u64) -> u64 {
+    const MEMORY_OVERHEAD_BYTES: u64 = 500_000_000; // 500 MB baseline
+    const MEMORY_BYTES_PER_BP: f64 = 20.0;
+    MEMORY_OVERHEAD_BYTES + (genome_bp as f64 * MEMORY_BYTES_PER_BP) as u64
+}
+
 /// Information about a genome (from PanSN prefix)
 #[derive(Debug, Clone)]
 pub struct GenomeInfo {
@@ -70,6 +97,20 @@ impl GenomeBatch {
     pub fn would_exceed(&self, genome: &GenomeInfo, max_bytes: u64) -> bool {
         let new_total = self.total_bp + genome.total_bp;
         estimate_index_size(new_total) > max_bytes
+    }
+
+    /// Check if adding a genome would exceed BatchLimits (disk and/or memory).
+    pub fn would_exceed_limits(&self, genome: &GenomeInfo, limits: &BatchLimits) -> bool {
+        let new_total = self.total_bp + genome.total_bp;
+        if estimate_index_size(new_total) > limits.max_disk_bytes {
+            return true;
+        }
+        if let Some(max_mem) = limits.max_memory_bytes {
+            if estimate_memory_usage(new_total) > max_mem {
+                return true;
+            }
+        }
+        false
     }
 }
 

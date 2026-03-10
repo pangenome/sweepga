@@ -11,6 +11,22 @@
 use crate::mash;
 use std::collections::HashSet;
 
+/// Mash distance parameters shared by all strategies that use sketching.
+#[derive(Debug, Clone, PartialEq)]
+pub struct MashParams {
+    pub kmer_size: usize,
+    pub sketch_size: usize,
+}
+
+impl Default for MashParams {
+    fn default() -> Self {
+        MashParams {
+            kmer_size: mash::DEFAULT_KMER_SIZE,
+            sketch_size: mash::DEFAULT_SKETCH_SIZE,
+        }
+    }
+}
+
 /// Sparsification strategy for pair selection
 #[derive(Debug, Clone, PartialEq)]
 pub enum SparsificationStrategy {
@@ -22,8 +38,11 @@ pub enum SparsificationStrategy {
     Random(f64),
     /// Giant component connectivity guarantee
     Connectivity(f64),
-    /// Tree-based: k_nearest, k_farthest, random_fraction, optional kmer_size
-    TreeSampling(usize, usize, f64, Option<usize>),
+    /// Tree-based: k_nearest, k_farthest, random_fraction
+    TreeSampling(usize, usize, f64),
+    /// Wfmash mapping density (-x flag). None = auto (ln(n)/n*10), Some = explicit fraction.
+    /// Only valid with wfmash backend; errors if used with fastga.
+    WfmashDensity(Option<f64>),
 }
 
 impl std::str::FromStr for SparsificationStrategy {
@@ -31,7 +50,7 @@ impl std::str::FromStr for SparsificationStrategy {
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s {
-            "none" => Ok(SparsificationStrategy::None),
+            "none" | "all" => Ok(SparsificationStrategy::None),
             "auto" => Ok(SparsificationStrategy::Auto),
             s if s.starts_with("random:") => {
                 let fraction: f64 = s[7..]
@@ -42,8 +61,9 @@ impl std::str::FromStr for SparsificationStrategy {
                 }
                 Ok(SparsificationStrategy::Random(fraction))
             }
-            s if s.starts_with("giant:") => {
-                let prob: f64 = s[6..]
+            s if s.starts_with("giant:") || s.starts_with("connectivity:") => {
+                let colon_pos = s.find(':').unwrap();
+                let prob: f64 = s[colon_pos + 1..]
                     .parse()
                     .map_err(|_| "Invalid giant component probability".to_string())?;
                 if prob <= 0.0 || prob >= 1.0 {
@@ -51,10 +71,11 @@ impl std::str::FromStr for SparsificationStrategy {
                 }
                 Ok(SparsificationStrategy::Connectivity(prob))
             }
-            s if s.starts_with("tree:") => {
-                let parts: Vec<&str> = s[5..].split(':').collect();
-                if parts.len() < 3 || parts.len() > 4 {
-                    return Err("Invalid tree format. Use: tree:<k_nearest>:<k_farthest>:<random_fraction>[:<kmer_size>]".to_string());
+            s if s.starts_with("tree:") || s.starts_with("knn:") => {
+                let colon_pos = s.find(':').unwrap();
+                let parts: Vec<&str> = s[colon_pos + 1..].split(':').collect();
+                if parts.len() != 3 {
+                    return Err("Invalid tree format. Use: tree:<k_nearest>:<k_farthest>:<random_fraction>".to_string());
                 }
 
                 let k_nearest: usize = parts[0]
@@ -77,27 +98,30 @@ impl std::str::FromStr for SparsificationStrategy {
                     return Err("Random fraction must be between 0 and 1".to_string());
                 }
 
-                let kmer_size = if parts.len() == 4 {
-                    let k: usize = parts[3]
-                        .parse()
-                        .map_err(|_| "Invalid k-mer size".to_string())?;
-                    if !(3..=31).contains(&k) {
-                        return Err("K-mer size must be between 3 and 31".to_string());
-                    }
-                    Some(k)
-                } else {
-                    None
-                };
-
                 Ok(SparsificationStrategy::TreeSampling(
                     k_nearest,
                     k_farthest,
                     random_frac,
-                    kmer_size,
                 ))
             }
+            s if s.starts_with("wfmash:") => {
+                let val = &s[7..];
+                if val == "auto" {
+                    Ok(SparsificationStrategy::WfmashDensity(None))
+                } else {
+                    let frac: f64 = val
+                        .parse()
+                        .map_err(|_| "Invalid wfmash density fraction".to_string())?;
+                    if frac <= 0.0 || frac > 1.0 {
+                        return Err(
+                            "Wfmash density fraction must be between 0 and 1".to_string()
+                        );
+                    }
+                    Ok(SparsificationStrategy::WfmashDensity(Some(frac)))
+                }
+            }
             _ => Err(format!(
-                "Invalid sparsification strategy '{}'. Use: none, auto, giant:<probability>, random:<fraction>, or tree:<near>:<far>:<random>[:<kmer>]",
+                "Invalid sparsification strategy '{}'. Use: none, all, auto, giant:<probability>, connectivity:<probability>, random:<fraction>, tree:<near>:<far>:<random>, knn:<near>:<far>:<random>, wfmash:auto, or wfmash:<fraction>",
                 s
             )),
         }
@@ -111,13 +135,55 @@ impl std::fmt::Display for SparsificationStrategy {
             SparsificationStrategy::Auto => write!(f, "auto"),
             SparsificationStrategy::Random(frac) => write!(f, "random:{}", frac),
             SparsificationStrategy::Connectivity(prob) => write!(f, "giant:{}", prob),
-            SparsificationStrategy::TreeSampling(near, far, rand, kmer) => {
-                write!(f, "tree:{}:{}:{}", near, far, rand)?;
-                if let Some(k) = kmer {
-                    write!(f, ":{}", k)?;
-                }
-                Ok(())
+            SparsificationStrategy::TreeSampling(near, far, rand) => {
+                write!(f, "tree:{}:{}:{}", near, far, rand)
             }
+            SparsificationStrategy::WfmashDensity(frac) => match frac {
+                Some(f_val) => write!(f, "wfmash:{}", f_val),
+                None => write!(f, "wfmash:auto"),
+            },
+        }
+    }
+}
+
+impl SparsificationStrategy {
+    /// Get a human-readable description of the strategy for logging.
+    pub fn description(&self) -> String {
+        match self {
+            SparsificationStrategy::None => "all pairs (no sparsification)".to_string(),
+            SparsificationStrategy::Auto => "auto (context-dependent)".to_string(),
+            SparsificationStrategy::Random(f) => format!("random {:.1}%", f * 100.0),
+            SparsificationStrategy::Connectivity(p) => {
+                format!("giant component (p={:.2})", p)
+            }
+            SparsificationStrategy::TreeSampling(near, far, rand) => {
+                format!(
+                    "tree sampling (k_near={}, k_far={}, rand={:.1}%)",
+                    near,
+                    far,
+                    rand * 100.0,
+                )
+            }
+            SparsificationStrategy::WfmashDensity(frac) => match frac {
+                Some(f) => format!("wfmash density ({:.1}%)", f * 100.0),
+                None => "wfmash density (auto: ln(n)/n*10)".to_string(),
+            },
+        }
+    }
+
+    /// Compute the wfmash auto-density fraction for a given number of haplotypes.
+    /// Uses the pggb heuristic: ln(n)/n * 10.
+    /// Returns None if the fraction >= 1.0 (no sparsification needed).
+    pub fn wfmash_auto_density(n_haps: usize) -> Option<f64> {
+        if n_haps <= 1 {
+            return None;
+        }
+        let n = n_haps as f64;
+        let frac = n.ln() / n * 10.0;
+        if frac >= 1.0 {
+            None
+        } else {
+            Some(frac)
         }
     }
 }
@@ -129,15 +195,18 @@ pub fn extract_tree_pairs(
     k_nearest: usize,
     k_farthest: usize,
     random_fraction: f64,
-    kmer_size: usize,
+    mash_params: &MashParams,
 ) -> Vec<(usize, usize)> {
     if sequences.len() < 2 {
         return Vec::new();
     }
 
     // Compute distance matrix
-    let distance_matrix =
-        mash::compute_distance_matrix_with_params(sequences, kmer_size, mash::DEFAULT_SKETCH_SIZE);
+    let distance_matrix = mash::compute_distance_matrix_with_params(
+        sequences,
+        mash_params.kmer_size,
+        mash_params.sketch_size,
+    );
 
     extract_tree_pairs_from_matrix(&distance_matrix, k_nearest, k_farthest, random_fraction)
 }
@@ -190,14 +259,17 @@ pub fn extract_tree_pairs_separated(
     k_nearest: usize,
     k_farthest: usize,
     random_fraction: f64,
-    kmer_size: usize,
+    mash_params: &MashParams,
 ) -> (Vec<(usize, usize)>, Vec<(usize, usize)>) {
     if sequences.len() < 2 {
         return (Vec::new(), Vec::new());
     }
 
-    let distance_matrix =
-        mash::compute_distance_matrix_with_params(sequences, kmer_size, mash::DEFAULT_SKETCH_SIZE);
+    let distance_matrix = mash::compute_distance_matrix_with_params(
+        sequences,
+        mash_params.kmer_size,
+        mash_params.sketch_size,
+    );
 
     let mut tree_pairs = Vec::new();
 
@@ -268,7 +340,7 @@ fn build_knn_graph(
 }
 
 /// Generate random pairs with deterministic hashing based on indices
-fn generate_random_pairs(n: usize, fraction: f64) -> Vec<(usize, usize)> {
+pub fn generate_random_pairs(n: usize, fraction: f64) -> Vec<(usize, usize)> {
     use std::collections::hash_map::DefaultHasher;
     use std::hash::Hasher;
 
@@ -311,6 +383,7 @@ pub fn select_pairs(
     sample_count: usize,
     sequences: Option<&[Vec<u8>]>,
     strategy: &SparsificationStrategy,
+    mash_params: &MashParams,
 ) -> Vec<(usize, usize)> {
     match strategy {
         SparsificationStrategy::None => {
@@ -324,16 +397,8 @@ pub fn select_pairs(
             pairs
         }
         SparsificationStrategy::Auto => {
-            // Auto: use tree:5:2:0.05 for large sample counts
-            if sample_count > 50 {
-                if let Some(seqs) = sequences {
-                    extract_tree_pairs(seqs, 5, 2, 0.05, mash::DEFAULT_KMER_SIZE)
-                } else {
-                    // Fallback to random sampling without sequences
-                    generate_random_pairs(sample_count, 0.1)
-                }
-            } else {
-                // Small sample count: all pairs
+            if sample_count <= 10 {
+                // Very small: all pairs
                 let mut pairs = Vec::new();
                 for i in 0..sample_count {
                     for j in i + 1..sample_count {
@@ -341,6 +406,21 @@ pub fn select_pairs(
                     }
                 }
                 pairs
+            } else if sample_count <= 50 {
+                // Medium: giant-component pair selection
+                select_pairs(
+                    sample_count,
+                    sequences,
+                    &SparsificationStrategy::Connectivity(0.99),
+                    mash_params,
+                )
+            } else {
+                // Large: tree-based k-NN sampling
+                if let Some(seqs) = sequences {
+                    extract_tree_pairs(seqs, 5, 2, 0.05, mash_params)
+                } else {
+                    generate_random_pairs(sample_count, 0.1)
+                }
             }
         }
         SparsificationStrategy::Random(fraction) => generate_random_pairs(sample_count, *fraction),
@@ -357,19 +437,30 @@ pub fn select_pairs(
             if let Some(seqs) = sequences {
                 // Use tree sampling with enough nearest neighbors
                 let k_nearest = ((fraction * sample_count as f64).ceil() as usize).max(2);
-                extract_tree_pairs(seqs, k_nearest, 1, 0.01, mash::DEFAULT_KMER_SIZE)
+                extract_tree_pairs(seqs, k_nearest, 1, 0.01, mash_params)
             } else {
                 generate_random_pairs(sample_count, fraction)
             }
         }
-        SparsificationStrategy::TreeSampling(k_nearest, k_farthest, random_frac, kmer_size) => {
+        SparsificationStrategy::TreeSampling(k_nearest, k_farthest, random_frac) => {
             if let Some(seqs) = sequences {
-                let k = kmer_size.unwrap_or(mash::DEFAULT_KMER_SIZE);
-                extract_tree_pairs(seqs, *k_nearest, *k_farthest, *random_frac, k)
+                extract_tree_pairs(seqs, *k_nearest, *k_farthest, *random_frac, mash_params)
             } else {
                 // Fallback without sequences - just use random
                 generate_random_pairs(sample_count, *random_frac)
             }
+        }
+        SparsificationStrategy::WfmashDensity(_) => {
+            // WfmashDensity is a mapping-level strategy, not pair selection.
+            // When used for pair selection, it means "all pairs" (density is applied
+            // at the aligner level, not at pair selection).
+            let mut pairs = Vec::new();
+            for i in 0..sample_count {
+                for j in i + 1..sample_count {
+                    pairs.push((i, j));
+                }
+            }
+            pairs
         }
     }
 }
@@ -393,10 +484,7 @@ pub fn select_pairs_from_sketches(
             pairs
         }
         SparsificationStrategy::Auto => {
-            if sample_count > 50 {
-                let distance_matrix = mash::distance_matrix_from_sketches(sketches);
-                extract_tree_pairs_from_matrix(&distance_matrix, 5, 2, 0.05)
-            } else {
+            if sample_count <= 10 {
                 let mut pairs = Vec::new();
                 for i in 0..sample_count {
                     for j in i + 1..sample_count {
@@ -404,6 +492,14 @@ pub fn select_pairs_from_sketches(
                     }
                 }
                 pairs
+            } else if sample_count <= 50 {
+                select_pairs_from_sketches(
+                    sketches,
+                    &SparsificationStrategy::Connectivity(0.99),
+                )
+            } else {
+                let distance_matrix = mash::distance_matrix_from_sketches(sketches);
+                extract_tree_pairs_from_matrix(&distance_matrix, 5, 2, 0.05)
             }
         }
         SparsificationStrategy::Random(fraction) => generate_random_pairs(sample_count, *fraction),
@@ -418,10 +514,19 @@ pub fn select_pairs_from_sketches(
             let distance_matrix = mash::distance_matrix_from_sketches(sketches);
             extract_tree_pairs_from_matrix(&distance_matrix, k_nearest, 1, 0.01)
         }
-        SparsificationStrategy::TreeSampling(k_nearest, k_farthest, random_frac, _kmer_size) => {
-            // Note: kmer_size was already used when creating sketches
+        SparsificationStrategy::TreeSampling(k_nearest, k_farthest, random_frac) => {
             let distance_matrix = mash::distance_matrix_from_sketches(sketches);
             extract_tree_pairs_from_matrix(&distance_matrix, *k_nearest, *k_farthest, *random_frac)
+        }
+        SparsificationStrategy::WfmashDensity(_) => {
+            // WfmashDensity = all pairs (density applied at aligner level)
+            let mut pairs = Vec::new();
+            for i in 0..sample_count {
+                for j in i + 1..sample_count {
+                    pairs.push((i, j));
+                }
+            }
+            pairs
         }
     }
 }
@@ -451,16 +556,7 @@ mod tests {
     #[test]
     fn test_parse_sparsification_tree() {
         let s: SparsificationStrategy = "tree:5:2:0.1".parse().unwrap();
-        assert_eq!(s, SparsificationStrategy::TreeSampling(5, 2, 0.1, None));
-    }
-
-    #[test]
-    fn test_parse_sparsification_tree_with_kmer() {
-        let s: SparsificationStrategy = "tree:3:1:0.05:21".parse().unwrap();
-        assert_eq!(
-            s,
-            SparsificationStrategy::TreeSampling(3, 1, 0.05, Some(21))
-        );
+        assert_eq!(s, SparsificationStrategy::TreeSampling(5, 2, 0.1));
     }
 
     #[test]
@@ -487,14 +583,14 @@ mod tests {
 
     #[test]
     fn test_select_pairs_none() {
-        let pairs = select_pairs(4, None, &SparsificationStrategy::None);
+        let pairs = select_pairs(4, None, &SparsificationStrategy::None, &MashParams::default());
         assert_eq!(pairs.len(), 6); // 4 choose 2 = 6
     }
 
     #[test]
     fn test_select_pairs_random() {
         // Random fraction should produce approximately that fraction of pairs
-        let pairs = select_pairs(10, None, &SparsificationStrategy::Random(0.5));
+        let pairs = select_pairs(10, None, &SparsificationStrategy::Random(0.5), &MashParams::default());
         let total_possible = 10 * 9 / 2; // 45 pairs
                                          // Allow some variance due to randomness
         assert!(pairs.len() > 0);
@@ -568,6 +664,37 @@ mod tests {
     }
 
     #[test]
+    fn test_parse_sparsification_aliases() {
+        // "all" is an alias for None
+        let s: SparsificationStrategy = "all".parse().unwrap();
+        assert_eq!(s, SparsificationStrategy::None);
+
+        // "connectivity:" is an alias for "giant:"
+        let s: SparsificationStrategy = "connectivity:0.95".parse().unwrap();
+        assert_eq!(s, SparsificationStrategy::Connectivity(0.95));
+
+        // "knn:" is an alias for "tree:"
+        let s: SparsificationStrategy = "knn:3:1:0.1".parse().unwrap();
+        assert_eq!(s, SparsificationStrategy::TreeSampling(3, 1, 0.1));
+    }
+
+    #[test]
+    fn test_parse_sparsification_wfmash() {
+        let s: SparsificationStrategy = "wfmash:auto".parse().unwrap();
+        assert_eq!(s, SparsificationStrategy::WfmashDensity(None));
+
+        let s: SparsificationStrategy = "wfmash:0.3".parse().unwrap();
+        assert_eq!(s, SparsificationStrategy::WfmashDensity(Some(0.3)));
+
+        // Invalid: out of range
+        let result: Result<SparsificationStrategy, _> = "wfmash:0.0".parse();
+        assert!(result.is_err());
+
+        let result: Result<SparsificationStrategy, _> = "wfmash:1.5".parse();
+        assert!(result.is_err());
+    }
+
+    #[test]
     fn test_parse_invalid_sparsification() {
         let result: Result<SparsificationStrategy, _> = "invalid".parse();
         assert!(result.is_err());
@@ -577,6 +704,53 @@ mod tests {
 
         let result: Result<SparsificationStrategy, _> = "random:-0.1".parse(); // < 0
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_description() {
+        assert_eq!(
+            SparsificationStrategy::None.description(),
+            "all pairs (no sparsification)"
+        );
+        assert_eq!(
+            SparsificationStrategy::Auto.description(),
+            "auto (context-dependent)"
+        );
+        assert!(SparsificationStrategy::WfmashDensity(None)
+            .description()
+            .contains("auto"));
+        assert!(SparsificationStrategy::WfmashDensity(Some(0.3))
+            .description()
+            .contains("30.0%"));
+    }
+
+    #[test]
+    fn test_wfmash_auto_density() {
+        // n=1 -> None
+        assert_eq!(SparsificationStrategy::wfmash_auto_density(1), None);
+        // n=2 -> ln(2)/2*10 ~ 3.47 >= 1.0 -> None
+        assert_eq!(SparsificationStrategy::wfmash_auto_density(2), None);
+        // n=100 -> ln(100)/100*10 ~ 0.46 -> Some(0.46)
+        let frac = SparsificationStrategy::wfmash_auto_density(100).unwrap();
+        assert!(frac > 0.4 && frac < 0.5);
+    }
+
+    #[test]
+    fn test_display_roundtrip() {
+        let strategies = vec![
+            SparsificationStrategy::None,
+            SparsificationStrategy::Auto,
+            SparsificationStrategy::Random(0.5),
+            SparsificationStrategy::Connectivity(0.99),
+            SparsificationStrategy::TreeSampling(5, 2, 0.1),
+            SparsificationStrategy::WfmashDensity(None),
+            SparsificationStrategy::WfmashDensity(Some(0.3)),
+        ];
+        for strategy in strategies {
+            let s = strategy.to_string();
+            let parsed: SparsificationStrategy = s.parse().unwrap();
+            assert_eq!(strategy, parsed, "Roundtrip failed for {}", s);
+        }
     }
 
     #[test]
@@ -606,7 +780,8 @@ mod tests {
         let pairs = select_pairs(
             4,
             Some(&sequences),
-            &SparsificationStrategy::TreeSampling(1, 0, 0.0, None),
+            &SparsificationStrategy::TreeSampling(1, 0, 0.0),
+            &MashParams::default(),
         );
 
         // Should connect similar sequences

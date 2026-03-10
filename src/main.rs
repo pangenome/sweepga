@@ -1739,19 +1739,16 @@ fn get_pairs_from_args(
         // For sparsification, we need to compute mash sketches
         // Stream one sample at a time to avoid materializing all sequences in memory
 
-        // Determine k-mer size from strategy
-        let kmer_size = match &strategy {
-            knn_graph::SparsificationStrategy::TreeSampling(_, _, _, Some(k)) => *k,
-            _ => mash::DEFAULT_KMER_SIZE,
-        };
+        let mash_params = knn_graph::MashParams::default();
 
         if !args.quiet {
             timing.log(
                 "mash",
                 &format!(
-                    "Computing sketches for {} samples (k={})...",
+                    "Computing sketches for {} samples (k={}, s={})...",
                     samples.len(),
-                    kmer_size
+                    mash_params.kmer_size,
+                    mash_params.sketch_size,
                 ),
             );
         }
@@ -1765,8 +1762,11 @@ fn get_pairs_from_args(
             let seq = agc.extract_sample_to_bytes(sample)?;
 
             // Compute sketch and discard sequence immediately
-            let sketch =
-                mash::KmerSketch::from_sequence(&seq, kmer_size, mash::DEFAULT_SKETCH_SIZE);
+            let sketch = mash::KmerSketch::from_sequence(
+                &seq,
+                mash_params.kmer_size,
+                mash_params.sketch_size,
+            );
             sketches.push(sketch);
             drop(seq); // Explicitly drop to free memory
 
