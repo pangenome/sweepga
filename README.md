@@ -1,11 +1,11 @@
 # SweepGA
 
-Fast genome alignment with plane sweep filtering and scaffolding. Wraps FastGA aligner and applies plane sweep and other filtering methods to keep the best non-overlapping alignments.
+Fast genome alignment with plane sweep filtering and scaffolding. Wraps wfmash and FastGA aligners and applies plane sweep and other filtering methods to keep the best non-overlapping alignments.
 
 ## What it does
 
 SweepGA can:
-1. **Align FASTA files directly** using integrated FastGA (supports .fa.gz)
+1. **Align FASTA files directly** using integrated wfmash or FastGA (supports .fa.gz)
 2. **Filter existing alignments** from any aligner (wfmash, minimap2, etc.)
 3. **Apply scaffolding/chaining** to merge nearby alignments into syntenic regions
 4. **Output multiple formats**: PAF (text) or .1aln (binary ONE format)
@@ -251,7 +251,7 @@ sweepga alignments.paf -j 50k -m many:many > filtered.paf
 
 **`--check-fastga`** - Check FastGA binary locations and exit (diagnostic)
 
-**`--aligner <ALIGNER>`** - Aligner for FASTA input (default: `fastga`)
+**`--aligner <ALIGNER>`** - Aligner for FASTA input: `wfmash` or `fastga` (default: `wfmash`)
 
 **`-f/--frequency <N>`** - FastGA k-mer frequency threshold
 
@@ -261,7 +261,7 @@ sweepga alignments.paf -j 50k -m many:many > filtered.paf
 
 ### Batch Processing
 
-**`--batch-bytes <SIZE>`** - Maximum index size per batch (e.g., `10G`, `500M`). Partitions genomes to fit disk limits when scratch space is limited.
+**`--batch-bytes <SIZE>`** - Maximum resource usage per batch (e.g., `10G`, `500M`). Partitions genomes into batches. FastGA: limits disk (index ~0.1GB + 12 bytes/bp). Wfmash: limits memory (~0.5GB + 20 bytes/bp).
 
 **`--zstd`** - Compress k-mer index with zstd for ~2x disk savings and faster I/O
 
