@@ -30,8 +30,8 @@ rayon = "1.10"
 byteorder = "1.5"
 tempfile = "3.8"
 ordered-float = "4.0"
-fastga-rs = { git = "https://github.com/pangenome/fastga-rs", rev = "c0bf6202506f51c77e47cf8707e58b7b61e2b621" }
-wfmash-rs = { git = "https://github.com/pangenome/wfmash-rs", rev = "e1207fc50487fb5065f4211d175b3c238fcca167" }
+fastga-rs = { git = "https://github.com/pangenome/fastga-rs", rev = "01eb1ff" }
+wfmash-rs = { git = "https://github.com/pangenome/wfmash-rs", rev = "d47b7e3e" }
 ragc-core = { git = "https://github.com/ekg/ragc", rev = "40e5cad11cab7d4df07a72d6b16d68c2d60b0742" }
 onecode = { git = "https://github.com/pangenome/onecode-rs", rev = "f531f5b0ff54001a898ec4e0c0c761b2bd0a1f34" }
 chrono = "0.4"
