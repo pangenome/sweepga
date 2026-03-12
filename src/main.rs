@@ -2572,17 +2572,9 @@ fn create_aligner(
 }
 
 fn main() -> Result<()> {
-    // Set OUT_DIR to help fastga-rs find its binaries
-    // This ensures FAtoGDB, GIXmake, and GIXrm are found when FastGA needs them
-    if let Some(cargo_home) = std::env::var("CARGO_HOME")
-        .ok()
-        .or_else(|| std::env::var("HOME").ok().map(|h| format!("{h}/.cargo")))
-    {
-        let lib_dir = format!("{cargo_home}/lib/sweepga");
-        if std::path::Path::new(&lib_dir).exists() {
-            std::env::set_var("OUT_DIR", &lib_dir);
-        }
-    }
+    // Set up PATH and WFMASH_BIN_DIR so FastGA/wfmash binaries are found.
+    // build.rs caches them in ~/.cache/sweepga/{git_rev}/.
+    binary_paths::setup_binary_env();
 
     let args = Args::parse();
 
