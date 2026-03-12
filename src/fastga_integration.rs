@@ -212,27 +212,8 @@ impl FastGAIntegration {
         FastGAIntegration { config, temp_dir }
     }
 
-    /// Convert FASTA to GDB format (creates .gdb and .gix files)
-    /// Returns the path to the .gdb file (without extension)
-    /// Ensure fastga-rs can find FastGA binaries by adding them to PATH temporarily
-    /// This is needed because fastga-rs uses which/PATH to find binaries
-    fn ensure_fastga_in_path() -> Result<()> {
-        // Try to find FastGA using our binary_paths module
-        if let Ok(fastga_path) = crate::binary_paths::get_embedded_binary_path("FastGA") {
-            if let Some(fastga_dir) = fastga_path.parent() {
-                // Prepend FastGA directory to PATH so FastGA utilities are found first,
-                // but keep system PATH for shell utilities (sh, etc.) that FastGA needs
-                let current_path = std::env::var("PATH").unwrap_or_default();
-                let new_path = format!("{}:{}", fastga_dir.display(), current_path);
-                std::env::set_var("PATH", &new_path);
-            }
-        }
-        Ok(())
-    }
-
     pub fn prepare_gdb(&self, fasta_path: &Path) -> Result<String> {
-        // Ensure fastga-rs can find binaries
-        Self::ensure_fastga_in_path()?;
+        // binary_paths::setup_binary_env() in main() already set up PATH
 
         // Set TMPDIR for FastGA's internal temp files (ONEcode uses this)
         if let Some(ref dir) = self.temp_dir {
@@ -267,7 +248,7 @@ impl FastGAIntegration {
     /// Create GDB files only (no index) - used for batch alignment
     /// Returns the gdb_base path (without extension)
     pub fn create_gdb_only(&self, fasta_path: &Path) -> Result<String> {
-        Self::ensure_fastga_in_path()?;
+        // binary_paths::setup_binary_env() in main() already set up PATH
 
         // Set TMPDIR for FastGA's internal temp files (ONEcode uses this)
         if let Some(ref dir) = self.temp_dir {
@@ -291,7 +272,7 @@ impl FastGAIntegration {
 
     /// Create index for an existing GDB - used for batch alignment
     pub fn create_index_only(&self, gdb_base: &str) -> Result<()> {
-        Self::ensure_fastga_in_path()?;
+        // binary_paths::setup_binary_env() in main() already set up PATH
 
         // Set TMPDIR for FastGA's internal temp files (ONEcode uses this)
         if let Some(ref dir) = self.temp_dir {
@@ -609,7 +590,7 @@ impl FastGAIntegration {
     /// IMPORTANT: Also copies the .1gdb file alongside the .1aln to preserve sequence names
     pub fn align_to_temp_1aln(&self, queries: &Path, targets: &Path) -> Result<NamedTempFile> {
         // Ensure fastga-rs can find binaries
-        Self::ensure_fastga_in_path()?;
+        // binary_paths::setup_binary_env() in main() already set up PATH
 
         // Set TMPDIR for FastGA's internal temp files (ONEcode uses this)
         if let Some(ref dir) = self.temp_dir {
@@ -686,7 +667,7 @@ impl FastGAIntegration {
     /// Returns the temporary file handle (which auto-deletes when dropped)
     pub fn align_to_temp_paf(&self, queries: &Path, targets: &Path) -> Result<NamedTempFile> {
         // Ensure fastga-rs can find binaries
-        Self::ensure_fastga_in_path()?;
+        // binary_paths::setup_binary_env() in main() already set up PATH
 
         // Set TMPDIR for FastGA's internal temp files (ONEcode uses this)
         if let Some(ref dir) = self.temp_dir {
