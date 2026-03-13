@@ -25,6 +25,16 @@ fn has_extended_cigar(path: &Path) -> bool {
         .any(|line| line.contains("cg:Z:") && line.contains("="))
 }
 
+/// Create a .fai index for a FASTA file using samtools.
+fn create_fai(fasta: &Path) {
+    let status = Command::new("samtools")
+        .arg("faidx")
+        .arg(fasta)
+        .status()
+        .expect("samtools not found — install samtools to run integration tests");
+    assert!(status.success(), "samtools faidx failed on {}", fasta.display());
+}
+
 /// Helper to run sweepga command
 fn run_sweepga(args: &[&str]) -> Result<String, String> {
     // Use the compiled binary directly instead of cargo run
@@ -105,6 +115,9 @@ fn test_fastga_pairwise_alignment() {
     fs::write(&fasta1, format!(">seq1\n{seq1}\n")).unwrap();
     fs::write(&fasta2, format!(">seq2\n{seq2}\n")).unwrap();
 
+    create_fai(&fasta1);
+    create_fai(&fasta2);
+
     // Debug: Check if files were created correctly
     assert!(
         fasta1.exists() && fasta2.exists(),
@@ -127,6 +140,8 @@ fn test_fastga_pairwise_alignment() {
     let result = run_sweepga(&[
         fasta1.to_str().unwrap(),
         fasta2.to_str().unwrap(),
+        "--aligner",
+        "fastga",
         "-t",
         "1",
         "-i",
@@ -165,13 +180,19 @@ fn test_thread_parameter() {
     let output1 = temp_dir.path().join("t1.paf");
     let output4 = temp_dir.path().join("t4.paf");
 
-    // Create small test file
+    // Create test file with sequences large enough for alignment
+    use self::synthetic_genomes::{generate_base_sequence, mutate_sequence};
     let test_fa = temp_dir.path().join("test.fa");
-    fs::write(&test_fa, ">chr1\nACGTACGTACGTACGTACGTACGTACGTACGTACGTACGTACGTACGTACGTACGTACGTACGT\n>chr2\nTGCATGCATGCATGCATGCATGCATGCATGCATGCATGCATGCATGCATGCATGCATGCATGCA\n").unwrap();
+    let base = generate_base_sequence(5000, 42);
+    let seq2 = mutate_sequence(&base, 50, 43); // 1% divergence
+    fs::write(&test_fa, format!(">chr1\n{base}\n>chr2\n{seq2}\n")).unwrap();
+    create_fai(&test_fa);
 
     // Run with 1 thread
     let result1 = run_sweepga(&[
         test_fa.to_str().unwrap(),
+        "--aligner",
+        "fastga",
         "-t",
         "1",
         "--self", // Include self-mappings for consistency
@@ -181,6 +202,8 @@ fn test_thread_parameter() {
     // Run with 4 threads
     let result4 = run_sweepga(&[
         test_fa.to_str().unwrap(),
+        "--aligner",
+        "fastga",
         "-t",
         "4",
         "--self", // Include self-mappings for consistency
@@ -360,10 +383,13 @@ fn test_large_sequence_handling() {
     // Duplicate part of it to create self-similarity
     let seq = format!("{}{}", &base[..25000], &base);
     fs::write(&large_fa, format!(">large_seq\n{seq}\n")).unwrap();
+    create_fai(&large_fa);
 
     // Should handle without hanging or crashing
     let result = run_sweepga(&[
         large_fa.to_str().unwrap(),
+        "--aligner",
+        "fastga",
         "-t",
         "2",
         "--self", // Include self-mappings
@@ -413,9 +439,12 @@ fn test_multisequence_fasta() {
         format!(">seq1\n{seq1}\n>seq2\n{seq2}\n>seq3\n{seq3}\n"),
     )
     .unwrap();
+    create_fai(&multi_fa);
 
     let result = run_sweepga(&[
         multi_fa.to_str().unwrap(),
+        "--aligner",
+        "fastga",
         "-t",
         "1",
         "--self", // Include self-mappings
@@ -451,7 +480,7 @@ fn test_performance_regression() {
 
     let start = Instant::now();
 
-    let result = run_sweepga(&["data/scerevisiae8.fa.gz", "-t", "4", "--self", "--paf"]);
+    let result = run_sweepga(&["data/scerevisiae8.fa.gz", "--aligner", "fastga", "-t", "4", "--self", "--paf"]);
 
     let duration = start.elapsed();
 
