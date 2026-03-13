@@ -9,7 +9,6 @@
 /// always available regardless of whether a cargo target/ tree still exists.
 use std::env;
 use std::path::{Path, PathBuf};
-use std::process::Command;
 
 fn main() {
     println!("cargo:rerun-if-changed=build.rs");
@@ -74,20 +73,46 @@ fn main() {
 
 // ── helpers ────────────────────────────────────────────────────────────
 
-/// Build a cache key: `git describe --always --dirty` or CARGO_PKG_VERSION.
+/// Build a cache key from package version + dependency git revisions.
+///
+/// The key changes when `Cargo.lock` changes (which triggers a build.rs
+/// rerun), ensuring cached binaries always match the compiled deps.
+/// We do NOT use `git describe` because git state changes without any
+/// file changing, which means Cargo won't re-run build.rs and the
+/// cache key goes stale.
 fn cache_key() -> String {
-    if let Ok(out) = Command::new("git")
-        .args(["describe", "--always", "--dirty"])
-        .output()
-    {
-        if out.status.success() {
-            let desc = String::from_utf8_lossy(&out.stdout).trim().to_string();
-            if !desc.is_empty() {
-                return desc;
+    let version = env::var("CARGO_PKG_VERSION").unwrap_or_else(|_| "0".into());
+
+    // Extract short git revisions from Cargo.lock for our binary deps
+    let fastga_rev = dep_rev_from_lockfile("fastga-rs").unwrap_or_default();
+    let wfmash_rev = dep_rev_from_lockfile("wfmash-rs").unwrap_or_default();
+
+    if fastga_rev.is_empty() && wfmash_rev.is_empty() {
+        version
+    } else {
+        format!("{version}_f{fastga_rev}_w{wfmash_rev}")
+    }
+}
+
+/// Extract the short git revision for a dependency from Cargo.lock.
+/// Looks for lines like: `source = "git+...#01eb1ffe5df54b45..."`
+fn dep_rev_from_lockfile(dep_name: &str) -> Option<String> {
+    let lock = std::fs::read_to_string("Cargo.lock").ok()?;
+    let mut in_dep = false;
+    for line in lock.lines() {
+        if line.starts_with("name = ") && line.contains(dep_name) {
+            in_dep = true;
+        } else if in_dep && line.starts_with("source = ") {
+            // source = "git+https://...#01eb1ffe5df54b45123fee40cf69a8beb04fd1fc"
+            if let Some(hash) = line.rsplit('#').next() {
+                let hash = hash.trim_end_matches('"');
+                return Some(hash[..8.min(hash.len())].to_string());
             }
+        } else if line.starts_with("[[") {
+            in_dep = false;
         }
     }
-    env::var("CARGO_PKG_VERSION").unwrap_or_else(|_| "unknown".into())
+    None
 }
 
 /// $XDG_CACHE_HOME/sweepga  or  ~/.cache/sweepga
