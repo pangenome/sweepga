@@ -3,8 +3,6 @@
 //! This module provides a unified entry point that resolves sparsification strategies,
 //! selects pairs, partitions into batches when needed, runs alignment, and merges output.
 
-#[allow(unused_imports)]
-use crate::batch_align::BatchLimits;
 use crate::knn_graph::SparsificationStrategy;
 #[allow(unused_imports)]
 use crate::paf_filter::FilterConfig;
@@ -13,8 +11,8 @@ use crate::paf_filter::FilterConfig;
 pub struct OrchestrationConfig {
     /// Pair selection / mapping density strategy.
     pub strategy: SparsificationStrategy,
-    /// Resource limits for batching.
-    pub batch_limits: BatchLimits,
+    /// Maximum sequence data per batch in bytes.
+    pub batch_max_bytes: Option<u64>,
     /// Aligner backend name: "wfmash" or "fastga".
     pub aligner_name: String,
     /// K-mer frequency for fastga.

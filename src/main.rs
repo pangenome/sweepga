@@ -255,8 +255,7 @@ struct Args {
     #[clap(long = "all-pairs", help_heading = "Alignment options")]
     all_pairs: bool,
 
-    /// Maximum resource usage per batch (e.g., "10G", "500M"). Partitions genomes into batches.
-    /// FastGA: limits disk (index ≈ 0.1GB + 12 bytes/bp). Wfmash: limits memory (≈ 0.5GB + 20 bytes/bp).
+    /// Maximum sequence data per batch (e.g., "50M", "2G"). Partitions genomes into batches.
     #[clap(long = "batch-bytes", value_parser = parse_metric_number, help_heading = "Alignment options")]
     batch_bytes: Option<u64>,
 
@@ -1234,9 +1233,8 @@ fn align_multiple_fastas(
             timing.log(
                 "batch",
                 &format!(
-                    "Batch mode enabled: max {} {} per batch ({})",
+                    "Batch mode enabled: max {} per batch ({})",
                     batch_align::format_bytes(max_index_bytes),
-                    aligner.resource_label(),
                     aligner_name,
                 ),
             );
