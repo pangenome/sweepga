@@ -1,61 +1,14 @@
 //! Batch alignment for large genome sets
 //!
 //! When aligning many genomes, the aligner's resource usage can exceed available
-//! disk space (fastga) or memory (wfmash). This module partitions genomes into
-//! batches based on a cost model, runs the aligner on each batch pair, and
-//! aggregates results.
-//!
-//! Cost models:
-//!   FastGA (disk): GIX_size ≈ 0.1 GB + 12 bytes/bp
-//!   Wfmash (memory): sketch ≈ 0.5 GB + 20 bytes/bp
+//! disk or memory. This module partitions genomes into batches based on total
+//! sequence data size, runs the aligner on each batch pair, and aggregates results.
 
 use anyhow::{Context, Result};
 use std::collections::HashMap;
 use std::fs::File;
 use std::io::{BufRead, BufReader, Write};
 use std::path::{Path, PathBuf};
-
-/// Estimated index overhead in bytes (fixed cost per index) — FastGA
-const FASTGA_OVERHEAD_BYTES: u64 = 100_000_000; // 100 MB
-
-/// Estimated bytes of index per basepair of genome — FastGA
-const FASTGA_BYTES_PER_BP: f64 = 12.0;
-
-/// Estimated memory overhead — wfmash
-const WFMASH_OVERHEAD_BYTES: u64 = 500_000_000; // 500 MB
-
-/// Estimated bytes of memory per basepair — wfmash
-const WFMASH_BYTES_PER_BP: f64 = 20.0;
-
-/// Default auto batch limit for FastGA (disk): ~50 GB
-const FASTGA_AUTO_BYTES: u64 = 50_000_000_000;
-
-/// Default auto batch limit for wfmash (memory): ~4 GB
-const WFMASH_AUTO_BYTES: u64 = 4_000_000_000;
-
-/// Resource limits for batch alignment.
-#[derive(Debug, Clone)]
-pub struct BatchLimits {
-    /// Maximum disk bytes for index files per batch.
-    pub max_disk_bytes: u64,
-    /// Optional maximum memory bytes. When set, batches are also bounded by
-    /// estimated peak RAM usage.
-    pub max_memory_bytes: Option<u64>,
-}
-
-impl Default for BatchLimits {
-    fn default() -> Self {
-        Self {
-            max_disk_bytes: FASTGA_AUTO_BYTES,
-            max_memory_bytes: None,
-        }
-    }
-}
-
-/// Estimate peak memory usage for aligning a batch of genomes (wfmash model).
-pub fn estimate_memory_usage(genome_bp: u64) -> u64 {
-    WFMASH_OVERHEAD_BYTES + (genome_bp as f64 * WFMASH_BYTES_PER_BP) as u64
-}
 
 /// Trait for aligner-specific batch operations.
 ///
@@ -81,15 +34,6 @@ pub trait BatchAligner {
 
     /// Final cleanup of all resources (e.g., remove GDB files).
     fn cleanup_all(&self) -> Result<()>;
-
-    /// Estimate resource cost in bytes for a batch of the given total basepairs.
-    fn estimate_cost(&self, genome_bp: u64) -> u64;
-
-    /// Label for the resource being limited (e.g., "disk" or "memory").
-    fn resource_label(&self) -> &str;
-
-    /// Default auto limit in bytes.
-    fn auto_limit(&self) -> u64;
 
     /// Run a single-batch alignment (no partitioning needed).
     fn align_single(&self, fasta_files: &[String], tempdir: Option<&str>) -> Result<tempfile::NamedTempFile>;
@@ -193,18 +137,6 @@ impl BatchAligner for FastGABatchAligner {
         Ok(())
     }
 
-    fn estimate_cost(&self, genome_bp: u64) -> u64 {
-        estimate_index_size(genome_bp)
-    }
-
-    fn resource_label(&self) -> &str {
-        "disk"
-    }
-
-    fn auto_limit(&self) -> u64 {
-        FASTGA_AUTO_BYTES
-    }
-
     fn align_single(&self, fasta_files: &[String], _tempdir: Option<&str>) -> Result<tempfile::NamedTempFile> {
         let input_path = std::fs::canonicalize(&fasta_files[0])
             .with_context(|| format!("Failed to resolve path: {}", fasta_files[0]))?;
@@ -275,18 +207,6 @@ impl BatchAligner for WfmashBatchAligner {
         Ok(()) // no-op
     }
 
-    fn estimate_cost(&self, genome_bp: u64) -> u64 {
-        estimate_memory_usage(genome_bp)
-    }
-
-    fn resource_label(&self) -> &str {
-        "memory"
-    }
-
-    fn auto_limit(&self) -> u64 {
-        WFMASH_AUTO_BYTES
-    }
-
     fn align_single(&self, fasta_files: &[String], _tempdir: Option<&str>) -> Result<tempfile::NamedTempFile> {
         use crate::aligner::Aligner;
         let input_path = std::fs::canonicalize(&fasta_files[0])
@@ -314,8 +234,6 @@ pub struct GenomeBatch {
     pub genomes: Vec<GenomeInfo>,
     /// Total basepairs in batch
     pub total_bp: u64,
-    /// Estimated resource cost in bytes
-    pub estimated_index_bytes: u64,
 }
 
 impl Default for GenomeBatch {
@@ -329,54 +247,13 @@ impl GenomeBatch {
         Self {
             genomes: Vec::new(),
             total_bp: 0,
-            estimated_index_bytes: FASTGA_OVERHEAD_BYTES,
         }
     }
 
-    /// Add a genome to this batch, using the given cost function.
-    pub fn add_with_cost(&mut self, genome: GenomeInfo, cost_fn: &dyn Fn(u64) -> u64) {
-        self.total_bp += genome.total_bp;
-        self.estimated_index_bytes = cost_fn(self.total_bp);
-        self.genomes.push(genome);
-    }
-
-    /// Add a genome to this batch (FastGA cost model for backwards compat).
     pub fn add(&mut self, genome: GenomeInfo) {
         self.total_bp += genome.total_bp;
-        self.estimated_index_bytes = estimate_index_size(self.total_bp);
         self.genomes.push(genome);
     }
-
-    /// Check if adding a genome would exceed the byte limit
-    pub fn would_exceed(&self, genome: &GenomeInfo, max_bytes: u64) -> bool {
-        let new_total = self.total_bp + genome.total_bp;
-        estimate_index_size(new_total) > max_bytes
-    }
-
-    /// Check if adding a genome would exceed the limit using a custom cost function.
-    pub fn would_exceed_with_cost(&self, genome: &GenomeInfo, max_bytes: u64, cost_fn: &dyn Fn(u64) -> u64) -> bool {
-        let new_total = self.total_bp + genome.total_bp;
-        cost_fn(new_total) > max_bytes
-    }
-
-    /// Check if adding a genome would exceed BatchLimits (disk and/or memory).
-    pub fn would_exceed_limits(&self, genome: &GenomeInfo, limits: &BatchLimits) -> bool {
-        let new_total = self.total_bp + genome.total_bp;
-        if estimate_index_size(new_total) > limits.max_disk_bytes {
-            return true;
-        }
-        if let Some(max_mem) = limits.max_memory_bytes {
-            if estimate_memory_usage(new_total) > max_mem {
-                return true;
-            }
-        }
-        false
-    }
-}
-
-/// Estimate FastGA index size in bytes for a given genome size
-pub fn estimate_index_size(genome_bp: u64) -> u64 {
-    FASTGA_OVERHEAD_BYTES + (genome_bp as f64 * FASTGA_BYTES_PER_BP) as u64
 }
 
 /// Format bytes as human-readable string
@@ -494,59 +371,47 @@ fn extract_pansn_prefix(name: &str) -> String {
     }
 }
 
-/// Partition genomes into batches based on max index size (FastGA cost model).
-pub fn partition_into_batches(genomes: Vec<GenomeInfo>, max_index_bytes: u64) -> Vec<GenomeBatch> {
-    partition_into_batches_with_cost(genomes, max_index_bytes, &estimate_index_size)
-}
-
-/// Partition genomes into batches using a custom cost function.
-pub fn partition_into_batches_with_cost(
-    genomes: Vec<GenomeInfo>,
-    max_bytes: u64,
-    cost_fn: &dyn Fn(u64) -> u64,
-) -> Vec<GenomeBatch> {
+/// Partition genomes into batches so that each batch's total basepairs
+/// does not exceed `max_bp`.  This is the user-facing limit: when
+/// someone says `--batch-bytes 50m` they mean 50 MB of sequence data,
+/// not some inflated cost estimate.
+pub fn partition_into_batches_by_bp(genomes: Vec<GenomeInfo>, max_bp: u64) -> Vec<GenomeBatch> {
     let mut batches: Vec<GenomeBatch> = Vec::new();
     let mut current_batch = GenomeBatch::new();
 
     for genome in genomes {
-        // Check if this genome alone exceeds the limit
-        let single_genome_cost = cost_fn(genome.total_bp);
-        if single_genome_cost > max_bytes {
+        // A single genome bigger than the limit gets its own batch
+        if genome.total_bp > max_bp {
             eprintln!(
-                "[batch] WARNING: Genome {} ({}) has estimated cost {} which exceeds limit {}",
+                "[batch] WARNING: Genome {} ({}) exceeds batch limit {}",
                 genome.prefix,
                 format_bytes(genome.total_bp),
-                format_bytes(single_genome_cost),
-                format_bytes(max_bytes)
+                format_bytes(max_bp),
             );
             eprintln!("[batch] Including it as a single-genome batch anyway");
 
-            // Flush current batch if non-empty
             if !current_batch.genomes.is_empty() {
                 batches.push(current_batch);
                 current_batch = GenomeBatch::new();
             }
 
-            // Add oversized genome as its own batch
             let mut oversized = GenomeBatch::new();
-            oversized.add_with_cost(genome, cost_fn);
+            oversized.add(genome);
             batches.push(oversized);
             continue;
         }
 
-        // Check if adding to current batch would exceed limit
-        if current_batch.would_exceed_with_cost(&genome, max_bytes, cost_fn) {
-            // Start new batch
+        // Would adding this genome push us over the limit?
+        if current_batch.total_bp + genome.total_bp > max_bp {
             if !current_batch.genomes.is_empty() {
                 batches.push(current_batch);
             }
             current_batch = GenomeBatch::new();
         }
 
-        current_batch.add_with_cost(genome, cost_fn);
+        current_batch.add(genome);
     }
 
-    // Don't forget the last batch
     if !current_batch.genomes.is_empty() {
         batches.push(current_batch);
     }
@@ -605,8 +470,8 @@ pub fn write_batch_fasta(batch: &GenomeBatch, output_path: &Path) -> Result<()> 
     Ok(())
 }
 
-/// Report batch statistics, including the resource type being limited.
-pub fn report_batch_plan(batches: &[GenomeBatch], total_bp: u64, resource_label: &str, quiet: bool) {
+/// Report batch statistics.
+pub fn report_batch_plan(batches: &[GenomeBatch], total_bp: u64, quiet: bool) {
     if quiet {
         return;
     }
@@ -617,21 +482,18 @@ pub fn report_batch_plan(batches: &[GenomeBatch], total_bp: u64, resource_label:
     let cross_pairs = total_pairs - self_pairs;
 
     eprintln!(
-        "[batch] Partitioned {} genomes ({}) into {} batches (limiting {}):",
+        "[batch] Partitioned {} genomes ({}) into {} batches:",
         total_genomes,
         format_bytes(total_bp),
         batches.len(),
-        resource_label,
     );
 
     for (i, batch) in batches.iter().enumerate() {
         eprintln!(
-            "[batch]   Batch {}: {} genomes, {}, est. {} {}",
+            "[batch]   Batch {}: {} genomes, {}",
             i + 1,
             batch.genomes.len(),
             format_bytes(batch.total_bp),
-            format_bytes(batch.estimated_index_bytes),
-            resource_label,
         );
     }
 
@@ -650,15 +512,6 @@ pub struct BatchAlignConfig {
     pub zstd_level: u32,
     pub keep_self: bool,
     pub quiet: bool,
-}
-
-/// Resolve "auto" batch bytes for a given aligner.
-pub fn resolve_batch_bytes(value: &str, aligner: &dyn BatchAligner) -> Result<u64> {
-    if value.eq_ignore_ascii_case("auto") {
-        Ok(aligner.auto_limit())
-    } else {
-        parse_size_string(value)
-    }
 }
 
 /// Parse a human-readable size string like "2G", "500M", "100k" into bytes.
@@ -715,17 +568,14 @@ pub fn run_batch_alignment_generic(
         anyhow::bail!("No genomes found in input files");
     }
 
-    // Partition into batches using the aligner's cost model
-    let cost_fn = |bp: u64| aligner.estimate_cost(bp);
-    let batches = partition_into_batches_with_cost(genomes, max_bytes, &cost_fn);
+    // Partition into batches by total basepairs
+    let batches = partition_into_batches_by_bp(genomes, max_bytes);
 
     if batches.len() == 1 {
         if !config.quiet {
             eprintln!(
-                "[batch] All genomes ({}) fit in single batch (est. {} {}), no batching needed",
+                "[batch] All genomes ({}) fit in single batch, no batching needed",
                 format_bytes(total_bp),
-                format_bytes(batches[0].estimated_index_bytes),
-                aligner.resource_label(),
             );
         }
         // Fall back to normal single-run alignment
@@ -733,7 +583,7 @@ pub fn run_batch_alignment_generic(
         return aligner.align_single(fasta_files, tempdir);
     }
 
-    report_batch_plan(&batches, total_bp, aligner.resource_label(), config.quiet);
+    report_batch_plan(&batches, total_bp, config.quiet);
 
     // Write batch FASTAs to separate subdirectories
     let mut batch_files: Vec<PathBuf> = Vec::new();
@@ -804,46 +654,9 @@ pub fn run_batch_alignment_generic(
     Ok(merged_paf)
 }
 
-/// Run batch alignment on a set of FASTA files (FastGA-specific, backwards compatible).
-/// Returns a temp file containing aggregated PAF output.
-pub fn run_batch_alignment(
-    fasta_files: &[String],
-    max_index_bytes: u64,
-    config: &BatchAlignConfig,
-    tempdir: Option<&str>,
-) -> Result<tempfile::NamedTempFile> {
-    let aligner = FastGABatchAligner::new(
-        config.frequency,
-        config.threads,
-        config.min_alignment_length,
-        tempdir.map(String::from),
-        config.zstd_compress,
-        config.zstd_level,
-    );
-    run_batch_alignment_generic(fasta_files, max_index_bytes, &aligner, config, tempdir)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn test_estimate_index_size() {
-        // 100 Mbp -> ~1.3 GB
-        let size_100m = estimate_index_size(100_000_000);
-        assert!(size_100m > 1_200_000_000 && size_100m < 1_400_000_000);
-
-        // 1 Gbp -> ~12.1 GB
-        let size_1g = estimate_index_size(1_000_000_000);
-        assert!(size_1g > 12_000_000_000 && size_1g < 12_200_000_000);
-    }
-
-    #[test]
-    fn test_estimate_memory_usage() {
-        // 100 Mbp -> 0.5 GB + 2 GB = ~2.5 GB
-        let mem = estimate_memory_usage(100_000_000);
-        assert!(mem > 2_400_000_000 && mem < 2_600_000_000);
-    }
 
     #[test]
     fn test_format_bytes() {
@@ -872,16 +685,25 @@ mod tests {
     }
 
     #[test]
-    fn test_partition_with_custom_cost() {
-        // Use wfmash cost model
+    fn test_partition_by_bp() {
         let genomes = vec![
             GenomeInfo { prefix: "A#1#".to_string(), total_bp: 100_000_000, source_file: PathBuf::from("a.fa") },
             GenomeInfo { prefix: "B#1#".to_string(), total_bp: 100_000_000, source_file: PathBuf::from("a.fa") },
             GenomeInfo { prefix: "C#1#".to_string(), total_bp: 100_000_000, source_file: PathBuf::from("a.fa") },
         ];
-        // 100Mbp wfmash cost = 500MB + 2GB = 2.5GB; two genomes = ~4.5GB
-        // With 4GB limit, each genome should be in its own batch
-        let batches = partition_into_batches_with_cost(genomes, WFMASH_AUTO_BYTES, &estimate_memory_usage);
-        assert!(batches.len() >= 2, "Expected at least 2 batches, got {}", batches.len());
+        // 100Mbp each, 150Mbp limit -> 3 batches (one per genome, can't fit two)
+        let batches = partition_into_batches_by_bp(genomes.clone(), 150_000_000);
+        assert_eq!(batches.len(), 3, "Expected 3 batches, got {}", batches.len());
+
+        // 200Mbp limit -> 2 batches (AB, C)
+        let batches = partition_into_batches_by_bp(genomes.clone(), 200_000_000);
+        assert_eq!(batches.len(), 2);
+        assert_eq!(batches[0].genomes.len(), 2);
+        assert_eq!(batches[1].genomes.len(), 1);
+
+        // 300Mbp limit -> 1 batch (all fit)
+        let batches = partition_into_batches_by_bp(genomes, 300_000_000);
+        assert_eq!(batches.len(), 1);
+        assert_eq!(batches[0].genomes.len(), 3);
     }
 }
