@@ -91,7 +91,7 @@ impl TimingContext {
         let disk_cur = disk_usage::format_bytes(disk_usage::current_usage());
         let disk_peak = disk_usage::format_bytes(disk_usage::peak_usage());
         eprintln!(
-            "[sweepga::{phase} {elapsed:>7.1}s] {message}  (rss:{rss} disk:{disk_cur} peak_disk:{disk_peak})"
+            "[sweepga::{phase} {elapsed:.1}s] {message}  (rss:{rss} disk:{disk_cur} peak_disk:{disk_peak})"
         );
     }
 }
