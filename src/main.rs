@@ -235,9 +235,17 @@ struct Args {
     // Alignment (FASTA input only)
     // ============================================================================
     /// Aligner to use for FASTA input
-    #[clap(long = "aligner", default_value = "wfmash", value_parser = ["fastga", "wfmash"],
+    #[clap(long = "aligner", default_value = "fastga", value_parser = ["fastga", "wfmash"],
            help_heading = "Alignment options")]
     aligner: String,
+
+    /// Use FastGA aligner (shorthand for --aligner fastga)
+    #[clap(short = 'F', long = "fastga", help_heading = "Alignment options")]
+    use_fastga: bool,
+
+    /// Use wfmash aligner (shorthand for --aligner wfmash)
+    #[clap(short = 'W', long = "wfmash", help_heading = "Alignment options")]
+    use_wfmash: bool,
 
     /// FastGA k-mer frequency threshold (use k-mers occurring ≤ N times)
     #[clap(short = 'f', long = "frequency", help_heading = "Alignment options")]
@@ -2574,7 +2582,7 @@ fn main() -> Result<()> {
     // build.rs caches them in ~/.cache/sweepga/{git_rev}/.
     binary_paths::setup_binary_env();
 
-    let args = Args::parse();
+    let mut args = Args::parse();
 
     // Handle --check-fastga diagnostic flag
     if args.check_fastga {
@@ -2653,6 +2661,16 @@ fn main() -> Result<()> {
         if !args.quiet {
             timing.log("tempdir", &format!("Using temp directory: {tempdir}"));
         }
+    }
+
+    // Resolve -W / -F shorthand flags
+    if args.use_wfmash && args.use_fastga {
+        anyhow::bail!("Cannot specify both -W/--wfmash and -F/--fastga");
+    }
+    if args.use_wfmash {
+        args.aligner = "wfmash".to_string();
+    } else if args.use_fastga {
+        args.aligner = "fastga".to_string();
     }
 
     // Validate aligner-specific constraints
