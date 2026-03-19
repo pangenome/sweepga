@@ -58,6 +58,20 @@ impl TimingContext {
         }
     }
 
+    /// Peak resident set size in bytes (from getrusage ru_maxrss).
+    fn peak_rss_bytes() -> u64 {
+        unsafe {
+            let mut usage: libc::rusage = std::mem::zeroed();
+            libc::getrusage(libc::RUSAGE_SELF, &mut usage);
+            // On Linux ru_maxrss is in KB, on macOS it's in bytes
+            if cfg!(target_os = "macos") {
+                usage.ru_maxrss as u64
+            } else {
+                usage.ru_maxrss as u64 * 1024
+            }
+        }
+    }
+
     /// Calculate elapsed wall time and CPU ratio
     fn stats(&self) -> (f64, f64) {
         let elapsed = self.start_time.elapsed().as_secs_f64();
@@ -70,9 +84,15 @@ impl TimingContext {
         (elapsed, cpu_ratio)
     }
 
-    /// Log message with timing in minimap2 format (currently disabled)
-    fn log(&self, _phase: &str, _message: &str) {
-        // Logging disabled - eprintln statements commented out
+    /// Log a phase message with wall time, RSS, and disk to stderr.
+    fn log(&self, phase: &str, message: &str) {
+        let elapsed = self.start_time.elapsed().as_secs_f64();
+        let rss = disk_usage::format_bytes(Self::peak_rss_bytes());
+        let disk_cur = disk_usage::format_bytes(disk_usage::current_usage());
+        let disk_peak = disk_usage::format_bytes(disk_usage::peak_usage());
+        eprintln!(
+            "[sweepga::{phase} {elapsed:.1}s] {message}  (rss:{rss} disk:{disk_cur} peak_disk:{disk_peak})"
+        );
     }
 }
 
@@ -235,9 +255,17 @@ struct Args {
     // Alignment (FASTA input only)
     // ============================================================================
     /// Aligner to use for FASTA input
-    #[clap(long = "aligner", default_value = "wfmash", value_parser = ["fastga", "wfmash"],
+    #[clap(long = "aligner", default_value = "fastga", value_parser = ["fastga", "wfmash"],
            help_heading = "Alignment options")]
     aligner: String,
+
+    /// Use FastGA aligner (shorthand for --aligner fastga)
+    #[clap(short = 'F', long = "fastga", help_heading = "Alignment options")]
+    use_fastga: bool,
+
+    /// Use wfmash aligner (shorthand for --aligner wfmash)
+    #[clap(short = 'W', long = "wfmash", help_heading = "Alignment options")]
+    use_wfmash: bool,
 
     /// FastGA k-mer frequency threshold (use k-mers occurring ≤ N times)
     #[clap(short = 'f', long = "frequency", help_heading = "Alignment options")]
@@ -413,8 +441,8 @@ struct Args {
     #[clap(long = "check-fastga", help_heading = "General options")]
     check_fastga: bool,
 
-    /// Report disk usage statistics (current, peak, cumulative bytes written)
-    #[clap(long = "disk-usage", help_heading = "General options")]
+    /// Report disk usage statistics (current, peak, cumulative bytes written) [deprecated: now always shown]
+    #[clap(long = "disk-usage", hide = true, help_heading = "General options")]
     disk_usage: bool,
 
     // ============================================================================
@@ -2574,7 +2602,7 @@ fn main() -> Result<()> {
     // build.rs caches them in ~/.cache/sweepga/{git_rev}/.
     binary_paths::setup_binary_env();
 
-    let args = Args::parse();
+    let mut args = Args::parse();
 
     // Handle --check-fastga diagnostic flag
     if args.check_fastga {
@@ -2653,6 +2681,16 @@ fn main() -> Result<()> {
         if !args.quiet {
             timing.log("tempdir", &format!("Using temp directory: {tempdir}"));
         }
+    }
+
+    // Resolve -W / -F shorthand flags
+    if args.use_wfmash && args.use_fastga {
+        anyhow::bail!("Cannot specify both -W/--wfmash and -F/--fastga");
+    }
+    if args.use_wfmash {
+        args.aligner = "wfmash".to_string();
+    } else if args.use_fastga {
+        args.aligner = "fastga".to_string();
     }
 
     // Validate aligner-specific constraints
@@ -3599,24 +3637,27 @@ fn main() -> Result<()> {
     }
 
     if !args.quiet {
-        let (total_elapsed, _) = timing.stats();
+        let (total_elapsed, cpu_ratio) = timing.stats();
         let filtering_time = if let Some(align_time) = alignment_time {
             total_elapsed - align_time
         } else {
             total_elapsed
         };
 
-        // Format the complete message
-        if let Some(align_time) = alignment_time {
-            timing.log("done", &format!("Alignment: {align_time:.1}s, Filtering: {filtering_time:.1}s, Total: {total_elapsed:.1}s"));
-        } else {
-            timing.log("done", &format!("Total: {total_elapsed:.1}s"));
-        }
-    }
+        // Final summary line — compact, all key metrics
+        let rss = disk_usage::format_bytes(TimingContext::peak_rss_bytes());
+        let disk = disk_usage::summary();
+        let disk_peak = disk_usage::format_bytes(disk.peak);
+        let disk_written = disk_usage::format_bytes(disk.cumulative);
 
-    // Report disk usage if requested
-    if args.disk_usage {
-        disk_usage::log_summary();
+        let time_parts = if let Some(align_time) = alignment_time {
+            format!("align:{align_time:.1}s filter:{filtering_time:.1}s total:{total_elapsed:.1}s")
+        } else {
+            format!("total:{total_elapsed:.1}s")
+        };
+        eprintln!(
+            "[sweepga::done] {time_parts} cpu:{cpu_ratio:.1}x rss:{rss} disk_peak:{disk_peak} disk_written:{disk_written}"
+        );
     }
 
     Ok(())
