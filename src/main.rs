@@ -1279,13 +1279,26 @@ fn align_multiple_fastas(
             );
         }
 
-        return batch_align::run_batch_alignment_generic(
-            fasta_files,
-            max_index_bytes,
-            aligner.as_ref(),
-            &batch_config,
-            tempdir,
-        );
+        // When --max-disk is set, use budget-enforced path with adaptive restart;
+        // otherwise use the generic batch path (--batch-bytes only).
+        if let Some(disk_budget) = max_disk {
+            return batch_align::run_batch_alignment_with_budget(
+                fasta_files,
+                disk_budget,
+                max_index_bytes,
+                aligner.as_ref(),
+                &batch_config,
+                tempdir,
+            );
+        } else {
+            return batch_align::run_batch_alignment_generic(
+                fasta_files,
+                max_index_bytes,
+                aligner.as_ref(),
+                &batch_config,
+                tempdir,
+            );
+        }
     }
 
     // Decide on alignment mode
