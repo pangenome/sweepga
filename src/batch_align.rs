@@ -5,7 +5,7 @@
 //! sequence data size, runs the aligner on each batch pair, and aggregates results.
 
 use anyhow::{Context, Result};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fs::File;
 use std::io::{BufRead, BufReader, Write};
 use std::path::{Path, PathBuf};
@@ -503,6 +503,176 @@ pub fn report_batch_plan(batches: &[GenomeBatch], total_bp: u64, quiet: bool) {
     );
 }
 
+// ============================================================================
+// Disk budget constants and computation
+// ============================================================================
+
+/// Empirical multiplier: GDB + BPS files are ~2× the input basepairs.
+/// Calibrated on yeast genomes (~12 MB per genome).
+const GDB_FACTOR: f64 = 2.0;
+
+/// Empirical multiplier: each ktab file is ~1× the sequence size per thread.
+/// Calibrated on yeast genomes with 8 threads.
+const KTAB_PER_THREAD: f64 = 1.0;
+
+/// Compute the maximum basepairs per batch given a disk budget.
+///
+/// The disk model is:
+///   peak_disk = batch_fastas + all_gdbs + one_target_index + paf_reserve
+///
+/// The only term we control via batch size is `one_target_index`.
+///
+/// Returns `None` if the budget is too small for even a single genome's index.
+pub fn compute_batch_bp_from_budget(
+    total_bp: u64,
+    genome_sizes: &[u64],
+    n_threads: usize,
+    zstd: bool,
+    disk_budget: u64,
+) -> Option<u64> {
+    let zstd_factor: f64 = if zstd { 0.5 } else { 1.0 };
+    let paf_reserve = total_bp / 10;
+
+    let fixed_overhead = (total_bp as f64 * (1.0 + GDB_FACTOR)) as u64 + paf_reserve;
+    let index_factor = n_threads as f64 * KTAB_PER_THREAD * zstd_factor;
+
+    let largest_genome = genome_sizes.iter().copied().max().unwrap_or(0);
+
+    // Check if we can fit at least the largest genome's index
+    let min_index = (largest_genome as f64 * index_factor) as u64;
+    if disk_budget < fixed_overhead.saturating_add(min_index) {
+        return None;
+    }
+
+    let available_for_index = disk_budget.saturating_sub(fixed_overhead);
+    let max_batch_bp = (available_for_index as f64 / index_factor) as u64;
+
+    // Clamp to at least the largest single genome (can't split a genome)
+    Some(max_batch_bp.max(largest_genome))
+}
+
+/// Estimate peak disk usage for a given total basepairs and thread count.
+pub fn estimate_peak_disk(
+    total_bp: u64,
+    _n_genomes: usize,
+    batch_bp: Option<u64>,
+    n_threads: usize,
+    zstd: bool,
+) -> u64 {
+    let zstd_factor: f64 = if zstd { 0.5 } else { 1.0 };
+    let index_factor = n_threads as f64 * KTAB_PER_THREAD * zstd_factor;
+    let paf_reserve = total_bp / 10;
+    let fixed = (total_bp as f64 * (1.0 + GDB_FACTOR)) as u64 + paf_reserve;
+    let index_bp = batch_bp.unwrap_or(total_bp);
+    let index_cost = (index_bp as f64 * index_factor) as u64;
+    fixed + index_cost
+}
+
+/// Resolve effective batch bytes from --max-disk and --batch-bytes flags.
+///
+/// Returns `Some(max_bp)` if batching should be used, `None` otherwise.
+pub fn resolve_batch_bytes(
+    max_disk: Option<u64>,
+    batch_bytes: Option<u64>,
+    fasta_files: &[String],
+    n_threads: usize,
+    zstd: bool,
+    quiet: bool,
+) -> Result<Option<u64>> {
+    match (max_disk, batch_bytes) {
+        (None, None) => Ok(None),
+        (None, Some(bb)) => Ok(Some(bb)),
+        (Some(budget), bb) => {
+            if bb.is_some() && !quiet {
+                eprintln!(
+                    "[budget] WARNING: --max-disk overrides --batch-bytes; ignoring --batch-bytes"
+                );
+            }
+
+            let genomes = parse_genome_sizes(fasta_files)?;
+            let total_bp: u64 = genomes.iter().map(|g| g.total_bp).sum();
+            let genome_sizes: Vec<u64> = genomes.iter().map(|g| g.total_bp).collect();
+
+            if genome_sizes.is_empty() {
+                anyhow::bail!("No genomes found in input files");
+            }
+
+            let max_batch_bp = compute_batch_bp_from_budget(
+                total_bp,
+                &genome_sizes,
+                n_threads,
+                zstd,
+                budget,
+            );
+
+            match max_batch_bp {
+                None => {
+                    let largest = genome_sizes.iter().copied().max().unwrap_or(0);
+                    let zstd_factor: f64 = if zstd { 0.5 } else { 1.0 };
+                    let min_budget = (total_bp as f64 * (1.0 + GDB_FACTOR)) as u64
+                        + total_bp / 10
+                        + (largest as f64 * n_threads as f64 * KTAB_PER_THREAD * zstd_factor) as u64;
+                    anyhow::bail!(
+                        "Disk budget {} is too small for input data.\n\
+                         Minimum budget: ~{}.\n\
+                         Suggestions: increase --max-disk to at least {}, or use --zstd to halve index size.",
+                        format_bytes(budget),
+                        format_bytes(min_budget),
+                        format_bytes(min_budget),
+                    );
+                }
+                Some(bp) => {
+                    let estimated_peak = estimate_peak_disk(total_bp, genomes.len(), Some(bp), n_threads, zstd);
+                    let n_batches = if bp >= total_bp { 1 } else {
+                        (total_bp + bp - 1) / bp
+                    };
+
+                    if !quiet {
+                        eprintln!("[budget] Disk budget: {}", format_bytes(budget));
+                        eprintln!(
+                            "[budget] Estimated peak: {} ({:.0}% of budget)",
+                            format_bytes(estimated_peak),
+                            estimated_peak as f64 / budget as f64 * 100.0,
+                        );
+                        eprintln!(
+                            "[budget] Batch size: {} (~{} batches)",
+                            format_bytes(bp),
+                            n_batches,
+                        );
+                    }
+
+                    // Pre-flight: check available disk space
+                    if let Ok(available) = crate::disk_usage::available_disk_bytes("/tmp") {
+                        if !quiet {
+                            eprintln!(
+                                "[budget] Pre-flight: {} available on /tmp ({})",
+                                format_bytes(available),
+                                if available >= estimated_peak { "OK" } else { "WARNING: may be tight" },
+                            );
+                        }
+                        if available < estimated_peak {
+                            eprintln!(
+                                "[budget] WARNING: Available disk ({}) is less than estimated peak ({})",
+                                format_bytes(available),
+                                format_bytes(estimated_peak),
+                            );
+                        }
+                    }
+
+                    if bp >= total_bp {
+                        if !quiet {
+                            eprintln!("[budget] All genomes fit within budget, no batching needed");
+                        }
+                        return Ok(None);
+                    }
+
+                    Ok(Some(bp))
+                }
+            }
+        }
+    }
+}
+
 /// Configuration for batch alignment
 pub struct BatchAlignConfig {
     pub frequency: Option<usize>,
@@ -533,6 +703,248 @@ pub fn parse_size_string(s: &str) -> Result<u64> {
         .parse()
         .with_context(|| format!("Invalid size value: {s}"))?;
     Ok((value * multiplier as f64) as u64)
+}
+
+/// Maximum number of adaptive restarts before giving up.
+const MAX_RESTARTS: usize = 5;
+
+/// Budget threshold: trigger abort when tracked usage exceeds this fraction.
+const BUDGET_THRESHOLD: f64 = 0.90;
+
+/// Run batch alignment with disk budget enforcement and adaptive restart.
+///
+/// Monitors disk usage after each `prepare_target()` call. If the tracked usage
+/// exceeds 90% of `disk_budget`, the current attempt is aborted, `max_batch_bp`
+/// is halved, and the entire alignment restarts from scratch with smaller batches.
+///
+/// This is the v1 "simple restart" strategy: completed results from aborted
+/// attempts are discarded to guarantee correctness without complex cross-batch
+/// bookkeeping. A future v2 could preserve completed target batches.
+pub fn run_batch_alignment_with_budget(
+    fasta_files: &[String],
+    disk_budget: u64,
+    initial_batch_bp: u64,
+    aligner: &dyn BatchAligner,
+    config: &BatchAlignConfig,
+    tempdir: Option<&str>,
+) -> Result<tempfile::NamedTempFile> {
+    // Parse genome sizes once (shared across restarts)
+    if !config.quiet {
+        eprintln!("[batch] Scanning input files for genome sizes...");
+    }
+    let genomes = parse_genome_sizes(fasta_files)?;
+    let total_bp: u64 = genomes.iter().map(|g| g.total_bp).sum();
+    let genome_bp: Vec<u64> = genomes.iter().map(|g| g.total_bp).collect();
+
+    if genomes.is_empty() {
+        anyhow::bail!("No genomes found in input files");
+    }
+
+    let largest_genome = genome_bp.iter().copied().max().unwrap_or(0);
+    let mut max_batch_bp = initial_batch_bp;
+    let mut restarts = 0u32;
+
+    let temp_base = if let Some(dir) = tempdir {
+        PathBuf::from(dir)
+    } else if let Ok(tmpdir) = std::env::var("TMPDIR") {
+        PathBuf::from(tmpdir)
+    } else {
+        PathBuf::from("/tmp")
+    };
+
+    loop {
+        // Reset disk usage tracking for each attempt
+        crate::disk_usage::reset();
+
+        let batches = partition_into_batches_by_bp(genomes.clone(), max_batch_bp);
+
+        if !config.quiet {
+            eprintln!(
+                "[budget] Batch size: {} ({} batches)",
+                format_bytes(max_batch_bp),
+                batches.len(),
+            );
+        }
+
+        // Single batch → no budget concerns from batching, use optimized path
+        if batches.len() == 1 {
+            if !config.quiet {
+                eprintln!(
+                    "[batch] All genomes ({}) fit in single batch, no batching needed",
+                    format_bytes(total_bp),
+                );
+            }
+            return aligner.align_single(fasta_files, tempdir);
+        }
+
+        report_batch_plan(&batches, total_bp, config.quiet);
+
+        // Create temp directory for this attempt
+        let batch_dir = temp_base.join(format!("sweepga_batch_{}", std::process::id()));
+        std::fs::create_dir_all(&batch_dir)?;
+
+        // Write batch FASTAs
+        let mut batch_files: Vec<PathBuf> = Vec::new();
+        for (i, batch) in batches.iter().enumerate() {
+            let batch_subdir = batch_dir.join(format!("batch_{}", i));
+            std::fs::create_dir_all(&batch_subdir)?;
+            let batch_path = batch_subdir.join("genomes.fa");
+            if !config.quiet {
+                eprintln!(
+                    "[batch] Writing batch {} ({} genomes)...",
+                    i + 1,
+                    batch.genomes.len(),
+                );
+            }
+            write_batch_fasta(batch, &batch_path)?;
+            batch_files.push(batch_path);
+        }
+
+        // Phase 1: Aligner-specific setup
+        aligner.prepare_all(&batch_files, config.quiet)?;
+
+        // Create merged output file
+        let merged_paf = tempfile::NamedTempFile::with_suffix(".paf")?;
+        let mut merged_output = File::create(merged_paf.path())?;
+
+        let mut total_alignments = 0usize;
+        let num_batches = batch_files.len();
+        let mut budget_exceeded = false;
+
+        // Phase 2: For each target batch, prepare, align all queries, cleanup
+        for i in 0..num_batches {
+            aligner.prepare_target(i, config.quiet)?;
+
+            // Budget check after prepare_target — the index is the dominant cost
+            let (exceeded, current, _) =
+                crate::disk_usage::check_budget(disk_budget, BUDGET_THRESHOLD);
+            if exceeded {
+                eprintln!(
+                    "[budget] Disk usage {} exceeds {:.0}% of budget {}",
+                    crate::disk_usage::format_bytes(current),
+                    BUDGET_THRESHOLD * 100.0,
+                    format_bytes(disk_budget),
+                );
+                aligner.cleanup_target(i, config.quiet)?;
+                budget_exceeded = true;
+                break;
+            }
+
+            if !config.quiet {
+                eprintln!(
+                    "[batch] Target batch {} [disk: {} / {}]",
+                    i + 1,
+                    crate::disk_usage::format_bytes(current),
+                    format_bytes(disk_budget),
+                );
+            }
+
+            for j in 0..num_batches {
+                if !config.quiet {
+                    if i == j {
+                        eprintln!("[batch] Aligning batch {} to itself...", i + 1);
+                    } else {
+                        eprintln!("[batch] Aligning batch {} vs batch {}...", j + 1, i + 1);
+                    }
+                }
+
+                let paf_bytes = aligner.align(&batch_files[j], &batch_files[i])?;
+                let line_count = paf_bytes.iter().filter(|&&b| b == b'\n').count();
+                total_alignments += line_count;
+                merged_output.write_all(&paf_bytes)?;
+
+                if !config.quiet {
+                    eprintln!("[batch]   {} alignments", line_count);
+                }
+            }
+
+            aligner.cleanup_target(i, config.quiet)?;
+
+            if !config.quiet {
+                let current = crate::disk_usage::current_usage();
+                eprintln!(
+                    "[batch] Completed target batch {} [disk: {} / {}]",
+                    i + 1,
+                    crate::disk_usage::format_bytes(current),
+                    format_bytes(disk_budget),
+                );
+            }
+        }
+
+        // Phase 3: Final cleanup
+        aligner.cleanup_all()?;
+        let _ = std::fs::remove_dir_all(&batch_dir);
+
+        if !budget_exceeded {
+            // Success — report and verify
+            if !config.quiet {
+                eprintln!(
+                    "[batch] Completed batch alignment: {} total alignments",
+                    total_alignments,
+                );
+                let peak = crate::disk_usage::peak_usage();
+                eprintln!(
+                    "[budget] Peak disk usage: {} ({:.0}% of budget)",
+                    crate::disk_usage::format_bytes(peak),
+                    peak as f64 / disk_budget as f64 * 100.0,
+                );
+            }
+
+            // Verify completeness
+            drop(merged_output);
+            let genome_prefixes: Vec<String> = batches
+                .iter()
+                .flat_map(|b| b.genomes.iter().map(|g| g.prefix.clone()))
+                .collect();
+            let verification = verify_batch_completeness(
+                merged_paf.path(),
+                &genome_prefixes,
+                !config.keep_self,
+            )?;
+            if !config.quiet {
+                eprintln!(
+                    "[batch] Verification: {}/{} genome pairs present",
+                    verification.found_pairs, verification.expected_pairs,
+                );
+            }
+
+            return Ok(merged_paf);
+        }
+
+        // Budget was exceeded — apply halving backoff
+        restarts += 1;
+        if restarts as usize > MAX_RESTARTS {
+            anyhow::bail!(
+                "Exceeded max restarts ({}) while trying to fit within disk budget {}. \
+                 Use --zstd to halve index size or increase --max-disk.",
+                MAX_RESTARTS,
+                format_bytes(disk_budget),
+            );
+        }
+
+        let old_batch_bp = max_batch_bp;
+        max_batch_bp /= 2;
+
+        // Can't go below the largest single genome
+        if max_batch_bp < largest_genome {
+            max_batch_bp = largest_genome;
+            if old_batch_bp == largest_genome {
+                anyhow::bail!(
+                    "Cannot reduce batch size below largest genome ({}). \
+                     Use --zstd or increase --max-disk.",
+                    format_bytes(largest_genome),
+                );
+            }
+        }
+
+        eprintln!(
+            "[budget] Restart {}/{}: reducing batch from {} to {}",
+            restarts,
+            MAX_RESTARTS,
+            format_bytes(old_batch_bp),
+            format_bytes(max_batch_bp),
+        );
+    }
 }
 
 /// Run batch alignment on a set of FASTA files using the given BatchAligner.
@@ -642,7 +1054,6 @@ pub fn run_batch_alignment_generic(
 
     // Phase 3: Final cleanup
     aligner.cleanup_all()?;
-    let _ = std::fs::remove_dir_all(&batch_dir);
 
     if !config.quiet {
         eprintln!(
@@ -651,7 +1062,108 @@ pub fn run_batch_alignment_generic(
         );
     }
 
+    // Phase 4: Verify completeness — check all expected genome pairs have alignments
+    drop(merged_output); // flush before reading
+    let genome_prefixes: Vec<String> = batches
+        .iter()
+        .flat_map(|b| b.genomes.iter().map(|g| g.prefix.clone()))
+        .collect();
+    let verification = verify_batch_completeness(
+        merged_paf.path(),
+        &genome_prefixes,
+        !config.keep_self,
+    )?;
+    if !config.quiet {
+        eprintln!(
+            "[batch] Verification: {}/{} genome pairs present",
+            verification.found_pairs, verification.expected_pairs
+        );
+    }
+
+    let _ = std::fs::remove_dir_all(&batch_dir);
+
     Ok(merged_paf)
+}
+
+/// Result of batch completeness verification.
+#[derive(Debug, Clone)]
+pub struct BatchVerification {
+    /// Genome pairs found in the output.
+    pub found_pairs: usize,
+    /// Expected genome pairs.
+    pub expected_pairs: usize,
+    /// Missing genome pairs (query_prefix -> target_prefix).
+    pub missing: Vec<(String, String)>,
+}
+
+/// Verify that a PAF file contains alignments for all expected genome pairs.
+///
+/// Scans the PAF output for query/target genome prefixes and checks that every
+/// expected pair is represented. Missing pairs are logged as warnings.
+///
+/// `exclude_self` controls whether self-alignments (same genome prefix) are
+/// expected. When `true`, pairs like A→A are not required.
+pub fn verify_batch_completeness(
+    paf_path: &Path,
+    expected_genomes: &[String],
+    exclude_self: bool,
+) -> Result<BatchVerification> {
+    // Build expected pairs
+    let mut expected: HashSet<(String, String)> = HashSet::new();
+    for q in expected_genomes {
+        for t in expected_genomes {
+            if exclude_self && q == t {
+                continue;
+            }
+            expected.insert((q.clone(), t.clone()));
+        }
+    }
+
+    // Scan PAF for found pairs
+    let mut found: HashSet<(String, String)> = HashSet::new();
+
+    let file = File::open(paf_path)
+        .with_context(|| format!("Failed to open PAF for verification: {}", paf_path.display()))?;
+    let reader = BufReader::new(file);
+
+    for line in reader.lines() {
+        let line = line?;
+        let line = line.trim();
+        if line.is_empty() {
+            continue;
+        }
+        let fields: Vec<&str> = line.split('\t').collect();
+        if fields.len() < 6 {
+            continue;
+        }
+        let query_prefix = extract_pansn_prefix(fields[0]);
+        let target_prefix = extract_pansn_prefix(fields[5]);
+        found.insert((query_prefix, target_prefix));
+    }
+
+    let missing: Vec<(String, String)> = expected
+        .difference(&found)
+        .cloned()
+        .collect::<Vec<_>>();
+
+    let result = BatchVerification {
+        found_pairs: expected.intersection(&found).count(),
+        expected_pairs: expected.len(),
+        missing: missing.clone(),
+    };
+
+    if !missing.is_empty() {
+        eprintln!(
+            "[batch] WARNING: {}/{} genome pairs missing from output",
+            missing.len(),
+            expected.len()
+        );
+        for (q, t) in &missing {
+            eprintln!("[batch]   missing: {} -> {}", q, t);
+        }
+    }
+
+    Ok(result)
 }
 
 #[cfg(test)]
@@ -685,6 +1197,81 @@ mod tests {
     }
 
     #[test]
+    fn test_verify_completeness_all_pairs_present() {
+        // Create a minimal PAF file with all expected genome pairs
+        let mut paf = tempfile::NamedTempFile::with_suffix(".paf").unwrap();
+        // PAF: qname qlen qstart qend strand tname tlen tstart tend matches block_len mapq
+        let pairs = [
+            ("A#1#chr1", "B#1#chr1"),
+            ("A#1#chr1", "C#1#chr1"),
+            ("B#1#chr1", "A#1#chr1"),
+            ("B#1#chr1", "C#1#chr1"),
+            ("C#1#chr1", "A#1#chr1"),
+            ("C#1#chr1", "B#1#chr1"),
+        ];
+        for (q, t) in &pairs {
+            writeln!(
+                paf,
+                "{}\t1000\t0\t1000\t+\t{}\t1000\t0\t1000\t900\t1000\t60",
+                q, t
+            ).unwrap();
+        }
+        paf.flush().unwrap();
+
+        let genomes = vec!["A#1#".to_string(), "B#1#".to_string(), "C#1#".to_string()];
+        let result = verify_batch_completeness(paf.path(), &genomes, true).unwrap();
+        assert_eq!(result.expected_pairs, 6); // 3 genomes, exclude self = 3*2
+        assert_eq!(result.found_pairs, 6);
+        assert!(result.missing.is_empty());
+    }
+
+    #[test]
+    fn test_verify_completeness_missing_pair() {
+        let mut paf = tempfile::NamedTempFile::with_suffix(".paf").unwrap();
+        // Only A->B and B->A, missing C pairs
+        for (q, t) in &[("A#1#chr1", "B#1#chr1"), ("B#1#chr1", "A#1#chr1")] {
+            writeln!(
+                paf,
+                "{}\t1000\t0\t1000\t+\t{}\t1000\t0\t1000\t900\t1000\t60",
+                q, t
+            ).unwrap();
+        }
+        paf.flush().unwrap();
+
+        let genomes = vec!["A#1#".to_string(), "B#1#".to_string(), "C#1#".to_string()];
+        let result = verify_batch_completeness(paf.path(), &genomes, true).unwrap();
+        assert_eq!(result.expected_pairs, 6);
+        assert_eq!(result.found_pairs, 2);
+        assert_eq!(result.missing.len(), 4); // A->C, C->A, B->C, C->B
+    }
+
+    #[test]
+    fn test_verify_completeness_with_self() {
+        let mut paf = tempfile::NamedTempFile::with_suffix(".paf").unwrap();
+        // Include self-alignments
+        for (q, t) in &[
+            ("A#1#chr1", "A#1#chr1"),
+            ("A#1#chr1", "B#1#chr1"),
+            ("B#1#chr1", "A#1#chr1"),
+            ("B#1#chr1", "B#1#chr1"),
+        ] {
+            writeln!(
+                paf,
+                "{}\t1000\t0\t1000\t+\t{}\t1000\t0\t1000\t900\t1000\t60",
+                q, t
+            ).unwrap();
+        }
+        paf.flush().unwrap();
+
+        let genomes = vec!["A#1#".to_string(), "B#1#".to_string()];
+        // exclude_self = false means we expect self-pairs too
+        let result = verify_batch_completeness(paf.path(), &genomes, false).unwrap();
+        assert_eq!(result.expected_pairs, 4); // 2*2 = 4 (A->A, A->B, B->A, B->B)
+        assert_eq!(result.found_pairs, 4);
+        assert!(result.missing.is_empty());
+    }
+
+    #[test]
     fn test_partition_by_bp() {
         let genomes = vec![
             GenomeInfo { prefix: "A#1#".to_string(), total_bp: 100_000_000, source_file: PathBuf::from("a.fa") },
@@ -705,5 +1292,122 @@ mod tests {
         let batches = partition_into_batches_by_bp(genomes, 300_000_000);
         assert_eq!(batches.len(), 1);
         assert_eq!(batches[0].genomes.len(), 3);
+    }
+
+    #[test]
+    fn test_batch_size_from_budget() {
+        // 8 yeast genomes, ~12M bp each, 8 threads, no zstd
+        let total_bp = 96_000_000u64;
+        let genome_sizes = vec![12_000_000u64; 8];
+        let n_threads = 8;
+
+        // With 2 GB budget → should need no batching (all fits)
+        let bp = compute_batch_bp_from_budget(total_bp, &genome_sizes, n_threads, false, 2_000_000_000);
+        assert!(bp.is_some());
+        assert!(bp.unwrap() >= total_bp, "Expected >= total_bp, got {}", bp.unwrap());
+
+        // With 500 MB budget → should produce batches
+        let bp = compute_batch_bp_from_budget(total_bp, &genome_sizes, n_threads, false, 500_000_000);
+        assert!(bp.is_some());
+        let bp_val = bp.unwrap();
+        assert!(bp_val < total_bp, "Expected < total_bp, got {}", bp_val);
+        assert!(bp_val >= 12_000_000, "Expected >= largest genome, got {}", bp_val);
+
+        // With zstd → more room (halved index), so batch_bp should be larger
+        let bp_no_zstd = compute_batch_bp_from_budget(total_bp, &genome_sizes, n_threads, false, 500_000_000).unwrap();
+        let bp_zstd = compute_batch_bp_from_budget(total_bp, &genome_sizes, n_threads, true, 500_000_000).unwrap();
+        assert!(bp_zstd >= bp_no_zstd, "zstd should allow larger batches");
+    }
+
+    #[test]
+    fn test_batch_size_budget_too_small() {
+        let total_bp = 96_000_000u64;
+        let genome_sizes = vec![12_000_000u64; 8];
+        // fixed_overhead ~= 96M * 3.0 + 9.6M ≈ 298M
+        // min index = 12M * 8 threads = 96M
+        // minimum total = ~394M
+        // 10M is way too small
+        let bp = compute_batch_bp_from_budget(total_bp, &genome_sizes, 8, false, 10_000_000);
+        assert!(bp.is_none(), "Should return None for impossibly small budget");
+    }
+
+    #[test]
+    fn test_backoff_halving() {
+        // Simulate the halving backoff logic from run_batch_alignment_with_budget
+        let largest_genome = 12_000_000u64;
+        let mut max_batch_bp = 96_000_000u64;
+
+        // Each halving should reduce by 2x
+        for expected_restart in 1..=MAX_RESTARTS {
+            let old = max_batch_bp;
+            max_batch_bp /= 2;
+            if max_batch_bp < largest_genome {
+                max_batch_bp = largest_genome;
+            }
+            assert!(
+                max_batch_bp <= old,
+                "Restart {}: batch should not grow ({} > {})",
+                expected_restart, max_batch_bp, old,
+            );
+        }
+
+        // After 5 halvings: 96M → 48M → 24M → 12M (clamped) → 12M → 12M
+        assert_eq!(max_batch_bp, largest_genome);
+    }
+
+    #[test]
+    fn test_check_budget_threshold() {
+        crate::disk_usage::reset();
+
+        // Simulate 800 bytes of disk usage against a 1000-byte budget
+        crate::disk_usage::add_bytes(800);
+        let (exceeded, current, budget) = crate::disk_usage::check_budget(1000, 0.90);
+        assert!(!exceeded, "800/1000 = 80% should not exceed 90% threshold");
+        assert_eq!(current, 800);
+        assert_eq!(budget, 1000);
+
+        // Add more to cross the threshold
+        crate::disk_usage::add_bytes(200); // now 1000 total
+        let (exceeded, current, _) = crate::disk_usage::check_budget(1000, 0.90);
+        assert!(exceeded, "1000/1000 = 100% should exceed 90% threshold");
+        assert_eq!(current, 1000);
+
+        crate::disk_usage::reset();
+    }
+
+    #[test]
+    fn test_check_budget_just_below_threshold() {
+        crate::disk_usage::reset();
+
+        // 899 of 1000 = 89.9%, just below 90%
+        crate::disk_usage::add_bytes(899);
+        let (exceeded, _, _) = crate::disk_usage::check_budget(1000, 0.90);
+        assert!(!exceeded, "89.9% should not exceed 90% threshold");
+
+        // 901 of 1000 = 90.1%, just above
+        crate::disk_usage::add_bytes(2); // now 901
+        let (exceeded, _, _) = crate::disk_usage::check_budget(1000, 0.90);
+        assert!(exceeded, "90.1% should exceed 90% threshold");
+
+        crate::disk_usage::reset();
+    }
+
+    #[test]
+    fn test_estimate_peak_disk() {
+        let total_bp = 96_000_000u64;
+        // No batching: index covers all genomes
+        let peak_no_batch = estimate_peak_disk(total_bp, 8, None, 8, false);
+        // With batching: index covers only one batch
+        let peak_batched = estimate_peak_disk(total_bp, 8, Some(24_000_000), 8, false);
+
+        assert!(peak_batched < peak_no_batch,
+            "Batched peak {} should be less than unbatched peak {}",
+            peak_batched, peak_no_batch);
+
+        // Zstd should reduce peak
+        let peak_zstd = estimate_peak_disk(total_bp, 8, Some(24_000_000), 8, true);
+        assert!(peak_zstd < peak_batched,
+            "Zstd peak {} should be less than non-zstd peak {}",
+            peak_zstd, peak_batched);
     }
 }

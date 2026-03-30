@@ -151,6 +151,34 @@ pub struct DiskUsageSummary {
     pub cumulative: u64,
 }
 
+/// Check if current disk usage exceeds a threshold percentage of the budget.
+/// Returns (exceeded, current_bytes, budget_bytes).
+pub fn check_budget(budget: u64, threshold_pct: f64) -> (bool, u64, u64) {
+    let current = current_usage();
+    let threshold = (budget as f64 * threshold_pct) as u64;
+    (current > threshold, current, budget)
+}
+
+/// Query available disk space on the filesystem containing `path`.
+/// Uses libc::statvfs to avoid adding dependencies.
+#[cfg(unix)]
+pub fn available_disk_bytes<P: AsRef<Path>>(path: P) -> std::io::Result<u64> {
+    use std::ffi::CString;
+    use std::os::unix::ffi::OsStrExt;
+
+    let c_path = CString::new(path.as_ref().as_os_str().as_bytes())
+        .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidInput, e))?;
+
+    unsafe {
+        let mut stat: libc::statvfs = std::mem::zeroed();
+        if libc::statvfs(c_path.as_ptr(), &mut stat) != 0 {
+            return Err(std::io::Error::last_os_error());
+        }
+        // Available space for non-root users
+        Ok(stat.f_bavail as u64 * stat.f_frsize as u64)
+    }
+}
+
 /// Reset all counters (useful for testing)
 #[allow(dead_code)]
 pub fn reset() {
