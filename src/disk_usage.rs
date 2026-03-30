@@ -339,4 +339,29 @@ mod tests {
         assert_eq!(current_usage(), 0);
         assert_eq!(peak_usage(), size_before);
     }
+
+    #[test]
+    fn test_check_budget() {
+        reset();
+
+        add_bytes(500);
+        let (exceeded, current, budget) = check_budget(1000, 0.90);
+        assert!(!exceeded);
+        assert_eq!(current, 500);
+        assert_eq!(budget, 1000);
+
+        add_bytes(500); // now 1000
+        let (exceeded, current, _) = check_budget(1000, 0.90);
+        assert!(exceeded);
+        assert_eq!(current, 1000);
+
+        reset();
+    }
+
+    #[test]
+    fn test_available_disk_bytes() {
+        // /tmp should always be available on Unix
+        let available = available_disk_bytes("/tmp").unwrap();
+        assert!(available > 0, "Expected > 0 bytes available on /tmp");
+    }
 }
