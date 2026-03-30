@@ -287,6 +287,11 @@ struct Args {
     #[clap(long = "batch-bytes", value_parser = parse_metric_number, help_heading = "Alignment options")]
     batch_bytes: Option<u64>,
 
+    /// Maximum disk space for temporary files during alignment (e.g., "100G", "500M").
+    /// Computes batch size automatically to stay within budget. Overrides --batch-bytes.
+    #[clap(long = "max-disk", value_parser = parse_metric_number, help_heading = "Alignment options")]
+    max_disk: Option<u64>,
+
     /// Compress k-mer index with zstd for ~2x disk savings and faster I/O
     #[clap(long = "zstd", help_heading = "Alignment options")]
     zstd_compress: bool,
@@ -1204,6 +1209,7 @@ fn align_multiple_fastas(
     map_pct_identity: Option<String>,
     all_pairs: bool,
     batch_bytes: Option<u64>,
+    max_disk: Option<u64>,
     threads: usize,
     keep_self: bool,
     tempdir: Option<&str>,
@@ -1228,8 +1234,13 @@ fn align_multiple_fastas(
         }
     }
 
+    // Resolve effective batch bytes from --max-disk / --batch-bytes
+    let effective_batch_bytes = batch_align::resolve_batch_bytes(
+        max_disk, batch_bytes, fasta_files, threads, zstd_compress, quiet,
+    )?;
+
     // Check for batch mode
-    if let Some(max_index_bytes) = batch_bytes {
+    if let Some(max_index_bytes) = effective_batch_bytes {
         let batch_config = batch_align::BatchAlignConfig {
             frequency,
             threads,
@@ -1467,6 +1478,11 @@ fn process_agc_archive(
                 samples.len()
             ),
         );
+    }
+
+    // Warn that --max-disk is not yet supported for AGC input
+    if args.max_disk.is_some() && !args.quiet {
+        eprintln!("[budget] WARNING: --max-disk is not yet supported for AGC input; ignoring");
     }
 
     // Check if we should use batch mode
@@ -2968,6 +2984,7 @@ fn main() -> Result<()> {
                         args.map_pct_identity.clone(),
                         args.all_pairs,
                         args.batch_bytes,
+                        args.max_disk,
                         args.threads,
                         args.keep_self,
                         args.tempdir.as_deref(),
@@ -3059,6 +3076,7 @@ fn main() -> Result<()> {
                         args.map_pct_identity.clone(),
                         args.all_pairs,
                         args.batch_bytes,
+                        args.max_disk,
                         args.threads,
                         args.keep_self,
                         args.tempdir.as_deref(),
@@ -3148,6 +3166,7 @@ fn main() -> Result<()> {
                     args.map_pct_identity.clone(),
                     args.all_pairs,
                     args.batch_bytes,
+                    args.max_disk,
                     args.threads,
                     args.keep_self,
                     args.tempdir.as_deref(),
