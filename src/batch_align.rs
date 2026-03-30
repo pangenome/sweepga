@@ -3,12 +3,43 @@
 //! When aligning many genomes, the aligner's resource usage can exceed available
 //! disk or memory. This module partitions genomes into batches based on total
 //! sequence data size, runs the aligner on each batch pair, and aggregates results.
+//!
+//! ## GIXmake Index Size Limits
+//!
+//! FastGA's GIXmake indexer has practical size limits for k-mer index creation:
+//! - **Safe range**: Batches with ≤40MB of sequence data typically succeed
+//! - **Failure threshold**: Batches with ≥48MB often fail silently during index creation
+//! - **Recommendation**: For yeast-sized genomes (~12MB each), keep batches to ≤3 genomes
+//!
+//! When GIXmake failures occur, `run_batch_alignment_with_budget()` automatically
+//! reduces batch size and retries. Other batch functions provide error messages
+//! suggesting manual --batch-bytes adjustment or switching to wfmash (no size limit).
 
 use anyhow::{Context, Result};
 use std::collections::{HashMap, HashSet};
 use std::fs::File;
 use std::io::{BufRead, BufReader, Write};
 use std::path::{Path, PathBuf};
+
+/// Reasons why a batch alignment attempt might need to restart
+#[derive(Debug)]
+pub enum RestartReason {
+    /// Disk budget exceeded during alignment
+    BudgetExceeded,
+    /// GIXmake index creation failed due to size limits
+    IndexSizeLimitExceeded { batch_size_mb: u64 },
+}
+
+impl std::fmt::Display for RestartReason {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            RestartReason::BudgetExceeded => write!(f, "disk budget exceeded"),
+            RestartReason::IndexSizeLimitExceeded { batch_size_mb } => {
+                write!(f, "GIXmake index size limit exceeded ({}MB)", batch_size_mb)
+            }
+        }
+    }
+}
 
 /// Trait for aligner-specific batch operations.
 ///
@@ -758,6 +789,7 @@ pub fn run_batch_alignment_with_budget(
     let largest_genome = genome_bp.iter().copied().max().unwrap_or(0);
     let mut max_batch_bp = initial_batch_bp;
     let mut restarts = 0u32;
+    let mut restart_reason = RestartReason::BudgetExceeded; // Default, updated on GIXmake failure
 
     let temp_base = if let Some(dir) = tempdir {
         PathBuf::from(dir)
@@ -828,7 +860,36 @@ pub fn run_batch_alignment_with_budget(
 
         // Phase 2: For each target batch, prepare, align all queries, cleanup
         for i in 0..num_batches {
-            aligner.prepare_target(i, config.quiet)?;
+            // Try to prepare target batch - this may fail due to GIXmake size limits
+            match aligner.prepare_target(i, config.quiet) {
+                Ok(()) => {
+                    // Success, continue with batch processing
+                },
+                Err(e) => {
+                    // Check if this is a GIXmake size limit error that should trigger restart
+                    if let Some(error_chain) = e.chain().find_map(|err| {
+                        err.downcast_ref::<crate::fastga_integration::IndexCreationError>()
+                    }) {
+                        if let crate::fastga_integration::IndexCreationError::SizeLimitExceeded { batch_size_mb, .. } = error_chain {
+                            eprintln!(
+                                "[gixmake] Index creation failed for batch {} ({}MB) - batch too large for GIXmake",
+                                i + 1, batch_size_mb
+                            );
+
+                            // Set restart reason and clean up
+                            restart_reason = RestartReason::IndexSizeLimitExceeded {
+                                batch_size_mb: *batch_size_mb
+                            };
+                            aligner.cleanup_all()?;
+                            budget_exceeded = true; // Reuse existing restart mechanism
+                            break;
+                        }
+                    }
+
+                    // Not a GIXmake size limit error - propagate the original error
+                    return Err(e);
+                }
+            }
 
             // Budget check after prepare_target — the index is the dominant cost
             let (exceeded, current, _) =
@@ -929,12 +990,24 @@ pub fn run_batch_alignment_with_budget(
         // Budget was exceeded — apply halving backoff
         restarts += 1;
         if restarts as usize > MAX_RESTARTS {
-            anyhow::bail!(
-                "Exceeded max restarts ({}) while trying to fit within disk budget {}. \
-                 Use --zstd to halve index size or increase --max-disk.",
-                MAX_RESTARTS,
-                format_bytes(disk_budget),
-            );
+            match restart_reason {
+                RestartReason::BudgetExceeded => {
+                    anyhow::bail!(
+                        "Exceeded max restarts ({}) while trying to fit within disk budget {}. \
+                         Use --zstd to halve index size or increase --max-disk.",
+                        MAX_RESTARTS,
+                        format_bytes(disk_budget),
+                    );
+                }
+                RestartReason::IndexSizeLimitExceeded { batch_size_mb } => {
+                    anyhow::bail!(
+                        "Exceeded max restarts ({}) due to GIXmake index size limits (last failed batch: {}MB). \
+                         Try reducing --batch-bytes further or use a different aligner (wfmash) that doesn't have this limit.",
+                        MAX_RESTARTS,
+                        batch_size_mb
+                    );
+                }
+            }
         }
 
         let old_batch_bp = max_batch_bp;
@@ -952,13 +1025,30 @@ pub fn run_batch_alignment_with_budget(
             }
         }
 
-        eprintln!(
-            "[budget] Restart {}/{}: reducing batch from {} to {}",
-            restarts,
-            MAX_RESTARTS,
-            format_bytes(old_batch_bp),
-            format_bytes(max_batch_bp),
-        );
+        match restart_reason {
+            RestartReason::BudgetExceeded => {
+                eprintln!(
+                    "[budget] Restart {}/{}: reducing batch from {} to {} (disk budget exceeded)",
+                    restarts,
+                    MAX_RESTARTS,
+                    format_bytes(old_batch_bp),
+                    format_bytes(max_batch_bp),
+                );
+            }
+            RestartReason::IndexSizeLimitExceeded { batch_size_mb } => {
+                eprintln!(
+                    "[gixmake] Restart {}/{}: reducing batch from {} to {} (GIXmake index size limit, {}MB batch failed)",
+                    restarts,
+                    MAX_RESTARTS,
+                    format_bytes(old_batch_bp),
+                    format_bytes(max_batch_bp),
+                    batch_size_mb
+                );
+            }
+        }
+
+        // Reset restart reason for next iteration
+        restart_reason = RestartReason::BudgetExceeded;
     }
 }
 
@@ -1041,7 +1131,24 @@ pub fn run_batch_alignment_generic(
 
     // Phase 2: For each target batch, prepare, align all queries, cleanup
     for i in 0..num_batches {
-        aligner.prepare_target(i, config.quiet)?;
+        // Try to prepare target batch - provide helpful error for GIXmake size limit failures
+        if let Err(e) = aligner.prepare_target(i, config.quiet) {
+            // Check if this is a GIXmake size limit error
+            if let Some(error_chain) = e.chain().find_map(|err| {
+                err.downcast_ref::<crate::fastga_integration::IndexCreationError>()
+            }) {
+                if let crate::fastga_integration::IndexCreationError::SizeLimitExceeded { batch_size_mb, suggested_limit, .. } = error_chain {
+                    return Err(anyhow::anyhow!(
+                        "GIXmake index creation failed for batch {} ({}MB). \
+                         This batch size exceeds FastGA's index limit. \
+                         Try --batch-bytes {}M or use run_batch_alignment_with_budget() for automatic retry.",
+                        i + 1, batch_size_mb, suggested_limit
+                    ));
+                }
+            }
+            // Not a GIXmake error - propagate original error
+            return Err(e);
+        }
 
         for j in 0..num_batches {
             if !config.quiet {
@@ -1172,7 +1279,24 @@ pub fn run_batch_alignment_by_count(
     let num_batches = batch_files.len();
 
     for i in 0..num_batches {
-        aligner.prepare_target(i, config.quiet)?;
+        // Try to prepare target batch - provide helpful error for GIXmake size limit failures
+        if let Err(e) = aligner.prepare_target(i, config.quiet) {
+            // Check if this is a GIXmake size limit error
+            if let Some(error_chain) = e.chain().find_map(|err| {
+                err.downcast_ref::<crate::fastga_integration::IndexCreationError>()
+            }) {
+                if let crate::fastga_integration::IndexCreationError::SizeLimitExceeded { batch_size_mb, suggested_limit, .. } = error_chain {
+                    return Err(anyhow::anyhow!(
+                        "GIXmake index creation failed for batch {} ({}MB). \
+                         This batch size exceeds FastGA's index limit. \
+                         Try --batch-bytes {}M or use the disk budget mode for automatic retry.",
+                        i + 1, batch_size_mb, suggested_limit
+                    ));
+                }
+            }
+            // Not a GIXmake error - propagate original error
+            return Err(e);
+        }
 
         for j in 0..num_batches {
             if !config.quiet {

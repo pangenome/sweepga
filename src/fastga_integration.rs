@@ -11,6 +11,36 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use tempfile::NamedTempFile;
 
+/// Error types specific to GIXmake index creation
+#[derive(Debug)]
+pub enum IndexCreationError {
+    /// Index size likely exceeds GIXmake's internal limits (≥48MB sequence data)
+    SizeLimitExceeded {
+        batch_size_mb: u64,
+        suggested_limit: u64,
+        underlying_error: String
+    },
+    /// Other index creation failure
+    Other(String),
+}
+
+impl std::fmt::Display for IndexCreationError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            IndexCreationError::SizeLimitExceeded { batch_size_mb, suggested_limit, underlying_error } => {
+                write!(f,
+                    "GIXmake index creation failed: batch size {}MB likely exceeds FastGA's index size limit. \
+                     Try --batch-bytes {}M or smaller. Original error: {}",
+                    batch_size_mb, suggested_limit, underlying_error
+                )
+            }
+            IndexCreationError::Other(msg) => write!(f, "Index creation failed: {}", msg),
+        }
+    }
+}
+
+impl std::error::Error for IndexCreationError {}
+
 /// Get the preferred temp directory for FastGA operations.
 /// Priority: explicit override > TMPDIR env var > current directory.
 ///
@@ -292,9 +322,46 @@ impl FastGAIntegration {
                 gdb_base,
                 self.config.adaptive_seed_cutoff.unwrap_or(10) as i32,
             )
-            .map_err(|e| anyhow::anyhow!("Failed to create index: {e}"))?;
+            .map_err(|e| {
+                // Try to determine batch size from GDB file for better error messages
+                let batch_size_mb = Self::estimate_batch_size_mb(gdb_base).unwrap_or(0);
+
+                // Check if this looks like a GIXmake size limit failure
+                if Self::is_likely_size_limit_error(&e.to_string(), batch_size_mb) {
+                    anyhow::anyhow!(IndexCreationError::SizeLimitExceeded {
+                        batch_size_mb,
+                        suggested_limit: std::cmp::max(32, batch_size_mb * 3 / 4), // Suggest 25% reduction
+                        underlying_error: e.to_string()
+                    })
+                } else {
+                    anyhow::anyhow!(IndexCreationError::Other(e.to_string()))
+                }
+            })?;
 
         Ok(())
+    }
+
+    /// Estimate the batch size in MB from the GDB file size
+    fn estimate_batch_size_mb(gdb_base: &str) -> Result<u64> {
+        let gdb_path = format!("{}.1gdb", gdb_base);
+        let metadata = std::fs::metadata(&gdb_path)?;
+        // GDB file size is roughly proportional to sequence data size
+        // Use a conservative multiplier to estimate original sequence size
+        Ok((metadata.len() / (1024 * 1024)) * 3) // Rough approximation
+    }
+
+    /// Check if an error message indicates a likely GIXmake size limit failure
+    fn is_likely_size_limit_error(error_msg: &str, batch_size_mb: u64) -> bool {
+        // GIXmake size limit failures typically occur at ≥48MB sequence data
+        if batch_size_mb >= 40 {
+            // Look for typical patterns in GIXmake/FastGA failure messages
+            error_msg.contains("GIXmake")
+                || error_msg.contains("code None")
+                || error_msg.contains("failed with code")
+                || (error_msg.is_empty() && batch_size_mb >= 48) // Silent failures
+        } else {
+            false
+        }
     }
 
     /// Compress ktab index files using zstd seekable format
