@@ -287,6 +287,10 @@ struct Args {
     #[clap(long = "batch-bytes", value_parser = parse_metric_number, help_heading = "Alignment options")]
     batch_bytes: Option<u64>,
 
+    /// Explicit number of genomes per batch (manual override). Overrides --batch-bytes and --max-disk.
+    #[clap(long = "batch-size", help_heading = "Alignment options")]
+    batch_size: Option<usize>,
+
     /// Maximum disk space for temporary files during alignment (e.g., "100G", "500M").
     /// Computes batch size automatically to stay within budget. Overrides --batch-bytes.
     #[clap(long = "max-disk", value_parser = parse_metric_number, help_heading = "Alignment options")]
@@ -1209,6 +1213,7 @@ fn align_multiple_fastas(
     map_pct_identity: Option<String>,
     all_pairs: bool,
     batch_bytes: Option<u64>,
+    batch_size: Option<usize>,
     max_disk: Option<u64>,
     threads: usize,
     keep_self: bool,
@@ -1234,13 +1239,22 @@ fn align_multiple_fastas(
         }
     }
 
-    // Resolve effective batch bytes from --max-disk / --batch-bytes
-    let effective_batch_bytes = batch_align::resolve_batch_bytes(
-        max_disk, batch_bytes, fasta_files, threads, zstd_compress, quiet,
-    )?;
+    // --batch-size overrides --batch-bytes and --max-disk
+    if batch_size.is_some() && (batch_bytes.is_some() || max_disk.is_some()) && !quiet {
+        eprintln!("[batch] WARNING: --batch-size overrides --batch-bytes and --max-disk");
+    }
 
-    // Check for batch mode
-    if let Some(max_index_bytes) = effective_batch_bytes {
+    // Resolve effective batch bytes from --max-disk / --batch-bytes (used when --batch-size is not set)
+    let effective_batch_bytes = if batch_size.is_none() {
+        batch_align::resolve_batch_bytes(
+            max_disk, batch_bytes, fasta_files, threads, zstd_compress, quiet,
+        )?
+    } else {
+        None
+    };
+
+    // Check for batch mode (either --batch-size or byte-based batching)
+    if batch_size.is_some() || effective_batch_bytes.is_some() {
         let batch_config = batch_align::BatchAlignConfig {
             frequency,
             threads,
@@ -1268,6 +1282,27 @@ fn align_multiple_fastas(
             )),
         };
 
+        // --batch-size: partition by genome count
+        if let Some(size) = batch_size {
+            if !quiet {
+                timing.log(
+                    "batch",
+                    &format!(
+                        "Batch mode enabled: {} genomes per batch ({})",
+                        size, aligner_name,
+                    ),
+                );
+            }
+            return batch_align::run_batch_alignment_by_count(
+                fasta_files,
+                size,
+                aligner.as_ref(),
+                &batch_config,
+                tempdir,
+            );
+        }
+
+        let max_index_bytes = effective_batch_bytes.unwrap();
         if !quiet {
             timing.log(
                 "batch",
@@ -2997,6 +3032,7 @@ fn main() -> Result<()> {
                         args.map_pct_identity.clone(),
                         args.all_pairs,
                         args.batch_bytes,
+                        args.batch_size,
                         args.max_disk,
                         args.threads,
                         args.keep_self,
@@ -3089,6 +3125,7 @@ fn main() -> Result<()> {
                         args.map_pct_identity.clone(),
                         args.all_pairs,
                         args.batch_bytes,
+                        args.batch_size,
                         args.max_disk,
                         args.threads,
                         args.keep_self,
@@ -3179,6 +3216,7 @@ fn main() -> Result<()> {
                     args.map_pct_identity.clone(),
                     args.all_pairs,
                     args.batch_bytes,
+                    args.batch_size,
                     args.max_disk,
                     args.threads,
                     args.keep_self,

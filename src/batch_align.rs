@@ -419,6 +419,21 @@ pub fn partition_into_batches_by_bp(genomes: Vec<GenomeInfo>, max_bp: u64) -> Ve
     batches
 }
 
+/// Partition genomes into batches of at most `max_count` genomes each.
+/// This is the `--batch-size` code path: the user directly controls how many
+/// genomes go into each batch.
+pub fn partition_into_batches_by_count(genomes: Vec<GenomeInfo>, max_count: usize) -> Vec<GenomeBatch> {
+    let mut batches: Vec<GenomeBatch> = Vec::new();
+    for chunk in genomes.chunks(max_count) {
+        let mut batch = GenomeBatch::new();
+        for g in chunk {
+            batch.add(g.clone());
+        }
+        batches.push(batch);
+    }
+    batches
+}
+
 /// Write a subset of genomes to a temporary FASTA file
 pub fn write_batch_fasta(batch: &GenomeBatch, output_path: &Path) -> Result<()> {
     let mut output = File::create(output_path)
@@ -1085,6 +1100,133 @@ pub fn run_batch_alignment_generic(
     Ok(merged_paf)
 }
 
+/// Run batch alignment partitioned by genome count (`--batch-size`).
+///
+/// Each batch contains at most `max_count` genomes. The alignment loop
+/// follows the same prepare/align/cleanup protocol as the byte-based path.
+pub fn run_batch_alignment_by_count(
+    fasta_files: &[String],
+    max_count: usize,
+    aligner: &dyn BatchAligner,
+    config: &BatchAlignConfig,
+    tempdir: Option<&str>,
+) -> Result<tempfile::NamedTempFile> {
+    let temp_base = if let Some(dir) = tempdir {
+        PathBuf::from(dir)
+    } else if let Ok(tmpdir) = std::env::var("TMPDIR") {
+        PathBuf::from(tmpdir)
+    } else {
+        PathBuf::from("/tmp")
+    };
+
+    let batch_dir = temp_base.join(format!("sweepga_batch_{}", std::process::id()));
+    std::fs::create_dir_all(&batch_dir)?;
+
+    if !config.quiet {
+        eprintln!("[batch] Scanning input files for genome sizes...");
+    }
+    let genomes = parse_genome_sizes(fasta_files)?;
+    let total_bp: u64 = genomes.iter().map(|g| g.total_bp).sum();
+
+    if genomes.is_empty() {
+        anyhow::bail!("No genomes found in input files");
+    }
+
+    let batches = partition_into_batches_by_count(genomes, max_count);
+
+    if batches.len() == 1 {
+        if !config.quiet {
+            eprintln!(
+                "[batch] All genomes ({}) fit in single batch, no batching needed",
+                format_bytes(total_bp),
+            );
+        }
+        let _ = std::fs::remove_dir_all(&batch_dir);
+        return aligner.align_single(fasta_files, tempdir);
+    }
+
+    report_batch_plan(&batches, total_bp, config.quiet);
+
+    let mut batch_files: Vec<PathBuf> = Vec::new();
+    for (i, batch) in batches.iter().enumerate() {
+        let batch_subdir = batch_dir.join(format!("batch_{}", i));
+        std::fs::create_dir_all(&batch_subdir)?;
+        let batch_path = batch_subdir.join("genomes.fa");
+        if !config.quiet {
+            eprintln!(
+                "[batch] Writing batch {} ({} genomes)...",
+                i + 1,
+                batch.genomes.len()
+            );
+        }
+        write_batch_fasta(batch, &batch_path)?;
+        batch_files.push(batch_path);
+    }
+
+    aligner.prepare_all(&batch_files, config.quiet)?;
+
+    let merged_paf = tempfile::NamedTempFile::with_suffix(".paf")?;
+    let mut merged_output = File::create(merged_paf.path())?;
+
+    let mut total_alignments = 0;
+    let num_batches = batch_files.len();
+
+    for i in 0..num_batches {
+        aligner.prepare_target(i, config.quiet)?;
+
+        for j in 0..num_batches {
+            if !config.quiet {
+                if i == j {
+                    eprintln!("[batch] Aligning batch {} to itself...", i + 1);
+                } else {
+                    eprintln!("[batch] Aligning batch {} vs batch {}...", j + 1, i + 1);
+                }
+            }
+
+            let paf_bytes = aligner.align(&batch_files[j], &batch_files[i])?;
+            let line_count = paf_bytes.iter().filter(|&&b| b == b'\n').count();
+            total_alignments += line_count;
+            merged_output.write_all(&paf_bytes)?;
+
+            if !config.quiet {
+                eprintln!("[batch]   {} alignments", line_count);
+            }
+        }
+
+        aligner.cleanup_target(i, config.quiet)?;
+    }
+
+    aligner.cleanup_all()?;
+
+    if !config.quiet {
+        eprintln!(
+            "[batch] Completed batch alignment: {} total alignments",
+            total_alignments
+        );
+    }
+
+    drop(merged_output);
+    let genome_prefixes: Vec<String> = batches
+        .iter()
+        .flat_map(|b| b.genomes.iter().map(|g| g.prefix.clone()))
+        .collect();
+    let verification = verify_batch_completeness(
+        merged_paf.path(),
+        &genome_prefixes,
+        !config.keep_self,
+    )?;
+    if !config.quiet {
+        eprintln!(
+            "[batch] Verification: {}/{} genome pairs present",
+            verification.found_pairs, verification.expected_pairs
+        );
+    }
+
+    let _ = std::fs::remove_dir_all(&batch_dir);
+
+    Ok(merged_paf)
+}
+
 /// Result of batch completeness verification.
 #[derive(Debug, Clone)]
 pub struct BatchVerification {
@@ -1292,6 +1434,36 @@ mod tests {
         let batches = partition_into_batches_by_bp(genomes, 300_000_000);
         assert_eq!(batches.len(), 1);
         assert_eq!(batches[0].genomes.len(), 3);
+    }
+
+    #[test]
+    fn test_partition_by_count() {
+        let genomes = vec![
+            GenomeInfo { prefix: "A#1#".to_string(), total_bp: 100_000_000, source_file: PathBuf::from("a.fa") },
+            GenomeInfo { prefix: "B#1#".to_string(), total_bp: 100_000_000, source_file: PathBuf::from("a.fa") },
+            GenomeInfo { prefix: "C#1#".to_string(), total_bp: 100_000_000, source_file: PathBuf::from("a.fa") },
+            GenomeInfo { prefix: "D#1#".to_string(), total_bp: 100_000_000, source_file: PathBuf::from("a.fa") },
+            GenomeInfo { prefix: "E#1#".to_string(), total_bp: 100_000_000, source_file: PathBuf::from("a.fa") },
+        ];
+
+        // 2 genomes per batch -> 3 batches (AB, CD, E)
+        let batches = partition_into_batches_by_count(genomes.clone(), 2);
+        assert_eq!(batches.len(), 3);
+        assert_eq!(batches[0].genomes.len(), 2);
+        assert_eq!(batches[1].genomes.len(), 2);
+        assert_eq!(batches[2].genomes.len(), 1);
+
+        // 5 genomes per batch -> 1 batch
+        let batches = partition_into_batches_by_count(genomes.clone(), 5);
+        assert_eq!(batches.len(), 1);
+        assert_eq!(batches[0].genomes.len(), 5);
+
+        // 1 genome per batch -> 5 batches
+        let batches = partition_into_batches_by_count(genomes, 1);
+        assert_eq!(batches.len(), 5);
+        for b in &batches {
+            assert_eq!(b.genomes.len(), 1);
+        }
     }
 
     #[test]
