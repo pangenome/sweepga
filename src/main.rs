@@ -920,15 +920,7 @@ fn align_multiple_fastas(
 
     // Check for batch mode (either --batch-size or byte-based batching)
     if batch_size.is_some() || effective_batch_bytes.is_some() {
-        let batch_config = batch_align::BatchAlignConfig {
-            frequency: Some(frequency),
-            threads,
-            min_alignment_length: min_alignment_length.unwrap_or(0),
-            zstd_compress,
-            zstd_level,
-            keep_self,
-            quiet,
-        };
+        let batch_config = batch_align::BatchAlignConfig { keep_self, quiet };
 
         let aligner: Box<dyn batch_align::BatchAligner> = match aligner_name {
             "wfmash" => Box::new(batch_align::WfmashBatchAligner::new(

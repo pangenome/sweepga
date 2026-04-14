@@ -750,36 +750,14 @@ pub fn resolve_batch_bytes(
     )
 }
 
-/// Configuration for batch alignment
+/// Configuration for batch alignment. The aligner's own parameters
+/// (threads, k-mer frequency, block length, zstd) live on the
+/// `BatchAligner` instance passed alongside this config; this struct
+/// only carries the orchestration-level knobs that the batch runner
+/// itself consumes.
 pub struct BatchAlignConfig {
-    pub frequency: Option<usize>,
-    pub threads: usize,
-    pub min_alignment_length: u64,
-    pub zstd_compress: bool,
-    pub zstd_level: u32,
     pub keep_self: bool,
     pub quiet: bool,
-}
-
-/// Parse a human-readable size string like "2G", "500M", "100k" into bytes.
-pub fn parse_size_string(s: &str) -> Result<u64> {
-    let s = s.trim();
-    if s.is_empty() {
-        anyhow::bail!("Empty size string");
-    }
-
-    let (num_str, multiplier) = match s.as_bytes().last() {
-        Some(b'k' | b'K') => (&s[..s.len() - 1], 1_000u64),
-        Some(b'm' | b'M') => (&s[..s.len() - 1], 1_000_000u64),
-        Some(b'g' | b'G') => (&s[..s.len() - 1], 1_000_000_000u64),
-        Some(b't' | b'T') => (&s[..s.len() - 1], 1_000_000_000_000u64),
-        _ => (s, 1u64),
-    };
-
-    let value: f64 = num_str
-        .parse()
-        .with_context(|| format!("Invalid size value: {s}"))?;
-    Ok((value * multiplier as f64) as u64)
 }
 
 /// Maximum number of adaptive restarts before giving up.
@@ -1383,14 +1361,16 @@ pub fn run_batch_alignment_by_count(
 }
 
 /// Result of batch completeness verification.
+///
+/// The `missing` pair list is surfaced to the user via `log::warn!`
+/// inside `verify_batch_completeness`; callers here only need the
+/// `found_pairs` / `expected_pairs` counters.
 #[derive(Debug, Clone)]
 pub struct BatchVerification {
     /// Genome pairs found in the output.
     pub found_pairs: usize,
     /// Expected genome pairs.
     pub expected_pairs: usize,
-    /// Missing genome pairs (query_prefix -> target_prefix).
-    pub missing: Vec<(String, String)>,
 }
 
 /// Verify that a PAF file contains alignments for all expected genome pairs.
@@ -1443,12 +1423,6 @@ pub fn verify_batch_completeness(
         .cloned()
         .collect::<Vec<_>>();
 
-    let result = BatchVerification {
-        found_pairs: expected.intersection(&found).count(),
-        expected_pairs: expected.len(),
-        missing: missing.clone(),
-    };
-
     if !missing.is_empty() {
         log::warn!(
             "[batch] {}/{} genome pairs missing from output",
@@ -1460,7 +1434,10 @@ pub fn verify_batch_completeness(
         }
     }
 
-    Ok(result)
+    Ok(BatchVerification {
+        found_pairs: expected.intersection(&found).count(),
+        expected_pairs: expected.len(),
+    })
 }
 
 #[cfg(test)]
@@ -1480,17 +1457,6 @@ mod tests {
         assert_eq!(extract_pansn_prefix("SGDref#1#chrI"), "SGDref#1#");
         assert_eq!(extract_pansn_prefix("genome#hap#seq"), "genome#hap#");
         assert_eq!(extract_pansn_prefix("simple"), "simple#");
-    }
-
-    #[test]
-    fn test_parse_size_string() {
-        assert_eq!(parse_size_string("500M").unwrap(), 500_000_000);
-        assert_eq!(parse_size_string("2G").unwrap(), 2_000_000_000);
-        assert_eq!(parse_size_string("1.5G").unwrap(), 1_500_000_000);
-        assert_eq!(parse_size_string("100k").unwrap(), 100_000);
-        assert_eq!(parse_size_string("1234").unwrap(), 1234);
-        assert!(parse_size_string("").is_err());
-        assert!(parse_size_string("abc").is_err());
     }
 
     #[test]
@@ -1519,7 +1485,7 @@ mod tests {
         let result = verify_batch_completeness(paf.path(), &genomes, true).unwrap();
         assert_eq!(result.expected_pairs, 6); // 3 genomes, exclude self = 3*2
         assert_eq!(result.found_pairs, 6);
-        assert!(result.missing.is_empty());
+        assert_eq!(result.found_pairs, result.expected_pairs);
     }
 
     #[test]
@@ -1539,7 +1505,7 @@ mod tests {
         let result = verify_batch_completeness(paf.path(), &genomes, true).unwrap();
         assert_eq!(result.expected_pairs, 6);
         assert_eq!(result.found_pairs, 2);
-        assert_eq!(result.missing.len(), 4); // A->C, C->A, B->C, C->B
+        assert_eq!(result.expected_pairs - result.found_pairs, 4); // A->C, C->A, B->C, C->B
     }
 
     #[test]
@@ -1565,7 +1531,7 @@ mod tests {
         let result = verify_batch_completeness(paf.path(), &genomes, false).unwrap();
         assert_eq!(result.expected_pairs, 4); // 2*2 = 4 (A->A, A->B, B->A, B->B)
         assert_eq!(result.found_pairs, 4);
-        assert!(result.missing.is_empty());
+        assert_eq!(result.found_pairs, result.expected_pairs);
     }
 
     #[test]

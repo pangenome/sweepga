@@ -122,31 +122,17 @@ pub fn format_bytes(bytes: u64) -> String {
     }
 }
 
-/// Get a summary of disk usage
+/// Get a summary of disk usage.
 pub fn summary() -> DiskUsageSummary {
     DiskUsageSummary {
-        current: current_usage(),
         peak: peak_usage(),
         cumulative: cumulative_written(),
     }
 }
 
-/// Log disk usage summary to stderr
-pub fn log_summary() {
-    let s = summary();
-    log::info!("[sweepga::disk] Disk usage summary:");
-    log::info!("[sweepga::disk]   Current:    {}", format_bytes(s.current));
-    log::info!("[sweepga::disk]   Peak:       {}", format_bytes(s.peak));
-    log::info!(
-        "[sweepga::disk]   Cumulative: {}",
-        format_bytes(s.cumulative)
-    );
-}
-
-/// Disk usage summary
+/// Disk usage summary (peak + cumulative bytes written during this run).
 #[derive(Debug, Clone)]
 pub struct DiskUsageSummary {
-    pub current: u64,
     pub peak: u64,
     pub cumulative: u64,
 }

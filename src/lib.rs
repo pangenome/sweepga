@@ -56,7 +56,8 @@ pub fn align_self_paf_batched(
     batch_bytes: &str,
     quiet: bool,
 ) -> Result<tempfile::NamedTempFile> {
-    let max_bytes = batch_align::parse_size_string(batch_bytes)?;
+    let max_bytes = crate::cli::parse_metric_number(batch_bytes)
+        .map_err(|e| anyhow::anyhow!("Invalid --batch-bytes: {e}"))?;
 
     let batch_aligner: Box<dyn batch_align::BatchAligner> = match aligner_name {
         "wfmash" => Box::new(batch_align::WfmashBatchAligner::new(
@@ -77,11 +78,6 @@ pub fn align_self_paf_batched(
     };
 
     let batch_config = batch_align::BatchAlignConfig {
-        frequency: Some(kmer_frequency),
-        threads: num_threads,
-        min_alignment_length: min_aln_length,
-        zstd_compress: false,
-        zstd_level: 3,
         keep_self: true,
         quiet,
     };
