@@ -618,13 +618,15 @@ pub fn estimate_peak_disk(
     fixed + index_cost
 }
 
-/// Resolve effective batch bytes from --max-disk and --batch-bytes flags.
+/// Resolve effective batch bytes from `--max-disk` and `--batch-bytes` flags.
 ///
-/// Returns `Some(max_bp)` if batching should be used, `None` otherwise.
-pub fn resolve_batch_bytes(
+/// Returns `Some(max_bp)` if batching should be used, `None` if the whole
+/// input fits within the budget (or if neither flag was set).
+pub fn resolve_batch_bytes_from_sizes(
     max_disk: Option<u64>,
     batch_bytes: Option<u64>,
-    fasta_files: &[String],
+    genome_sizes: &[u64],
+    n_genomes: usize,
     n_threads: usize,
     zstd: bool,
     quiet: bool,
@@ -632,24 +634,18 @@ pub fn resolve_batch_bytes(
     match (max_disk, batch_bytes) {
         (None, None) => Ok(None),
         (None, Some(bb)) => Ok(Some(bb)),
-        (Some(budget), bb) => {
-            if bb.is_some() {
-                anyhow::bail!(
-                    "--max-disk conflicts with --batch-bytes; pass only one."
-                );
-            }
-
-            let genomes = parse_genome_sizes(fasta_files)?;
-            let total_bp: u64 = genomes.iter().map(|g| g.total_bp).sum();
-            let genome_sizes: Vec<u64> = genomes.iter().map(|g| g.total_bp).collect();
-
+        (Some(_), Some(_)) => {
+            anyhow::bail!("--max-disk conflicts with --batch-bytes; pass only one.")
+        }
+        (Some(budget), None) => {
             if genome_sizes.is_empty() {
-                anyhow::bail!("No genomes found in input files");
+                anyhow::bail!("No genomes found in input");
             }
 
+            let total_bp: u64 = genome_sizes.iter().sum();
             let max_batch_bp = compute_batch_bp_from_budget(
                 total_bp,
-                &genome_sizes,
+                genome_sizes,
                 n_threads,
                 zstd,
                 budget,
@@ -672,8 +668,11 @@ pub fn resolve_batch_bytes(
                     );
                 }
                 Some(bp) => {
-                    let estimated_peak = estimate_peak_disk(total_bp, genomes.len(), Some(bp), n_threads, zstd);
-                    let n_batches = if bp >= total_bp { 1 } else {
+                    let estimated_peak =
+                        estimate_peak_disk(total_bp, n_genomes, Some(bp), n_threads, zstd);
+                    let n_batches = if bp >= total_bp {
+                        1
+                    } else {
                         (total_bp + bp - 1) / bp
                     };
 
@@ -721,6 +720,34 @@ pub fn resolve_batch_bytes(
             }
         }
     }
+}
+
+/// Resolve effective batch bytes from `--max-disk` / `--batch-bytes` for FASTA input.
+pub fn resolve_batch_bytes(
+    max_disk: Option<u64>,
+    batch_bytes: Option<u64>,
+    fasta_files: &[String],
+    n_threads: usize,
+    zstd: bool,
+    quiet: bool,
+) -> Result<Option<u64>> {
+    if max_disk.is_none() {
+        // Fast path: nothing to compute if no budget was set.
+        return resolve_batch_bytes_from_sizes(
+            max_disk, batch_bytes, &[], 0, n_threads, zstd, quiet,
+        );
+    }
+    let genomes = parse_genome_sizes(fasta_files)?;
+    let genome_sizes: Vec<u64> = genomes.iter().map(|g| g.total_bp).collect();
+    resolve_batch_bytes_from_sizes(
+        max_disk,
+        batch_bytes,
+        &genome_sizes,
+        genomes.len(),
+        n_threads,
+        zstd,
+        quiet,
+    )
 }
 
 /// Configuration for batch alignment

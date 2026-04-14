@@ -1181,23 +1181,26 @@ fn process_agc_archive(
         );
     }
 
-    // --max-disk is not implemented for AGC input; reject rather than ignore.
-    if args.aln.max_disk.is_some() {
-        anyhow::bail!(
-            "--max-disk is not supported for AGC input (only FASTA input). \
-             Remove --max-disk or switch to FASTA input."
-        );
-    }
-
-    // Check if we should use batch mode
-    if let Some(max_index_bytes) = args
+    // Resolve --max-disk / --batch-bytes using AGC sample sizes
+    let genome_sizes: Vec<u64> = sizes.values().copied().collect();
+    let batch_bytes_opt = args
         .aln
         .batch_bytes
         .as_deref()
         .map(parse_metric_number)
         .transpose()
-        .map_err(|e| anyhow::anyhow!("Invalid --batch-bytes: {e}"))?
-    {
+        .map_err(|e| anyhow::anyhow!("Invalid --batch-bytes: {e}"))?;
+    let effective_batch_bytes = batch_align::resolve_batch_bytes_from_sizes(
+        args.aln.max_disk,
+        batch_bytes_opt,
+        &genome_sizes,
+        sizes.len(),
+        args.threads,
+        args.aln.zstd_compress,
+        args.quiet,
+    )?;
+
+    if let Some(max_index_bytes) = effective_batch_bytes {
         // Batch mode: partition samples and process incrementally
         return process_agc_batched(
             &mut agc,
