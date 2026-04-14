@@ -20,11 +20,11 @@ fn test_mapping_plane_sweep_across_targets() {
 
     let output = std::process::Command::new("./target/release/sweepga")
         .arg(paf.path())
-        .arg("-n")
+        .arg("--num-mappings")
         .arg("1:1") // Pre-scaffold 1:1 filtering
-        .arg("-j")
+        .arg("--scaffold-jump")
         .arg("0") // No scaffolding
-        .arg("-i")
+        .arg("--min-aln-identity")
         .arg("0")
         .arg("--overlap")
         .arg("0.5") // Lower overlap threshold (default 0.95 is too high)
@@ -68,11 +68,11 @@ fn test_mapping_plane_sweep_target_axis() {
 
     let output = std::process::Command::new("./target/release/sweepga")
         .arg(paf.path())
-        .arg("-n")
+        .arg("--num-mappings")
         .arg("1:1")
-        .arg("-j")
+        .arg("--scaffold-jump")
         .arg("0")
-        .arg("-i")
+        .arg("--min-aln-identity")
         .arg("0")
         .arg("--overlap")
         .arg("0.5") // Lower overlap threshold

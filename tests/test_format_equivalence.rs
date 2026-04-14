@@ -274,7 +274,7 @@ fn test_paf_vs_1aln_with_small_data() {
     let temp_dir = TempDir::new().unwrap();
 
     // Use library API to generate alignments
-    let integration = sweepga::fastga_integration::FastGAIntegration::new(None, 1, 100, None);
+    let integration = sweepga::fastga_integration::FastGAIntegration::new(10, 1, 100, None);
 
     // Generate .1aln
     let aln_file = integration.align_to_temp_1aln(fasta_path, fasta_path);
@@ -320,7 +320,7 @@ fn test_paf_vs_1aln_with_small_data() {
     eprintln!("[test] Using ALNtoPAF binary at: {:?}", alnto_paf_bin);
 
     let convert_result = std::process::Command::new(&alnto_paf_bin)
-        .arg("-x") // Extended CIGAR mode (same as FastGA uses)
+        .arg("--sparsify") // Extended CIGAR mode (same as FastGA uses)
         .arg(&persisted_aln)
         .output()
         .expect("Failed to run ALNtoPAF");

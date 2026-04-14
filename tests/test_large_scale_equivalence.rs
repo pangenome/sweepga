@@ -176,7 +176,7 @@ fn test_large_scale_paf_filtering() -> Result<()> {
             "--",
             temp_input.to_str().unwrap(),
             "--paf",
-            "-n",
+            "--num-mappings",
             "N:N",
         ])
         .stdout(fs::File::create(&unfiltered_paf)?)
@@ -198,7 +198,7 @@ fn test_large_scale_paf_filtering() -> Result<()> {
             "sweepga",
             "--",
             unfiltered_paf.to_str().unwrap(),
-            "-n",
+            "--num-mappings",
             "1:1",
         ])
         .stdout(fs::File::create(&filtered_paf)?)
@@ -392,7 +392,7 @@ fn test_b3106_paf_output() -> Result<()> {
             "--bin",
             "sweepga",
             "--",
-            "-j",
+            "--scaffold-jump",
             "0", // Disable scaffolding for small test data
             temp_input.to_str().unwrap(),
             "--paf",
@@ -440,11 +440,11 @@ fn test_b3106_filtering_behavior() -> Result<()> {
             "--bin",
             "sweepga",
             "--",
-            "-j",
+            "--scaffold-jump",
             "0", // Disable scaffolding for small test data
             temp_input.to_str().unwrap(),
             "--paf",
-            "-n",
+            "--num-mappings",
             "N:N",
         ])
         .stdout(fs::File::create(&nn_paf)?)
@@ -460,10 +460,10 @@ fn test_b3106_filtering_behavior() -> Result<()> {
             "--bin",
             "sweepga",
             "--",
-            "-j",
+            "--scaffold-jump",
             "0", // Disable scaffolding for small test data
             nn_paf.to_str().unwrap(),
-            "-n",
+            "--num-mappings",
             "1:1",
         ])
         .stdout(fs::File::create(&filtered_paf)?)
@@ -508,7 +508,7 @@ fn test_b3106_coordinate_determinism() -> Result<()> {
             "--bin",
             "sweepga",
             "--",
-            "-j",
+            "--scaffold-jump",
             "0", // Disable scaffolding for small test data
             temp_input.to_str().unwrap(),
             "--paf",
@@ -525,7 +525,7 @@ fn test_b3106_coordinate_determinism() -> Result<()> {
             "--bin",
             "sweepga",
             "--",
-            "-j",
+            "--scaffold-jump",
             "0", // Disable scaffolding for small test data
             temp_input.to_str().unwrap(),
             "--paf",

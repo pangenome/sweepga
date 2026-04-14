@@ -134,10 +134,10 @@ pub fn summary() -> DiskUsageSummary {
 /// Log disk usage summary to stderr
 pub fn log_summary() {
     let s = summary();
-    eprintln!("[sweepga::disk] Disk usage summary:");
-    eprintln!("[sweepga::disk]   Current:    {}", format_bytes(s.current));
-    eprintln!("[sweepga::disk]   Peak:       {}", format_bytes(s.peak));
-    eprintln!(
+    log::info!("[sweepga::disk] Disk usage summary:");
+    log::info!("[sweepga::disk]   Current:    {}", format_bytes(s.current));
+    log::info!("[sweepga::disk]   Peak:       {}", format_bytes(s.peak));
+    log::info!(
         "[sweepga::disk]   Cumulative: {}",
         format_bytes(s.cumulative)
     );

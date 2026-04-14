@@ -75,7 +75,7 @@ fn generate_unfiltered_paf(temp_dir: &Path) -> Result<std::path::PathBuf> {
             "--",
             temp_input.to_str().unwrap(),
             "--paf",
-            "-n",
+            "--num-mappings",
             "N:N", // No filtering
         ])
         .stdout(fs::File::create(&output)?)
@@ -95,7 +95,7 @@ fn filter_paf(input: &Path, output: &Path, filter_mode: &str) -> Result<()> {
             "sweepga",
             "--",
             input.to_str().unwrap(),
-            "-n",
+            "--num-mappings",
             filter_mode,
         ])
         .stdout(fs::File::create(output)?)
@@ -356,7 +356,7 @@ fn test_filter_no_filtering() -> Result<()> {
             "--",
             temp_input.to_str().unwrap(),
             "--paf",
-            "-n",
+            "--num-mappings",
             "N:N",
         ])
         .stdout(fs::File::create(&output1)?)

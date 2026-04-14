@@ -47,7 +47,7 @@ impl std::error::Error for IndexCreationError {}
 /// The special value "ramdisk" maps to /dev/shm (Linux shared-memory tmpfs)
 /// for users who want RAM-backed temp storage without knowing the path.
 fn get_temp_dir(override_dir: Option<&str>) -> String {
-    // First check explicit override (from --tempdir CLI option)
+    // First check explicit override (from --temp-dir CLI option)
     if let Some(dir) = override_dir {
         if !dir.is_empty() {
             // "ramdisk" is a convenience alias for /dev/shm
@@ -60,7 +60,7 @@ fn get_temp_dir(override_dir: Option<&str>) -> String {
                         return "/dev/shm".to_string();
                     }
                 }
-                eprintln!("[sweepga] warning: --temp-dir ramdisk requested but /dev/shm is not available, falling back to current directory");
+                log::info!("[sweepga] warning: --temp-dir ramdisk requested but /dev/shm is not available, falling back to current directory");
             } else if std::path::Path::new(dir).is_dir() {
                 return dir.to_string();
             }
@@ -201,42 +201,18 @@ pub struct FastGAIntegration {
 }
 
 impl FastGAIntegration {
-    /// Create a new FastGA integration with optional frequency parameter
-    /// If not provided, auto-detects from PanSN haplotype count during alignment
+    /// Create a new FastGA integration.
     pub fn new(
-        frequency: Option<usize>,
+        frequency: usize,
         num_threads: usize,
         min_alignment_length: u64,
         temp_dir: Option<String>,
     ) -> Self {
-        let mut builder = Config::builder()
-            .num_threads(num_threads)
-            .min_alignment_length(min_alignment_length as usize)
-            .verbose(true);
-
-        // Only set frequency if explicitly provided
-        // Otherwise, alignment methods will auto-detect from PanSN haplotype count
-        if let Some(freq) = frequency {
-            builder = builder.adaptive_seed_cutoff(freq);
-        }
-
-        let config = builder.build();
-        FastGAIntegration { config, temp_dir }
-    }
-
-    /// Create with custom parameters (for future use)
-    #[allow(dead_code)]
-    pub fn new_with_params(
-        min_identity: f64,
-        min_alignment_length: u32,
-        num_threads: usize,
-        temp_dir: Option<String>,
-    ) -> Self {
         let config = Config::builder()
-            .min_identity(min_identity)
-            .min_alignment_length(min_alignment_length as usize)
             .num_threads(num_threads)
+            .min_alignment_length(min_alignment_length as usize)
             .verbose(true)
+            .adaptive_seed_cutoff(frequency)
             .build();
 
         FastGAIntegration { config, temp_dir }
@@ -375,7 +351,7 @@ impl FastGAIntegration {
             .map(|dir| format!("{}/GIXpack", dir))
             .unwrap_or_else(|_| "GIXpack".to_string());
 
-        eprintln!("[FastGA] Compressing index with zstd (level {level})...");
+        log::info!("[FastGA] Compressing index with zstd (level {level})...");
 
         let output = Command::new(&gixpack_path)
             .arg(format!("-l{}", level))
@@ -415,7 +391,7 @@ impl FastGAIntegration {
             }
         }
 
-        eprintln!("[FastGA] Index compression complete");
+        log::info!("[FastGA] Index compression complete");
         Ok(())
     }
 
@@ -432,13 +408,11 @@ impl FastGAIntegration {
             .map(|dir| format!("{}/ALNtoPAF", dir))
             .unwrap_or_else(|_| "ALNtoPAF".to_string());
 
-        // Determine kmer frequency threshold
-        let kmer_freq = if let Some(freq) = self.config.adaptive_seed_cutoff {
-            freq as i32
-        } else {
-            let num_haplotypes = Self::count_haplotypes(queries)?;
-            std::cmp::max(num_haplotypes, 10) as i32
-        };
+        // Frequency is always set by `FastGAIntegration::new`
+        let kmer_freq = self
+            .config
+            .adaptive_seed_cutoff
+            .expect("FastGAIntegration::new always sets adaptive_seed_cutoff") as i32;
 
         // Use absolute paths to handle batch alignment where query and target
         // may be in different directories with the same filename
@@ -514,8 +488,8 @@ impl FastGAIntegration {
             Ok(output) => {
                 // ALNtoPAF failed (possibly segfault) - fall back to direct PAF without CIGAR
                 let stderr = String::from_utf8_lossy(&output.stderr);
-                eprintln!(
-                    "[FastGA] Warning: ALNtoPAF failed ({}), falling back to PAF without CIGAR",
+                log::warn!(
+                    "[FastGA] ALNtoPAF failed ({}); falling back to PAF without CIGAR",
                     stderr.trim()
                 );
 
@@ -609,49 +583,6 @@ impl FastGAIntegration {
         Ok(())
     }
 
-    /// Count unique haplotypes in a FASTA file based on PanSN naming convention
-    /// PanSN format: SAMPLE#HAPLOTYPE#CONTIG (e.g., HG01106#1#CM087962.1)
-    /// Extracts SAMPLE#HAPLOTYPE prefix and counts unique haplotypes
-    fn count_haplotypes(fasta_path: &Path) -> Result<usize> {
-        use std::collections::HashSet;
-        use std::fs::File;
-        use std::io::{BufRead, BufReader};
-
-        let file = File::open(fasta_path)?;
-
-        // Handle both plain and gzipped FASTA files
-        let reader: Box<dyn BufRead> =
-            if fasta_path.extension().and_then(|s| s.to_str()) == Some("gz") {
-                use flate2::read::MultiGzDecoder;
-                Box::new(BufReader::new(MultiGzDecoder::new(file)))
-            } else {
-                Box::new(BufReader::new(file))
-            };
-
-        let mut haplotypes = HashSet::new();
-
-        for line in reader.lines() {
-            let line = line?;
-            if line.starts_with('>') {
-                // Strip '>' and extract SAMPLE#HAPLOTYPE
-                let header = line.trim_start_matches('>');
-
-                // Split by '#' and take first two components
-                let parts: Vec<&str> = header.split('#').collect();
-                if parts.len() >= 2 {
-                    // PanSN format: SAMPLE#HAPLOTYPE#...
-                    let haplotype_id = format!("{}#{}", parts[0], parts[1]);
-                    haplotypes.insert(haplotype_id);
-                } else {
-                    // Fallback: if not PanSN format, treat whole header as unique
-                    haplotypes.insert(header.to_string());
-                }
-            }
-        }
-
-        Ok(haplotypes.len())
-    }
-
     /// Run FastGA alignment and return .1aln file directly (NO PAF conversion)
     /// This is the native FastGA output format
     /// IMPORTANT: Also copies the .1gdb file alongside the .1aln to preserve sequence names
@@ -664,15 +595,11 @@ impl FastGAIntegration {
             std::env::set_var("TMPDIR", dir);
         }
 
-        // Determine kmer frequency threshold
-        // Default to number of haplotypes in query file for pangenome workflows
-        let kmer_freq = if let Some(freq) = self.config.adaptive_seed_cutoff {
-            freq as i32
-        } else {
-            let num_haplotypes = Self::count_haplotypes(queries)?;
-            // Use at least 10 (FastGA's default) to avoid over-filtering with small datasets
-            std::cmp::max(num_haplotypes, 10) as i32
-        };
+        // Frequency is always set by `FastGAIntegration::new`
+        let kmer_freq = self
+            .config
+            .adaptive_seed_cutoff
+            .expect("FastGAIntegration::new always sets adaptive_seed_cutoff") as i32;
 
         // Create orchestrator to run FastGA binary directly
         let orchestrator = fastga_rs::orchestrator::FastGAOrchestrator {
@@ -714,12 +641,12 @@ impl FastGAIntegration {
 
         if std::path::Path::new(&gdb_path).exists() {
             std::fs::copy(&gdb_path, &temp_gdb_path).context("Failed to copy .1gdb to temp")?;
-            // eprintln!(
+            // log::info!(
             //     "[fastga] Preserved .1gdb with {} sequence names",
             //     std::fs::metadata(&temp_gdb_path)?.len()
             // );
         } else {
-            // eprintln!("[fastga] WARNING: No .1gdb file found at {gdb_path}");
+            // log::info!("[fastga] WARNING: No .1gdb file found at {gdb_path}");
         }
 
         // Clean up originals
@@ -741,15 +668,11 @@ impl FastGAIntegration {
             std::env::set_var("TMPDIR", dir);
         }
 
-        // Determine kmer frequency threshold
-        // Default to number of haplotypes in query file for pangenome workflows
-        let kmer_freq = if let Some(freq) = self.config.adaptive_seed_cutoff {
-            freq as i32
-        } else {
-            let num_haplotypes = Self::count_haplotypes(queries)?;
-            // Use at least 10 (FastGA's default) to avoid over-filtering with small datasets
-            std::cmp::max(num_haplotypes, 10) as i32
-        };
+        // Frequency is always set by `FastGAIntegration::new`
+        let kmer_freq = self
+            .config
+            .adaptive_seed_cutoff
+            .expect("FastGAIntegration::new always sets adaptive_seed_cutoff") as i32;
 
         // Create orchestrator to run FastGA binary directly
         let orchestrator = fastga_rs::orchestrator::FastGAOrchestrator {

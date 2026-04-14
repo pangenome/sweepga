@@ -43,7 +43,7 @@ fn test_duplicate_sequence_alignment() {
         .arg("-t")
         .arg("1")
         // Don't use --self since we want chr1 vs chr2_duplicate alignment
-        .arg("-o")
+        .arg("--overlap")
         .arg(&output)
         .output()
         .expect("Failed to run");
@@ -98,7 +98,7 @@ fn test_repetitive_sequence() {
         .arg("-t")
         .arg("1")
         .arg("--self") // Include self-mappings
-        .arg("-o")
+        .arg("--overlap")
         .arg(&output)
         .output()
         .expect("Failed to run");
@@ -139,7 +139,7 @@ fn test_minimum_requirements() {
             .arg(&test_fa)
             .arg("-t")
             .arg("1")
-            .arg("-o")
+            .arg("--overlap")
             .arg(&output)
             .output();
 

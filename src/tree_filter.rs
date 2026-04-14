@@ -1,73 +1,14 @@
 // Tree-based sparsification for PAF alignments
-// Port of allwave's knn_graph module for filtering existing alignments
+// Port of allwave's knn_graph module for filtering existing alignments.
+//
+// The sparsification enum lives in `knn_graph` (unified grammar; see
+// `knn_graph::SparsificationStrategy`). This module exposes the
+// alignment-level helpers (`apply_tree_filter_to_paf`, `apply_tree_filter_to_1aln`)
+// that consume the already-parsed `k_nearest`/`k_farthest`/`random_fraction`
+// fields.
 
-use anyhow::{anyhow, Context, Result};
+use anyhow::Result;
 use std::collections::{HashMap, HashSet};
-use std::str::FromStr;
-
-/// Sparsification strategy for PAF alignment filtering
-#[derive(Debug, Clone, PartialEq)]
-pub enum SparsificationStrategy {
-    /// Simple fraction-based sparsification (keep X% of alignments)
-    Fraction(f64),
-    /// Tree-based selection: (k_nearest, k_farthest, random_fraction)
-    /// - k_nearest: number of most similar neighbors (required)
-    /// - k_farthest: number of most dissimilar neighbors (optional, default 0)
-    /// - random_fraction: fraction of random pairs (optional, default 0.0)
-    Tree(usize, usize, f64),
-}
-
-impl FromStr for SparsificationStrategy {
-    type Err = anyhow::Error;
-
-    fn from_str(s: &str) -> Result<Self> {
-        // Try to parse as float first
-        if let Ok(frac) = s.parse::<f64>() {
-            if !(0.0..=1.0).contains(&frac) {
-                return Err(anyhow!("Fraction must be between 0.0 and 1.0, got {frac}"));
-            }
-            return Ok(SparsificationStrategy::Fraction(frac));
-        }
-
-        // Parse tree:neighbor[,stranger[,random]]
-        if let Some(value) = s.strip_prefix("tree:") {
-            let parts: Vec<&str> = value.split(',').collect();
-            if parts.is_empty() {
-                return Err(anyhow!("tree: requires at least neighbor count"));
-            }
-
-            let k_nearest = parts[0]
-                .parse::<usize>()
-                .context("tree: neighbor must be a positive integer")?;
-
-            let k_farthest = if parts.len() > 1 {
-                parts[1]
-                    .parse::<usize>()
-                    .context("tree: stranger must be a positive integer")?
-            } else {
-                0
-            };
-
-            let rand_frac = if parts.len() > 2 {
-                let f = parts[2]
-                    .parse::<f64>()
-                    .context("tree: random must be a number between 0.0 and 1.0")?;
-                if !(0.0..=1.0).contains(&f) {
-                    return Err(anyhow!("tree: random must be between 0.0 and 1.0"));
-                }
-                f
-            } else {
-                0.0
-            };
-
-            return Ok(SparsificationStrategy::Tree(
-                k_nearest, k_farthest, rand_frac,
-            ));
-        }
-
-        Err(anyhow!("Invalid sparsification pattern '{s}'. Use a fraction (0.0-1.0) or tree:neighbor[,stranger[,random]]"))
-    }
-}
 
 /// Extract PanSN genome prefix from sequence name
 /// Example: "HG002#1#chr1" -> "HG002#1#"
@@ -85,7 +26,7 @@ fn extract_genome_prefix(seq_name: &str) -> String {
 /// PAF alignment record (minimal fields needed for filtering)
 #[derive(Debug, Clone)]
 #[allow(dead_code)]
-pub struct PafAlignment {
+pub(crate) struct PafAlignment {
     pub query_name: String,
     pub target_name: String,
     pub matches: u64,
@@ -95,7 +36,7 @@ pub struct PafAlignment {
 
 /// Build genome-pair identity matrix from PAF alignments
 /// Returns map of (genome1, genome2) -> weighted average identity
-pub fn build_identity_matrix(alignments: &[PafAlignment]) -> HashMap<(String, String), f64> {
+pub(crate) fn build_identity_matrix(alignments: &[PafAlignment]) -> HashMap<(String, String), f64> {
     let mut genome_pairs: HashMap<(String, String), (f64, f64)> = HashMap::new();
 
     for aln in alignments {
@@ -136,7 +77,7 @@ pub fn build_identity_matrix(alignments: &[PafAlignment]) -> HashMap<(String, St
 
 /// Select k-nearest and k-farthest neighbors for each genome
 /// Returns set of (genome1, genome2) pairs to keep (canonical order)
-pub fn select_tree_pairs(
+pub(crate) fn select_tree_pairs(
     identity_matrix: &HashMap<(String, String), f64>,
     k_nearest: usize,
     k_farthest: usize,
@@ -220,7 +161,7 @@ pub fn select_tree_pairs(
 
 /// Filter PAF alignments using tree-based sparsification
 /// Returns indices of alignments to keep
-pub fn filter_tree_based(
+pub(crate) fn filter_tree_based(
     alignments: &[PafAlignment],
     k_nearest: usize,
     k_farthest: usize,
@@ -501,24 +442,6 @@ pub fn apply_tree_filter_to_1aln(
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn test_parse_fraction() {
-        let s = SparsificationStrategy::from_str("0.5").unwrap();
-        assert_eq!(s, SparsificationStrategy::Fraction(0.5));
-    }
-
-    #[test]
-    fn test_parse_tree() {
-        let s = SparsificationStrategy::from_str("tree:3").unwrap();
-        assert_eq!(s, SparsificationStrategy::Tree(3, 0, 0.0));
-
-        let s = SparsificationStrategy::from_str("tree:3,2").unwrap();
-        assert_eq!(s, SparsificationStrategy::Tree(3, 2, 0.0));
-
-        let s = SparsificationStrategy::from_str("tree:3,2,0.1").unwrap();
-        assert_eq!(s, SparsificationStrategy::Tree(3, 2, 0.1));
-    }
 
     #[test]
     fn test_extract_genome_prefix() {

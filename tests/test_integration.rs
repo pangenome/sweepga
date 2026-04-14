@@ -30,9 +30,9 @@ query2\t1500\t200\t1200\t+\ttarget2\t2500\t200\t1200\t1000\t1000\t60\tcg:Z:1000M
             temp_path,
             "--output-file",
             output_path,
-            "-j",
+            "--scaffold-jump",
             "0",
-            "-n",
+            "--num-mappings",
             "1:1",
         ]) // -j 0 disables scaffolding, -n 1:1 applies 1:1 plane sweep filter
         .output()
@@ -105,7 +105,7 @@ chr1\t10000\t1000\t2000\t+\tchr1_ref\t10000\t9000\t10000\t1000\t1000\t60\tcg:Z:1
             "--output-file",
             output_path,
             "-n=3", // Keep 3 mappings total
-            "-j",
+            "--scaffold-jump",
             "0",
         ]) // -j 0 disables scaffolding
         .output()
@@ -153,7 +153,7 @@ read1\t5000\t3000\t3400\t+\tref1\t10000\t5000\t5400\t400\t400\t60\tcg:Z:400M
             "--output-file",
             output_path,
             "-n=-1", // Keep all non-overlapping
-            "-j",
+            "--scaffold-jump",
             "0",
         ]) // -j 0 disables scaffolding
         .output()
@@ -207,7 +207,7 @@ contig1\t8000\t4000\t5000\t+\tref1\t10000\t4000\t5000\t1000\t1000\t60\tcg:Z:1000
             "-n=1", // Keep only best
             "--overlap",
             "0.5", // 50% overlap threshold
-            "-j",
+            "--scaffold-jump",
             "0",
         ]) // -j 0 disables scaffolding
         .output()
@@ -265,7 +265,7 @@ seq2\t4000\t200\t1200\t+\tref2\t8000\t300\t1300\t1000\t1000\t60\tcg:Z:1000M
             temp_path,
             "--output-file",
             output_filtered,
-            "-j",
+            "--scaffold-jump",
             "0",
         ]) // -j 0 disables scaffolding, just plane sweep
         .output()
@@ -284,9 +284,9 @@ seq2\t4000\t200\t1200\t+\tref2\t8000\t300\t1300\t1000\t1000\t60\tcg:Z:1000M
             temp_path,
             "--output-file",
             output_unfiltered,
-            "-j",
+            "--scaffold-jump",
             "0",
-            "-s",
+            "--scaffold-mass",
             "0",
         ]) // No scaffolding, just plane sweep
         .output()

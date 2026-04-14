@@ -358,7 +358,7 @@ fn test_golden_filtered_1to1() -> Result<()> {
     // Then filter with 1:1
     let output = temp_dir_path.join("filtered.1aln");
     let result = Command::new(sweepga_bin)
-        .args([unfiltered.to_str().unwrap(), "-n", "1:1", "--1aln"])
+        .args([unfiltered.to_str().unwrap(), "--num-mappings", "1:1", "--1aln"])
         .output()?;
 
     if !result.status.success() {

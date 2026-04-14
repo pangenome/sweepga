@@ -131,7 +131,7 @@ fn apply_one_to_one_sweep(
     if !genome_pairs.is_empty() {
         let mut genome_pair_list: Vec<_> = genome_pairs.keys().collect();
         genome_pair_list.sort();
-        eprintln!(
+        log::info!(
             "[sweepga::scaffold] Found {} genome pairs for scaffold filtering:",
             genome_pair_list.len()
         );
@@ -140,7 +140,7 @@ fn apply_one_to_one_sweep(
                 .get(&(q_prefix.clone(), t_prefix.clone()))
                 .map(|m| m.len())
                 .unwrap_or(0);
-            eprintln!(
+            log::info!(
                 "[sweepga::scaffold]   {} -> {} ({} chromosome pairs)",
                 q_prefix.trim_end_matches('#'),
                 t_prefix.trim_end_matches('#'),

@@ -27,11 +27,11 @@ fn test_scaffold_length_filtering() {
     // Test with -s 10000 (10kb minimum scaffold length)
     let output = std::process::Command::new("./target/release/sweepga")
         .arg(paf.path())
-        .arg("-s")
+        .arg("--scaffold-mass")
         .arg("10000")
-        .arg("-j")
+        .arg("--scaffold-jump")
         .arg("10000") // Merge within 10kb
-        .arg("-i")
+        .arg("--min-aln-identity")
         .arg("0") // No identity filter
         .output()
         .expect("Failed to run sweepga");
@@ -97,11 +97,11 @@ fn test_scaffold_aligned_mass_filtering() {
     // Test with -s 50000 (50kb minimum scaffold span)
     let output = std::process::Command::new("./target/release/sweepga")
         .arg(paf.path())
-        .arg("-s")
+        .arg("--scaffold-mass")
         .arg("50000")
-        .arg("-j")
+        .arg("--scaffold-jump")
         .arg("100000") // Merge within 100kb
-        .arg("-i")
+        .arg("--min-aln-identity")
         .arg("0")
         .output()
         .expect("Failed to run sweepga");

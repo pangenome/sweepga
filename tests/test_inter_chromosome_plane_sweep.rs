@@ -33,13 +33,13 @@ fn test_same_query_different_targets_better_wins() {
 
     let output = std::process::Command::new("./target/release/sweepga")
         .arg(paf.path())
-        .arg("-s")
+        .arg("--scaffold-mass")
         .arg("5000") // 5kb minimum
-        .arg("-j")
+        .arg("--scaffold-jump")
         .arg("2000") // Merge within 2kb
-        .arg("-i")
+        .arg("--min-aln-identity")
         .arg("0") // No identity filter
-        .arg("-m")
+        .arg("--scaffold-filter")
         .arg("1:1") // True 1:1 filtering
         .output()
         .expect("Failed to run sweepga");
@@ -102,13 +102,13 @@ fn test_non_overlapping_different_targets_both_kept() {
 
     let output = std::process::Command::new("./target/release/sweepga")
         .arg(paf.path())
-        .arg("-s")
+        .arg("--scaffold-mass")
         .arg("5000")
-        .arg("-j")
+        .arg("--scaffold-jump")
         .arg("2000")
-        .arg("-i")
+        .arg("--min-aln-identity")
         .arg("0")
-        .arg("-m")
+        .arg("--scaffold-filter")
         .arg("1:1")
         .output()
         .expect("Failed to run sweepga");

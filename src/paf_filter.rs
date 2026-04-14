@@ -345,9 +345,9 @@ impl PafFilter {
             if !checked_cigar && self.config.scoring_function == ScoringFunction::Matches {
                 checked_cigar = true;
                 if !has_cigar {
-                    // eprintln!("[sweepga] WARNING: Using 'matches' scoring but input lacks CIGAR strings (cg:Z: tags).");
-                    // eprintln!("[sweepga] WARNING: Match counts will be estimated from PAF matches field (column 10).");
-                    // eprintln!("[sweepga] WARNING: For exact match counts, use aligners that output extended CIGAR (e.g., wfmash).");
+                    // log::info!("[sweepga] WARNING: Using 'matches' scoring but input lacks CIGAR strings (cg:Z: tags).");
+                    // log::info!("[sweepga] WARNING: Match counts will be estimated from PAF matches field (column 10).");
+                    // log::info!("[sweepga] WARNING: For exact match counts, use aligners that output extended CIGAR (e.g., wfmash).");
                 }
             }
 
@@ -401,25 +401,25 @@ impl PafFilter {
 
         // Report plane sweep if it filtered anything
         if before_plane_sweep != after_plane_sweep {
-            eprintln!("[sweepga] Plane sweep: {before_plane_sweep} → {after_plane_sweep} mappings");
+            log::info!("[sweepga] Plane sweep: {before_plane_sweep} → {after_plane_sweep} mappings");
         }
 
         // If no scaffolding (scaffold_gap == 0), we're done - return the plane-swept mappings
         if self.config.scaffold_gap == 0 {
-            eprintln!("[sweepga] Plane sweep filtering (no scaffolding)");
+            log::info!("[sweepga] Plane sweep filtering (no scaffolding)");
             let total_kept_bases: u64 = metadata.iter().map(|m| m.block_length).sum();
             let avg_identity = if !metadata.is_empty() {
                 metadata.iter().map(|m| m.identity).sum::<f64>() / metadata.len() as f64
             } else {
                 0.0
             };
-            eprintln!(
+            log::info!(
                 "[sweepga] Summary: {} → {} mappings ({:.1}% kept)",
                 all_original_mappings.len(),
                 metadata.len(),
                 (metadata.len() as f64 / all_original_mappings.len().max(1) as f64) * 100.0
             );
-            eprintln!(
+            log::info!(
                 "[sweepga]   Output: {:.1} Mb total, {:.1}% avg identity",
                 total_kept_bases as f64 / 1_000_000.0,
                 avg_identity * 100.0
@@ -438,7 +438,7 @@ impl PafFilter {
 
         // Use scaffold_gap for merging into scaffolds
         let merged_chains = self.merge_mappings_into_chains(&metadata, self.config.scaffold_gap)?;
-        // eprintln!(
+        // log::info!(
         //     "[sweepga]   Merged into {} chains (gap ≤ {})",
         //     merged_chains.len(),
         //     self.config.scaffold_gap
@@ -452,13 +452,13 @@ impl PafFilter {
                     && chain.weighted_identity >= self.config.min_scaffold_identity
             })
             .collect();
-        // eprintln!(
+        // log::info!(
         //     "[sweepga]   Length/identity filter: {} chains kept, {} removed",
         //     filtered_chains.len(),
         //     filtered_out
         // );
         if self.config.min_scaffold_length > 0 || self.config.min_scaffold_identity > 0.0 {
-            // eprintln!(
+            // log::info!(
             //     "[sweepga]   Min length: {}, min identity: {:.1}%",
             //     self.config.min_scaffold_length,
             //     self.config.min_scaffold_identity * 100.0
@@ -475,7 +475,7 @@ impl PafFilter {
         }
 
         filtered_chains = self.apply_scaffold_plane_sweep(filtered_chains)?;
-        // eprintln!(
+        // log::info!(
         //     "[sweepga]   Scaffold sweep: {} → {} scaffolds",
         //     before_sweep,
         //     filtered_chains.len()
@@ -602,8 +602,8 @@ impl PafFilter {
             .copied()
             .collect();
 
-        // eprintln!("[sweepga] Rescue phase");
-        // eprintln!(
+        // log::info!("[sweepga] Rescue phase");
+        // log::info!(
         //     "[sweepga]   Anchors: {} mappings in {} scaffolds",
         //     anchor_ranks.len(),
         //     filtered_chains.len()

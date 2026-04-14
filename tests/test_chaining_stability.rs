@@ -59,9 +59,9 @@ fn test_chaining_monotonicity() {
     for gap in &gaps {
         let output = std::process::Command::new(sweepga_bin())
             .arg("data/scerevisiae8.fa.gz")
-            .arg("-j")
+            .arg("--scaffold-jump")
             .arg(gap.to_string())
-            .arg("-i")
+            .arg("--min-aln-identity")
             .arg("0") // No identity filter for this test
             .output()
             .expect("Failed to run sweepga");
@@ -101,9 +101,9 @@ fn test_chain_identity_stability() {
     for gap in gaps {
         let output = std::process::Command::new(sweepga_bin())
             .arg("data/scerevisiae8.fa.gz")
-            .arg("-j")
+            .arg("--scaffold-jump")
             .arg(gap.to_string())
-            .arg("-i")
+            .arg("--min-aln-identity")
             .arg("0.90") // 90% identity threshold
             .arg("--paf") // Output PAF format
             .output()
