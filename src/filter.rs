@@ -1,6 +1,6 @@
 use anyhow::Result;
 use crate::mapping::{Mapping, MappingAux};
-use std::collections::HashMap;
+use crate::det_map::DetMap;
 use crate::filter_scaffold;
 
 /// Filtering mode
@@ -81,8 +81,8 @@ impl FilterEngine {
     }
 
     /// Group mappings by query-target prefix pairs
-    fn group_by_prefix_pairs(&self) -> HashMap<(String, String), Vec<usize>> {
-        let mut groups: HashMap<(String, String), Vec<usize>> = HashMap::new();
+    fn group_by_prefix_pairs(&self) -> DetMap<(String, String), Vec<usize>> {
+        let mut groups: DetMap<(String, String), Vec<usize>> = DetMap::new();
 
         for (i, (mapping, aux)) in self.mappings.iter().zip(self.aux_data.iter()).enumerate() {
             let query_prefix = if self.config.skip_prefix {
@@ -306,7 +306,7 @@ impl FilterEngine {
     /// Keep only top N mappings per query-ref group
     fn filter_by_group(&mut self, max_per_group: usize) -> Result<()> {
         // Group mappings by query-ref pair
-        let mut groups: HashMap<(i32, u32), Vec<usize>> = HashMap::new();
+        let mut groups: DetMap<(i32, u32), Vec<usize>> = DetMap::new();
 
         for (i, mapping) in self.mappings.iter().enumerate() {
             let key = (self.aux_data[i].query_seq_id, mapping.ref_seq_id);
@@ -381,7 +381,7 @@ impl FilterEngine {
         // eprintln!("[SCAFFOLD_TRACE] Input: {} mappings", self.mappings.len());
 
         // Group mappings by query-ref pair at scaffold level
-        let mut scaffold_groups: HashMap<(i32, u32), Vec<usize>> = HashMap::new();
+        let mut scaffold_groups: DetMap<(i32, u32), Vec<usize>> = DetMap::new();
 
         for (i, mapping) in self.mappings.iter().enumerate() {
             let key = (self.aux_data[i].query_seq_id, mapping.ref_seq_id);
@@ -585,7 +585,7 @@ impl FilterEngine {
     /// Apply one-to-one filtering (reciprocal best hits)
     fn one_to_one_filter(&mut self) -> Result<()> {
         // Find best mapping for each query
-        let mut best_for_query: HashMap<i32, (usize, u32)> = HashMap::new();
+        let mut best_for_query: DetMap<i32, (usize, u32)> = DetMap::new();
 
         for (i, mapping) in self.mappings.iter().enumerate() {
             let query_id = self.aux_data[i].query_seq_id;
@@ -603,7 +603,7 @@ impl FilterEngine {
         }
 
         // Find best mapping for each reference
-        let mut best_for_ref: HashMap<u32, (usize, u32)> = HashMap::new();
+        let mut best_for_ref: DetMap<u32, (usize, u32)> = DetMap::new();
 
         for (i, mapping) in self.mappings.iter().enumerate() {
             let ref_id = mapping.ref_seq_id;
@@ -645,7 +645,7 @@ impl FilterEngine {
     /// Filter for 1:N mode - keep best per query, limit per target
     fn filter_one_to_many(&mut self) -> Result<()> {
         // First, keep only best mapping per query
-        let mut best_per_query: HashMap<i32, (usize, u32)> = HashMap::new();
+        let mut best_per_query: DetMap<i32, (usize, u32)> = DetMap::new();
 
         for (i, mapping) in self.mappings.iter().enumerate() {
             let query_id = self.aux_data[i].query_seq_id;
@@ -667,7 +667,7 @@ impl FilterEngine {
 
         // Now apply target limit if specified
         if let Some(max_per_target) = self.config.max_per_target {
-            let mut target_counts: HashMap<u32, Vec<(usize, u32)>> = HashMap::new();
+            let mut target_counts: DetMap<u32, Vec<(usize, u32)>> = DetMap::new();
 
             for &idx in &keep_indices {
                 let mapping = &self.mappings[idx];
@@ -706,7 +706,7 @@ impl FilterEngine {
 
         // Apply per-query limit
         if let Some(max_per_query) = self.config.max_per_query {
-            let mut query_groups: HashMap<i32, Vec<(usize, u32)>> = HashMap::new();
+            let mut query_groups: DetMap<i32, Vec<(usize, u32)>> = DetMap::new();
 
             for (i, mapping) in self.mappings.iter().enumerate() {
                 let query_id = self.aux_data[i].query_seq_id;
@@ -727,7 +727,7 @@ impl FilterEngine {
 
         // Apply per-target limit
         if let Some(max_per_target) = self.config.max_per_target {
-            let mut target_groups: HashMap<u32, Vec<(usize, u32)>> = HashMap::new();
+            let mut target_groups: DetMap<u32, Vec<(usize, u32)>> = DetMap::new();
 
             for &idx in &keep_indices {
                 let mapping = &self.mappings[idx];

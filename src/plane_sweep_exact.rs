@@ -467,14 +467,14 @@ pub fn plane_sweep_grouped_query(
     overlap_threshold: f64,
     scoring: ScoringFunction,
 ) -> Vec<usize> {
-    use std::collections::HashMap;
+    use crate::det_map::DetMap;
 
     if mappings.is_empty() {
         return Vec::new();
     }
 
     // Group by query sequence
-    let mut groups: HashMap<String, Vec<usize>> = HashMap::new();
+    let mut groups: DetMap<String, Vec<usize>> = DetMap::new();
     for (idx, (_, query_name)) in mappings.iter().enumerate() {
         groups.entry(query_name.clone()).or_default().push(idx);
     }
@@ -517,14 +517,14 @@ pub fn plane_sweep_grouped_pairs(
     overlap_threshold: f64,
     scoring: ScoringFunction,
 ) -> Vec<usize> {
-    use std::collections::HashMap;
+    use crate::det_map::DetMap;
 
     if mappings.is_empty() {
         return Vec::new();
     }
 
     // Group by (query_prefix, target_prefix) pairs
-    let mut groups: HashMap<(String, String), Vec<usize>> = HashMap::new();
+    let mut groups: DetMap<(String, String), Vec<usize>> = DetMap::new();
     for (idx, (_, query_group, target_group)) in mappings.iter().enumerate() {
         groups
             .entry((query_group.clone(), target_group.clone()))
@@ -576,14 +576,14 @@ pub fn plane_sweep_grouped_target(
     overlap_threshold: f64,
     scoring: ScoringFunction,
 ) -> Vec<usize> {
-    use std::collections::HashMap;
+    use crate::det_map::DetMap;
 
     if mappings.is_empty() {
         return Vec::new();
     }
 
     // Group by target sequence
-    let mut groups: HashMap<String, Vec<usize>> = HashMap::new();
+    let mut groups: DetMap<String, Vec<usize>> = DetMap::new();
     for (idx, (_, target_name)) in mappings.iter().enumerate() {
         groups.entry(target_name.clone()).or_default().push(idx);
     }

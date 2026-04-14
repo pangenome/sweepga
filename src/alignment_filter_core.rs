@@ -87,7 +87,11 @@ pub fn select_tree_pairs(
             .collect();
 
         // Sort by identity (descending for nearest, ascending for farthest)
-        pairs.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap());
+        pairs.sort_by(|a, b| {
+            b.1.partial_cmp(&a.1)
+                .unwrap_or(std::cmp::Ordering::Equal)
+                .then_with(|| a.0.cmp(&b.0))
+        });
 
         // Select k nearest (highest identity)
         for (_, _, pair) in pairs.iter().take(k_nearest) {
