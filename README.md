@@ -1,365 +1,150 @@
 # SweepGA
 
-Fast genome alignment with plane sweep filtering and scaffolding. Wraps wfmash and FastGA aligners and applies plane sweep and other filtering methods to keep the best non-overlapping alignments.
+Fast all-vs-all genome alignment with plane-sweep filtering and scaffold-aware
+chaining. Wraps [FastGA](https://github.com/thegenemyers/FASTGA) (default) and
+[wfmash](https://github.com/waveygang/wfmash), then applies a plane sweep to
+drop near-duplicate mappings and (optionally) chains nearby alignments into
+syntenic scaffolds.
 
 ## What it does
 
-SweepGA can:
-1. **Align FASTA files directly** using integrated wfmash or FastGA (supports .fa.gz)
-2. **Filter existing alignments** from any aligner (wfmash, minimap2, etc.)
-3. **Apply scaffolding/chaining** to merge nearby alignments into syntenic regions
-4. **Output multiple formats**: PAF (text) or .1aln (binary ONE format)
+- **Align** — one or more FASTA files → PAF or `.1aln`. Uses FastGA or
+  wfmash; PanSN-aware; scales k-mer frequency to the cohort size
+  automatically.
+- **Filter** — take any aligner's PAF/1aln and apply the same plane-sweep
+  + scaffold pipeline.
+- **Scale** — built-in batching (`--batch-bytes`, `--max-disk`) partitions
+  large cohorts into memory/disk-bounded batches.
+- **Sparsify** — optionally pre-select which pairs to align (random, tree,
+  giant-component, wfmash-density).
 
-By default, it applies 1:1 plane sweep filtering to remove duplicate mappings. Scaffolding/chaining is disabled by default but can be enabled with `-j` to merge nearby alignments into syntenic regions.
+Ships two binaries: **`sweepga`** (the aligner/filter) and **`alnstats`**
+(a small PAF/1aln statistics tool).
 
-## Tools Included
-
-This package includes two binaries:
-
-- **`sweepga`** - Genome alignment, filtering, and scaffolding tool
-- **`alnstats`** - Alignment statistics and validation tool
-
-Use `alnstats` to verify filtering results:
-```bash
-# Show statistics for a PAF file
-alnstats alignments.paf
-
-# Compare before/after filtering
-alnstats raw.paf filtered.paf
-
-# Detailed per-genome-pair breakdown
-alnstats alignments.paf -d
-```
-
-## Installation
-
-### From crates.io (recommended)
+## Install
 
 ```bash
+# From crates.io
 cargo install sweepga
-```
 
-This installs both `sweepga` and `alnstats` binaries from the published crate.
-
-### From source
-
-Requires Rust 1.70+. Clone and install:
-
-```bash
+# From source
 git clone https://github.com/pangenome/sweepga.git
 cd sweepga
 cargo install --force --path .
 ```
 
-### Build Issues on Mixed glibc Systems
+Requires Rust ≥ 1.70.
 
-**Symptoms:** Build fails with linker errors like:
-```
-ld: /usr/lib/x86_64-linux-gnu/librt.so: undefined reference to '__pthread_barrier_wait@GLIBC_PRIVATE'
-```
+On mixed-glibc systems (e.g. Debian + Guix) a plain `cargo build` may fail
+with `__pthread_barrier_wait@GLIBC_PRIVATE` link errors. Use
+`./scripts/build-clean.sh --install` — see
+[docs/BUILD-NOTES.md](docs/BUILD-NOTES.md).
 
-This occurs on systems with multiple package managers (e.g., Debian + Guix) providing different glibc versions.
-
-**Fix:** Use the clean build script to isolate from environment conflicts:
+## Quick start
 
 ```bash
-./scripts/build-clean.sh --install
+# Self-alignment of one FASTA (FastGA, default)
+sweepga genome.fa.gz --output-file aln.paf
+
+# Use wfmash instead
+sweepga --wfmash genome.fa.gz --output-file aln.paf
+
+# Pairwise alignment of two FASTAs
+sweepga target.fa query.fa --output-file aln.paf
+
+# Filter an existing PAF (any aligner)
+sweepga alignments.paf --output-file filtered.paf
+
+# Convert .1aln → PAF
+sweepga alignments.1aln --paf > out.paf
+
+# AGC archive input (extract samples, align, filter)
+sweepga --agc-samples HG002,HG005 genomes.agc --output-file aln.paf
 ```
 
-See [docs/BUILD-NOTES.md](docs/BUILD-NOTES.md) for details.
+`sweepga` auto-detects input type (FASTA vs. PAF/1aln) and picks a
+reasonable pipeline. Run `sweepga --help` for the full flag list.
 
-### With Guix
+## Defaults
 
-Adapted from https://issues.genenetwork.org/topics/rust/guix-rust-bootstrap:
+The defaults are tuned for pangenome alignment (matches impg's historical
+settings):
 
-```shell
-# Update Guix
-mkdir -p $HOME/opt
-guix pull -p $HOME/opt/guix-pull-20251012 --url=https://codeberg.org/guix/guix
+| Flag | Default | Meaning |
+|---|---|---|
+| `--aligner` | `fastga` | Aligner backend. Use `--wfmash` or `--aligner wfmash` to switch. |
+| `--num-mappings` | `many:many` | Pre-scaffold plane-sweep: keep all mappings per query/target. |
+| `--scaffold-jump` | `50k` | Scaffolding **is enabled by default**; chains mappings within a 50kb gap. Pass `--scaffold-jump 0` to disable. |
+| `--scaffold-mass` | `10k` | Drop scaffold chains shorter than 10kb. |
+| `--scaffold-filter` | `many:many` | Keep all non-overlapping scaffolds. Use `1:1` for the aggressive (best-per-chromosome-pair) filter. |
+| `--overlap` | `0.95` | Drop mappings whose overlap with a better-scoring one exceeds 95%. |
+| `--scoring` | `log-length-ani` | Plane-sweep scoring function. |
+| `--threads` | `8` | Parallelism. |
 
-# Be sure to use the updated Guix
-alias guix=$HOME/opt/guix-pull-20251012/bin/guix
+Adaptive behavior: when the input average sequence length is known
+(FASTA with `.fai`), `--scaffold-mass` and `--scaffold-jump` are clamped
+to the sequence-length scale so short inputs (e.g. pangenome-window
+excerpts) don't get filtered empty. Pass `--no-adaptive-scaffolds` to
+turn clamping off.
 
-# Update Rust and Cargo
-mkdir -p ~/.cargo ~/.rustup # to prevent rebuilds
-guix shell --share=$HOME/.cargo  --share=$HOME/.rustup -C -N -D -F -v 3 guix gcc-toolchain make libdeflate pkg-config xz coreutils sed zstd zlib nss-certs openssl curl git
-curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
-. ~/.cargo/env
-rustup default stable
-exit
+## Scaffolding pipeline
 
-# Clone the repository
-git clone https://github.com/pangenome/sweepga.git
-cd sweepga
+When `--scaffold-jump > 0` (the default), sweepga runs:
 
-guix shell --share=$HOME/.cargo  --share=$HOME/.rustup -C -N -D -F -v 3 guix gcc-toolchain make libdeflate pkg-config xz coreutils sed zstd zlib nss-certs openssl curl cmake git clang # we need cmake and clang too for building
-. ~/.cargo/env
-export LD_LIBRARY_PATH=$GUIX_ENVIRONMENT/lib
-cargo build --release
+1. **Pre-scaffold plane sweep** per (query, target) chromosome pair
+   using `--num-mappings` / `--scoring` / `--overlap`.
+2. **Scaffold creation** — union-find merges mappings within
+   `--scaffold-jump` on both axes; chains shorter than
+   `--scaffold-mass` are dropped.
+3. **Scaffold plane sweep** using `--scaffold-filter` (default
+   `many:many`); `1:1` keeps the single best scaffold per
+   chromosome-pair.
+4. **Rescue** (`--scaffold-dist > 0`) — recover mappings within the
+   Euclidean distance of a kept scaffold anchor. Off by default.
 
-# Check the lib path and put it into your ~/.bashrc or ~/.zshrc
-echo $GUIX_ENVIRONMENT/
-   #/gnu/store/whgjblccmr4kdmsi4vg8h0p53m5f7sch-profile/
-exit
-echo "export GUIX_ENVIRONMENT=/gnu/store/whgjblccmr4kdmsi4vg8h0p53m5f7sch-profile/" >> ~/.bashrc # or ~/.zshrc
-source ~/.bashrc # or ~/.zshrc
+Pass `--no-filter` to skip everything and just emit the raw aligner
+output (or the raw input PAF).
 
-# Use the executable in sweepga/target/release
-env LD_LIBRARY_PATH=$GUIX_ENVIRONMENT/lib ./target/release/sweepga --help
-```
+## Sparsification
 
-## Basic Usage
+`--sparsify` picks which pairs actually get aligned (for FASTA input)
+or how densely wfmash reports mappings:
 
-### Direct alignment (FASTA input)
+| Value | Behavior |
+|---|---|
+| `none` (default) | Align all pairs, report all mappings |
+| `auto` | Heuristic pick based on cohort size |
+| `<f>` or `random:<f>` | Random `<f>` fraction of pairs |
+| `giant:<p>` / `connectivity:<p>` | Giant-component connectivity guarantee |
+| `tree:<near>[:<far>[:<random>]]` | Tree-sampled neighbor pairs |
+| `wfmash:auto` / `wfmash:<f>` | wfmash mapping density (`-x` flag); auto = `ln(n)/n*10` |
+
+`--sparsify-pairs` is a separate knob that only drives pre-alignment
+pair selection (same grammar, no wfmash variant).
+
+## PanSN
+
+Sequence names like `SAMPLE#HAPLOTYPE#CHR` are treated pair-wise
+per-chromosome within each genome pair. Prefix delimiter is `#`.
+
+## Output
+
+- `.paf` — standard PAF text.
+- `.1aln` — compact binary [ONE](https://github.com/thegenemyers/ONEcode)
+  format (50–70% smaller, preserves edit distances). Pass `--paf` to
+  convert to PAF on read.
+
+Output path is chosen by `--output-file` (extension auto-detected) or
+the explicit `--paf` / `--1aln` flags.
+
+## Alnstats
 
 ```bash
-# Self-alignment with 1:1 filtering
-sweepga genome.fa.gz > output.paf
-
-# Pairwise alignment (target, query order)
-sweepga target.fa query.fa > output.paf
-
-# With 2 threads
-sweepga genome.fa.gz -t 2 > output.paf
-
-# Output in .1aln format (binary, more compact)
-sweepga genome.fa.gz --output-file output.1aln
+alnstats alignments.paf              # summary
+alnstats raw.paf filtered.paf        # before/after
+alnstats alignments.paf -d           # per-genome-pair breakdown
 ```
-
-### Filtering existing alignments
-
-```bash
-# Filter PAF from stdin (pipe)
-cat alignments.paf | sweepga > filtered.paf
-
-# Filter PAF from stdin (redirection)
-sweepga < alignments.paf > filtered.paf
-
-# Read PAF file directly
-sweepga alignments.paf > filtered.paf
-
-# Filter .1aln format (preserves format)
-sweepga alignments.1aln --output-file filtered.1aln
-
-# Convert .1aln to PAF
-sweepga alignments.1aln --paf > output.paf
-```
-
-### Scaffolding and chaining
-
-Scaffolding is disabled by default. Enable it with `-j` to merge nearby alignments into syntenic chains:
-
-```bash
-# Enable scaffolding with 10kb gap distance
-sweepga genome.fa.gz -j 10k > output.paf
-
-# Aggressive scaffolding with 1:1 filtering and rescue
-sweepga alignments.paf -j 10k -s 10k -m 1:1 -d 20k > filtered.paf
-
-# Permissive: keep all scaffolds without filtering
-sweepga alignments.paf -j 50k -m many:many > filtered.paf
-```
-
-## Parameters
-
-### Basic Filtering
-
-**`-n/--num-mappings`** - Pre-scaffold filter: n:m-best mappings in query:target dimensions (default: `1:1`)
-- `"1:1"` - Orthogonal: keep best mapping on both query and target axes
-- `"1"` or `"1:∞"` - Keep best mapping per query position only
-- `"many"` or `"N:N"` - No pre-filtering, pass all to scaffolding
-- `"n:m"` - Keep top n per query, top m per target
-
-**`-o/--overlap`** - Maximum overlap ratio for mappings (default: 0.95)
-- Mappings with >95% overlap with a better-scoring mapping are removed
-
-**`-b/--block-length`** - Minimum alignment block length (default: 0)
-
-**`-i/--min-identity`** - Minimum identity threshold (0-1 fraction, 1-100%, or "aniN")
-
-**`--scoring`** - Scoring function for plane sweep (default: `log-length-ani`)
-- `ani` - Sort by alignment identity %
-- `length` - Sort by alignment length
-- `length-ani` - Sort by length × identity
-- `log-length-ani` - Sort by log(length) × identity
-- `matches` - Sort by number of matching bases
-
-**`--self`** - Include self-mappings (excluded by default)
-
-**`-N/--no-filter`** - Disable all filtering
-
-### Scaffolding and Chaining
-
-**`-j/--scaffold-jump`** - Gap distance for merging alignments into scaffolds (default: `0` = disabled)
-- `0` - Scaffolding disabled (default)
-- `10000` or `10k` - Merge alignments within 10kb gaps (moderate)
-- Higher values create longer scaffold chains
-- Accepts k/m/g suffix (e.g., `50k`, `1m`)
-
-**`-s/--scaffold-mass`** - Minimum scaffold chain length (default: `10k`)
-- Filters out short scaffold chains
-- Accepts k/m/g suffix
-
-**`-m/--scaffold-filter`** - Scaffold filter mode (default: `many:many` = no filtering)
-- `"1:1"` - Keep best scaffold per chromosome pair (**90-99% reduction**)
-- `"1"` or `"1:∞"` - One scaffold per query, many per target
-- `"N:N"` or `"many:many"` - Keep all non-overlapping scaffolds (**30-70% reduction**)
-- `"n:m"` - Keep top n per query, top m per target
-
-**`-O/--scaffold-overlap`** - Overlap threshold for scaffold filtering (default: 0.5)
-
-**`-d/--scaffold-dist`** - Maximum distance for rescuing alignments near scaffolds (default: `0` = disabled)
-- `0` - No rescue (default)
-- `20000` or `20k` - Rescue alignments within 20kb of scaffold anchors
-- Higher values rescue more alignments
-- Distance is Euclidean: `sqrt((q_dist)² + (t_dist)²)`
-- Only active when scaffolding is enabled (`-j > 0`)
-
-**`-Y/--min-scaffold-identity`** - Minimum scaffold identity threshold (defaults to `-i` value)
-
-**`--scaffolds-only`** - Output only scaffold chains for debugging
-
-### Output Options
-
-**`--output-file <FILE>`** - Write output to file (auto-detects format from extension)
-- `.paf` - PAF text format
-- `.1aln` - Binary ONE format (more compact)
-
-**`--paf`** - Force PAF output format (overrides .1aln default for .1aln inputs)
-
-**`--1aln`** - Output .1aln binary format instead of default PAF
-
-### Advanced Filtering
-
-**`-x/--sparsify`** - Tree sparsification pattern (default: `1.0` = keep all)
-- `"0.5"` - Keep 50% of alignments
-- `"tree:3"` - Tree pattern with depth 3
-- `"tree:3,2,0.1"` - Complex tree pattern
-
-**`--ani-method`** - ANI calculation method (default: `n100`)
-- `all` - Use all bases
-- `orthogonal` - Use orthogonal alignments only
-- `nX[-sort]` - Use top X% (e.g., `n50`, `n90-identity`, `n100-score`)
-
-### General Options
-
-**`-t/--threads`** - Number of threads for parallel processing (default: 8)
-
-**`--quiet`** - Quiet mode (no progress output)
-
-**`--tempdir <DIR>`** - Temporary directory for intermediate files (defaults to `TMPDIR` env var, then current directory). Use `--tempdir ramdisk` for `/dev/shm` (Linux RAM-backed tmpfs)
-
-**`--check-fastga`** - Check FastGA binary locations and exit (diagnostic)
-
-**`--aligner <ALIGNER>`** - Aligner for FASTA input: `wfmash` or `fastga` (default: `wfmash`)
-
-**`-f/--frequency <N>`** - FastGA k-mer frequency threshold
-
-**`--all-pairs`** - Align all genome pairs separately (for many genomes)
-
-**`--disk-usage`** - Report disk usage statistics (current, peak, cumulative bytes written)
-
-### Batch Processing
-
-**`--batch-bytes <SIZE>`** - Maximum resource usage per batch (e.g., `10G`, `500M`). Partitions genomes into batches. FastGA: limits disk (index ~0.1GB + 12 bytes/bp). Wfmash: limits memory (~0.5GB + 20 bytes/bp).
-
-**`--zstd`** - Compress k-mer index with zstd for ~2x disk savings and faster I/O
-
-**`--zstd-level <N>`** - Zstd compression level 1-19 (default: 3). Higher = smaller files but slower
-
-### AGC Archive Input
-
-SweepGA can process [AGC](https://github.com/refresh-bio/agc) genome archives directly:
-
-**`--agc-prefix <PREFIX>`** - Extract only samples matching this prefix
-
-**`--agc-samples <LIST>`** - Extract only these samples (comma-separated or `@file`)
-
-**`--agc-queries <LIST>`** / **`--agc-targets <LIST>`** - Query/target samples for asymmetric alignment
-
-**`--agc-tempdir <DIR>`** - Temp directory for AGC extraction (defaults to `--tempdir`)
-
-### Pair Selection
-
-For controlling which genome pairs are aligned:
-
-**`--pairs <FILE>`** - File of sample pairs to align (TSV: `query<tab>target`)
-
-**`--list-pairs`** - List all sample pairs and exit
-
-**`--max-pairs <N>`** - Maximum number of pairs to process (0 = unlimited)
-
-**`--shuffle-pairs`** / **`--shuffle-seed <N>`** - Shuffle pair order for load balancing
-
-**`--pairs-done <FILE>`** / **`--pairs-remaining <FILE>`** - Resume capability
-
-**`--pair-start <N>`** - Start index for pair range (0-based)
-
-**`--sparsify-pairs <STRATEGY>`** - Pair sparsification (none, auto, `random:<frac>`, `giant:<prob>`, `tree:<near>:<far>:<random>`)
-
-## How Scaffolding Works
-
-When scaffolding is enabled (with `-j > 0`), the filtering process follows these steps:
-
-1. **Input Processing** - Filter by minimum block length, exclude self-mappings
-2. **Pre-scaffold Filter** - Apply plane sweep filter to individual mappings (`-n`, default: `1:1`)
-   - Removes duplicate/overlapping mappings
-   - Keeps best mapping per query-target pair
-3. **Scaffold Creation** - Merge nearby alignments into chains using union-find algorithm
-   - Alignments within `-j` gap distance on both query and target are merged
-   - Chains shorter than `-s` minimum length are discarded
-4. **Scaffold Filter** - Apply plane sweep filter to scaffold chains (`-m`, default: `many:many`)
-   - `1:1` mode: Keep single best scaffold per chromosome pair (aggressive)
-   - `many:many` mode: Keep all non-overlapping scaffolds (moderate, default)
-5. **Rescue Phase** - Recover alignments near kept scaffolds (`-d`, default: `0` = disabled)
-   - When enabled, alignments within Euclidean distance of scaffold anchors are rescued
-   - Works per chromosome pair only
-
-**Example effects** (514k input alignments):
-- **Default** (`-n 1:1 -j 0`): 476k alignments (7% reduction from 1:1 plane sweep only)
-- **Moderate scaffolding** (`-n 1:1 -j 10k -m many:many -d 20k`): 180k alignments (65% reduction)
-- **Aggressive scaffolding** (`-n 1:1 -j 10k -m 1:1 -d 20k`): 13k alignments (97% reduction)
-
-## How Plane Sweep Works
-
-The plane sweep algorithm operates per query-target chromosome pair:
-
-1. **Group** by chromosome pairs
-2. **Sort** alignments by query position
-3. **Score** each alignment using `--scoring` function (default: `log(length) × identity`)
-4. **Sweep** left-to-right, keeping best alignments based on multiplicity:
-   - `1:1`: Keep single best alignment per position on both query and target
-   - `1:∞`: Keep best alignment per query position (multiple targets allowed)
-   - `N:N`: Keep all non-overlapping alignments
-5. **Filter** alignments with overlap exceeding threshold (`-o`)
-
-## PanSN Naming Convention
-
-When using PanSN-style sequence names (e.g., `genome#haplotype#chromosome`):
-
-- Filtering operates per chromosome pair within genome pairs
-- Example: `SGDref#1#chrI` paired with `DBVPG6765#1#chrI`
-- Ensures best alignments are kept for each chromosome pair within each genome pair
-- Maintains ~100% coverage for highly similar genomes
-
-## Output Formats
-
-### PAF Format (default for FASTA input)
-```
-query_name  query_len  query_start  query_end  strand  target_name  target_len  target_start  target_end  matches  block_len  mapq  [tags...]
-```
-
-### .1aln Format (binary ONE format)
-- More compact than PAF (typically 50-70% smaller)
-- Preserves all alignment information including X records (edit distances)
-- Faster to read/write for large files
-- Use `--paf` flag to convert to PAF for visualization
-
-## Citation
-
-SweepGA: Fast plane sweep filtering for genome alignments
-https://github.com/pangenome/sweepga
 
 ## License
 
-MIT License - see LICENSE file for details
+MIT.
