@@ -3,7 +3,7 @@ use crate::mapping::{Mapping, MappingAux, ChainStatus};
 use crate::filter::{FilterConfig, FilterMode};
 use crate::plane_sweep_scaffold::{ScaffoldLike, plane_sweep_scaffolds};
 use crate::paf_filter::ScoringFunction;
-use std::collections::HashMap;
+use crate::det_map::DetMap;
 
 /// Represents a merged scaffold chain with its boundaries
 #[derive(Debug, Clone)]
@@ -72,7 +72,7 @@ pub fn filter_by_scaffolds_with_rescue(
     //           filtered_mappings.len(), raw_mappings.len());
 
     // Group FILTERED mappings by query-ref CHROMOSOME pair to identify scaffolds
-    let mut groups: HashMap<(i32, u32), Vec<usize>> = HashMap::new();
+    let mut groups: DetMap<(i32, u32), Vec<usize>> = DetMap::new();
     for (i, mapping) in filtered_mappings.iter().enumerate() {
         let key = (filtered_aux[i].query_seq_id, mapping.ref_seq_id);
         groups.entry(key).or_insert_with(Vec::new).push(i);

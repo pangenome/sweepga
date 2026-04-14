@@ -1,5 +1,5 @@
 use anyhow::Result;
-use std::collections::HashMap;
+use crate::det_map::DetMap;
 
 #[derive(Debug, Clone)]
 pub struct Alignment {
@@ -20,7 +20,7 @@ pub struct Alignment {
 /// Merge overlapping and adjacent alignments
 pub fn merge_alignments(alignments: Vec<Alignment>) -> Vec<Alignment> {
     // Group by query-target-strand
-    let mut groups: HashMap<(String, String, char), Vec<Alignment>> = HashMap::new();
+    let mut groups: DetMap<(String, String, char), Vec<Alignment>> = DetMap::new();
 
     for aln in alignments {
         let key = (aln.query_name.clone(), aln.target_name.clone(), aln.strand);
@@ -88,7 +88,7 @@ pub fn merge_alignments(alignments: Vec<Alignment>) -> Vec<Alignment> {
 /// Chain alignments into scaffold chains
 pub fn chain_alignments(alignments: Vec<Alignment>, max_gap: u32) -> Vec<Vec<Alignment>> {
     // Group by query-target pair
-    let mut groups: HashMap<(String, String), Vec<Alignment>> = HashMap::new();
+    let mut groups: DetMap<(String, String), Vec<Alignment>> = DetMap::new();
 
     for aln in alignments {
         let key = (aln.query_name.clone(), aln.target_name.clone());

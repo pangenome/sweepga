@@ -2,10 +2,10 @@
 use crate::compact_mapping::CompactRecordMeta;
 use crate::sequence_index::SequenceIndex;
 /// Efficient grouped storage for mappings
-use std::collections::HashMap;
+use crate::det_map::DetMap;
 
 /// Key for grouping mappings by chromosome pair
-#[derive(Debug, Clone, Copy, Hash, Eq, PartialEq)]
+#[derive(Debug, Clone, Copy, Hash, Eq, PartialEq, Ord, PartialOrd)]
 pub struct ChromosomePair {
     pub query_id: u32,
     pub target_id: u32,
@@ -15,7 +15,7 @@ pub struct ChromosomePair {
 #[derive(Debug)]
 pub struct GroupedMappings {
     /// Groups of mappings indexed by chromosome pair
-    groups: HashMap<ChromosomePair, Vec<CompactRecordMeta>>,
+    groups: DetMap<ChromosomePair, Vec<CompactRecordMeta>>,
     /// Sequence name index
     seq_index: SequenceIndex,
 }
@@ -24,7 +24,7 @@ impl GroupedMappings {
     /// Create new grouped mappings
     pub fn new() -> Self {
         Self {
-            groups: HashMap::new(),
+            groups: DetMap::new(),
             seq_index: SequenceIndex::new(),
         }
     }
@@ -49,7 +49,7 @@ impl GroupedMappings {
     }
 
     /// Get all groups
-    pub fn groups(&self) -> &HashMap<ChromosomePair, Vec<CompactRecordMeta>> {
+    pub fn groups(&self) -> &DetMap<ChromosomePair, Vec<CompactRecordMeta>> {
         &self.groups
     }
 
@@ -102,15 +102,15 @@ impl GroupedMappings {
         self.groups.iter_mut()
     }
 
-    /// Reserve capacity for efficiency
-    pub fn reserve(&mut self, additional_groups: usize) {
-        self.groups.reserve(additional_groups);
+    /// Reserve capacity hint (no-op for BTreeMap, kept for API compatibility)
+    pub fn reserve(&mut self, _additional_groups: usize) {
+        // BTreeMap doesn't support reserve; this is a no-op
     }
 
     /// Build from a vector of mappings
     pub fn from_mappings(mappings: Vec<CompactRecordMeta>, seq_index: SequenceIndex) -> Self {
         let mut grouped = Self {
-            groups: HashMap::new(),
+            groups: DetMap::new(),
             seq_index,
         };
 

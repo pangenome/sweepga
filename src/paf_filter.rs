@@ -1,5 +1,6 @@
 use anyhow::Result;
 use std::collections::{HashMap, HashSet};
+use crate::det_map::DetMap;
 use std::fs::File;
 use std::io::{BufRead, BufWriter, Write};
 use std::path::Path;
@@ -535,7 +536,7 @@ impl PafFilter {
 
         // Pre-group reverse-strand mappings by (query_name, target_name) to avoid
         // scanning all mappings for every chain (was O(chains * all_mappings)).
-        let mut reverse_by_chr_pair: HashMap<(&str, &str), Vec<usize>> = HashMap::new();
+        let mut reverse_by_chr_pair: DetMap<(&str, &str), Vec<usize>> = DetMap::new();
         for (idx, mapping) in all_original_mappings.iter().enumerate() {
             if mapping.strand == '-' {
                 reverse_by_chr_pair
@@ -610,7 +611,7 @@ impl PafFilter {
         // );
 
         // Map ranks to indices in all_original_mappings
-        let mut rank_to_idx = HashMap::new();
+        let mut rank_to_idx = DetMap::new();
         for (idx, meta) in all_original_mappings.iter().enumerate() {
             rank_to_idx.insert(meta.rank, idx);
         }
@@ -619,7 +620,7 @@ impl PafFilter {
         // OPTIMIZED: Group by chromosome pair and sort for efficient rescue
 
         // First, group all mappings by (query_chr, target_chr) pair
-        let mut mappings_by_chr_pair: HashMap<(String, String), Vec<usize>> = HashMap::new();
+        let mut mappings_by_chr_pair: DetMap<(String, String), Vec<usize>> = DetMap::new();
         for (idx, mapping) in all_original_mappings.iter().enumerate() {
             let key = (mapping.query_name.clone(), mapping.target_name.clone());
             mappings_by_chr_pair.entry(key).or_default().push(idx);
@@ -631,7 +632,7 @@ impl PafFilter {
         }
 
         // Collect anchors by chromosome pair for efficient lookup
-        let mut anchors_by_chr_pair: HashMap<(String, String), Vec<usize>> = HashMap::new();
+        let mut anchors_by_chr_pair: DetMap<(String, String), Vec<usize>> = DetMap::new();
         for &anchor_rank in &anchor_ranks {
             if let Some(&anchor_idx) = rank_to_idx.get(&anchor_rank) {
                 let anchor = &all_original_mappings[anchor_idx];
@@ -641,7 +642,7 @@ impl PafFilter {
         }
 
         let mut kept_mappings = Vec::new();
-        let mut kept_status = HashMap::new();
+        let mut kept_status = DetMap::new();
         let max_deviation = self.config.scaffold_max_deviation;
 
         // Process each chromosome pair independently (can be parallelized)
@@ -753,7 +754,7 @@ impl PafFilter {
 
         // Group by (query, target, strand) - this is like wfmash's refSeqId grouping
         // Store the original rank, not the position in metadata array
-        let mut groups: HashMap<(String, String, char), Vec<(usize, usize)>> = HashMap::new();
+        let mut groups: DetMap<(String, String, char), Vec<(usize, usize)>> = DetMap::new();
 
         for (idx, meta) in metadata.iter().enumerate() {
             let key = (
@@ -765,6 +766,7 @@ impl PafFilter {
         }
 
         let mut all_chains = Vec::new();
+
 
         for ((query, target, strand), indices) in groups {
             // Sort by query start position (like wfmash's sort)
@@ -1026,7 +1028,7 @@ impl PafFilter {
 
         // CRITICAL: Group by (query_genome_prefix, target_genome_prefix) pairs FIRST
         // This ensures plane sweep runs independently for each genome pair
-        let mut genome_pair_groups: HashMap<(String, String), Vec<usize>> = HashMap::new();
+        let mut genome_pair_groups: DetMap<(String, String), Vec<usize>> = DetMap::new();
 
         for (i, (_, q, t)) in plane_sweep_mappings.iter().enumerate() {
             let query_genome = extract_genome_prefix(q);
@@ -1045,12 +1047,13 @@ impl PafFilter {
 
             // Query axis sweep: group by query chr within this genome pair
             let mut query_kept_set = HashSet::new();
-            let mut by_query: HashMap<String, Vec<usize>> = HashMap::new();
+            let mut by_query: DetMap<String, Vec<usize>> = DetMap::new();
 
             for &idx in &genome_pair_indices {
                 let (_, q, _t) = &plane_sweep_mappings[idx];
                 by_query.entry(q.clone()).or_default().push(idx);
             }
+
 
             for (_q_chr, indices) in by_query {
                 let mut query_mappings: Vec<_> =
@@ -1069,12 +1072,13 @@ impl PafFilter {
 
             // Target axis sweep: group by target chr within this genome pair
             let mut target_kept_set = HashSet::new();
-            let mut by_target: HashMap<String, Vec<usize>> = HashMap::new();
+            let mut by_target: DetMap<String, Vec<usize>> = DetMap::new();
 
             for &idx in &genome_pair_indices {
                 let (_, _q, t) = &plane_sweep_mappings[idx];
                 by_target.entry(t.clone()).or_default().push(idx);
             }
+
 
             for (_t_chr, indices) in by_target {
                 let mut target_mappings: Vec<_> =
@@ -1177,13 +1181,14 @@ impl PafFilter {
 
                 // Query axis sweep: group by query chr
                 let mut query_kept_set = HashSet::new();
-                let mut by_query: std::collections::HashMap<String, Vec<usize>> =
-                    std::collections::HashMap::new();
+                let mut by_query: crate::det_map::DetMap<String, Vec<usize>> =
+                    crate::det_map::DetMap::new();
 
                 for (i, (_, q, _t)) in plane_sweep_mappings.iter().enumerate() {
                     by_query.entry(q.clone()).or_default().push(i);
                 }
 
+    
                 for (_q_chr, indices) in by_query {
                     let mut query_mappings: Vec<_> =
                         indices.iter().map(|&i| plane_sweep_mappings[i].0).collect();
@@ -1201,13 +1206,14 @@ impl PafFilter {
 
                 // Target axis sweep: group by target chr
                 let mut target_kept_set = HashSet::new();
-                let mut by_target: std::collections::HashMap<String, Vec<usize>> =
-                    std::collections::HashMap::new();
+                let mut by_target: crate::det_map::DetMap<String, Vec<usize>> =
+                    crate::det_map::DetMap::new();
 
                 for (i, (_, _q, t)) in plane_sweep_mappings.iter().enumerate() {
                     by_target.entry(t.clone()).or_default().push(i);
                 }
 
+    
                 for (_t_chr, indices) in by_target {
                     let mut target_mappings: Vec<_> =
                         indices.iter().map(|&i| plane_sweep_mappings[i].0).collect();
@@ -1251,13 +1257,14 @@ impl PafFilter {
 
                 // Query axis sweep: group by query chr
                 let mut query_kept_set = HashSet::new();
-                let mut by_query: std::collections::HashMap<String, Vec<usize>> =
-                    std::collections::HashMap::new();
+                let mut by_query: crate::det_map::DetMap<String, Vec<usize>> =
+                    crate::det_map::DetMap::new();
 
                 for (i, (_, q, _t)) in plane_sweep_mappings.iter().enumerate() {
                     by_query.entry(q.clone()).or_default().push(i);
                 }
 
+    
                 for (_q_chr, indices) in by_query {
                     let mut query_mappings: Vec<_> =
                         indices.iter().map(|&i| plane_sweep_mappings[i].0).collect();
@@ -1275,13 +1282,14 @@ impl PafFilter {
 
                 // Target axis sweep: group by target chr
                 let mut target_kept_set = HashSet::new();
-                let mut by_target: std::collections::HashMap<String, Vec<usize>> =
-                    std::collections::HashMap::new();
+                let mut by_target: crate::det_map::DetMap<String, Vec<usize>> =
+                    crate::det_map::DetMap::new();
 
                 for (i, (_, _q, t)) in plane_sweep_mappings.iter().enumerate() {
                     by_target.entry(t.clone()).or_default().push(i);
                 }
 
+    
                 for (_t_chr, indices) in by_target {
                     let mut target_mappings: Vec<_> =
                         indices.iter().map(|&i| plane_sweep_mappings[i].0).collect();
@@ -1320,7 +1328,7 @@ impl PafFilter {
         use crate::plane_sweep_exact::{plane_sweep_both, PlaneSweepMapping};
 
         // Group by (query_chr, target_chr) pairs
-        let mut by_chr_pair: HashMap<(String, String), Vec<MergedChain>> = HashMap::new();
+        let mut by_chr_pair: DetMap<(String, String), Vec<MergedChain>> = DetMap::new();
 
         for chain in chains {
             let key = (chain.query_name.clone(), chain.target_name.clone());
@@ -1330,6 +1338,7 @@ impl PafFilter {
         let mut filtered_chains = Vec::new();
 
         // Apply plane sweep within each chromosome pair
+
         for (_pair, pair_chains) in by_chr_pair {
             if pair_chains.is_empty() {
                 continue;
@@ -1375,7 +1384,7 @@ impl PafFilter {
         use crate::plane_sweep_exact::{plane_sweep_query, PlaneSweepMapping};
 
         // Group by (query_chr, target_chr) pairs
-        let mut by_chr_pair: HashMap<(String, String), Vec<MergedChain>> = HashMap::new();
+        let mut by_chr_pair: DetMap<(String, String), Vec<MergedChain>> = DetMap::new();
 
         for chain in chains {
             let key = (chain.query_name.clone(), chain.target_name.clone());
@@ -1385,6 +1394,7 @@ impl PafFilter {
         let mut filtered_chains = Vec::new();
 
         // Apply plane sweep within each chromosome pair
+
         for (_pair, pair_chains) in by_chr_pair {
             if pair_chains.is_empty() {
                 continue;
@@ -1429,7 +1439,7 @@ impl PafFilter {
         chains: Vec<MergedChain>,
     ) -> Result<Vec<MergedChain>> {
         // Group chains by query
-        let mut by_query: HashMap<String, Vec<MergedChain>> = HashMap::new();
+        let mut by_query: DetMap<String, Vec<MergedChain>> = DetMap::new();
         for chain in chains {
             by_query
                 .entry(chain.query_name.clone())
@@ -1438,6 +1448,7 @@ impl PafFilter {
         }
 
         let mut filtered = Vec::new();
+
 
         for (_query, mut query_chains) in by_query {
             // Sort by chain score (descending) to prioritize better chains
@@ -1448,6 +1459,8 @@ impl PafFilter {
                 score_b
                     .partial_cmp(&score_a)
                     .unwrap_or(std::cmp::Ordering::Equal)
+                    .then_with(|| a.query_start.cmp(&b.query_start))
+                    .then_with(|| a.target_start.cmp(&b.target_start))
             });
 
             let mut kept: Vec<MergedChain> = Vec::new();
@@ -1489,7 +1502,7 @@ impl PafFilter {
 
     fn plane_sweep_filter_chains(&self, chains: Vec<MergedChain>) -> Result<Vec<MergedChain>> {
         // Group chains by query
-        let mut by_query: HashMap<String, Vec<MergedChain>> = HashMap::new();
+        let mut by_query: DetMap<String, Vec<MergedChain>> = DetMap::new();
         for chain in chains {
             by_query
                 .entry(chain.query_name.clone())
@@ -1498,6 +1511,7 @@ impl PafFilter {
         }
 
         let mut filtered = Vec::new();
+
 
         for (_query, mut query_chains) in by_query {
             // Sort by query start
@@ -1526,7 +1540,14 @@ impl PafFilter {
                             > self.config.scaffold_overlap_threshold
                         {
                             // Keep the better scoring chain
-                            if existing.score(scoring_func) > chain.score(scoring_func) {
+                            // On tie, use coordinates for determinism
+                            let existing_score = existing.score(scoring_func);
+                            let chain_score = chain.score(scoring_func);
+                            let keep_existing = existing_score > chain_score
+                                || (existing_score == chain_score
+                                    && (existing.query_start, existing.target_start)
+                                        <= (chain.query_start, chain.target_start));
+                            if keep_existing {
                                 has_significant_overlap = true;
                                 true // Keep existing
                             } else {
@@ -1562,7 +1583,7 @@ impl PafFilter {
 
     /// One-to-one filtering
     fn one_to_one_filter(&self, metadata: Vec<RecordMeta>) -> Result<Vec<RecordMeta>> {
-        let mut best_per_query: HashMap<String, RecordMeta> = HashMap::new();
+        let mut best_per_query: DetMap<String, RecordMeta> = DetMap::new();
 
         // Find best mapping per query
         for meta in metadata {
@@ -1577,7 +1598,7 @@ impl PafFilter {
         }
 
         // From those, keep best per target
-        let mut best_per_target: HashMap<String, RecordMeta> = HashMap::new();
+        let mut best_per_target: DetMap<String, RecordMeta> = DetMap::new();
         for meta in best_per_query.into_values() {
             best_per_target
                 .entry(meta.target_name.clone())
@@ -1597,7 +1618,7 @@ impl PafFilter {
         let mut result = Vec::new();
 
         // Group by query
-        let mut by_query: HashMap<String, Vec<RecordMeta>> = HashMap::new();
+        let mut by_query: DetMap<String, Vec<RecordMeta>> = DetMap::new();
         for meta in metadata {
             by_query
                 .entry(meta.query_name.clone())
@@ -1606,6 +1627,7 @@ impl PafFilter {
         }
 
         // Keep best per query, optionally limit per target
+
         for (_query, mut metas) in by_query {
             metas.sort_by_key(|m| std::cmp::Reverse(m.block_length));
 
@@ -1634,7 +1656,7 @@ impl PafFilter {
 
         // Apply per-query limit
         if let Some(limit) = self.config.mapping_max_per_query {
-            let mut by_query: HashMap<String, Vec<RecordMeta>> = HashMap::new();
+            let mut by_query: DetMap<String, Vec<RecordMeta>> = DetMap::new();
             for meta in result {
                 by_query
                     .entry(meta.query_name.clone())
@@ -1643,6 +1665,7 @@ impl PafFilter {
             }
 
             result = Vec::new();
+
             for (_query, mut metas) in by_query {
                 metas.sort_by_key(|m| std::cmp::Reverse(m.block_length));
                 metas.truncate(limit);
@@ -1652,13 +1675,14 @@ impl PafFilter {
 
         // Apply per-target limit
         if let Some(limit) = self.config.mapping_max_per_target {
-            let mut by_target: HashMap<String, Vec<RecordMeta>> = HashMap::new();
+            let mut by_target: DetMap<String, Vec<RecordMeta>> = DetMap::new();
             for meta in result {
                 by_target
                     .entry(meta.target_name.clone())
                     .or_default()
                     .push(meta);
             }
+
 
             result = Vec::new();
             for (_target, mut metas) in by_target {

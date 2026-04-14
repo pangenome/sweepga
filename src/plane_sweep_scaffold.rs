@@ -5,7 +5,7 @@ use crate::plane_sweep_exact::{plane_sweep_both, PlaneSweepMapping};
 /// This module provides reusable plane sweep logic that works on any chain-like structure.
 /// It's used by both filter_scaffold.rs and paf_filter.rs to deduplicate overlapping scaffolds.
 use anyhow::Result;
-use std::collections::HashMap;
+use crate::det_map::DetMap;
 
 /// Extract PanSN genome prefix from sequence name
 /// Default: first two parts (genome#haplotype#) for standard PanSN format
@@ -111,8 +111,8 @@ fn apply_one_to_one_sweep(
     scoring_function: ScoringFunction,
 ) -> Result<Vec<usize>> {
     // First, organize by genome pair (for logging/organization)
-    let mut genome_pairs: HashMap<(String, String), HashMap<(String, String), Vec<usize>>> =
-        HashMap::new();
+    let mut genome_pairs: DetMap<(String, String), DetMap<(String, String), Vec<usize>>> =
+        DetMap::new();
 
     for (i, (_, q, t)) in plane_sweep_mappings.iter().enumerate() {
         let q_prefix = extract_genome_prefix(q);
@@ -198,8 +198,8 @@ fn apply_many_sweep(
     let target_limit = max_per_target.unwrap_or(usize::MAX);
 
     // First, organize by genome pair, then by chromosome pair
-    let mut genome_pairs: HashMap<(String, String), HashMap<(String, String), Vec<usize>>> =
-        HashMap::new();
+    let mut genome_pairs: DetMap<(String, String), DetMap<(String, String), Vec<usize>>> =
+        DetMap::new();
 
     for (i, (_, q, t)) in plane_sweep_mappings.iter().enumerate() {
         let q_prefix = extract_genome_prefix(q);

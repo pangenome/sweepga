@@ -174,11 +174,13 @@ fn filter_by_overlap(
     }
 
     // Sort by score (best first) for overlap filtering
+    // Use index as tie-breaker for determinism when scores are equal
     kept_indices.sort_by(|&a, &b| {
         intervals[b]
             .score
             .partial_cmp(&intervals[a].score)
             .unwrap_or(Ordering::Equal)
+            .then_with(|| a.cmp(&b))
     });
 
     // Keep only non-overlapping or below threshold

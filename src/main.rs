@@ -4,6 +4,7 @@ mod aln_filter;
 mod batch_align;
 mod binary_paths;
 mod compact_mapping;
+mod det_map;
 mod disk_usage;
 mod fastga_integration;
 mod filter_types;

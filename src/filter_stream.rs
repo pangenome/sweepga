@@ -1,5 +1,6 @@
 use anyhow::Result;
 use std::collections::{HashMap, HashSet};
+use crate::det_map::DetMap;
 use std::fs::File;
 use std::io::{BufRead, BufReader, BufWriter, Write};
 use std::path::Path;
@@ -387,7 +388,7 @@ impl StreamFilter {
 
         // Group by (query, target, strand) - this is like wfmash's refSeqId grouping
         // Store the original rank, not the position in metadata array
-        let mut groups: HashMap<(String, String, char), Vec<(usize, usize)>> = HashMap::new();
+        let mut groups: DetMap<(String, String, char), Vec<(usize, usize)>> = DetMap::new();
 
         for (idx, meta) in metadata.iter().enumerate() {
             let key = (meta.query_name.clone(), meta.target_name.clone(), meta.strand);
@@ -560,7 +561,7 @@ impl StreamFilter {
         // We only remove mappings that significantly overlap with better ones
 
         // Group by target sequence for independent plane sweep
-        let mut by_target: std::collections::HashMap<String, Vec<RecordMeta>> = std::collections::HashMap::new();
+        let mut by_target: crate::det_map::DetMap<String, Vec<RecordMeta>> = crate::det_map::DetMap::new();
         for mapping in mappings {
             by_target.entry(mapping.target_name.clone()).or_insert_with(Vec::new).push(mapping.clone());
         }
@@ -618,7 +619,7 @@ impl StreamFilter {
     /// Keep all non-overlapping chains (for scaffold filtering with -n inf behavior)
     fn plane_sweep_keep_all_non_overlapping(&self, chains: Vec<MergedChain>) -> Result<Vec<MergedChain>> {
         // Group chains by query
-        let mut by_query: HashMap<String, Vec<MergedChain>> = HashMap::new();
+        let mut by_query: DetMap<String, Vec<MergedChain>> = DetMap::new();
         for chain in chains {
             by_query.entry(chain.query_name.clone()).or_insert_with(Vec::new).push(chain);
         }
@@ -627,7 +628,12 @@ impl StreamFilter {
 
         for (_query, mut query_chains) in by_query {
             // Sort by total length (descending) to prioritize longer chains
-            query_chains.sort_by(|a, b| b.total_length.cmp(&a.total_length));
+            query_chains.sort_by(|a, b| {
+                b.total_length
+                    .cmp(&a.total_length)
+                    .then_with(|| a.query_start.cmp(&b.query_start))
+                    .then_with(|| a.target_start.cmp(&b.target_start))
+            });
 
             let mut kept: Vec<MergedChain> = Vec::new();
 
@@ -668,7 +674,7 @@ impl StreamFilter {
 
     fn plane_sweep_filter_chains(&self, chains: Vec<MergedChain>) -> Result<Vec<MergedChain>> {
         // Group chains by query
-        let mut by_query: HashMap<String, Vec<MergedChain>> = HashMap::new();
+        let mut by_query: DetMap<String, Vec<MergedChain>> = DetMap::new();
         for chain in chains {
             by_query.entry(chain.query_name.clone()).or_insert_with(Vec::new).push(chain);
         }
@@ -698,8 +704,12 @@ impl StreamFilter {
 
                         // If >50% overlap (wfmash uses scaffold_overlap_threshold)
                         if overlap_len as f64 / min_len as f64 > self.config.scaffold_overlap_threshold {
-                            // Keep the longer chain
-                            if existing.total_length > chain.total_length {
+                            // Keep the longer chain; on tie, use coordinates for determinism
+                            let keep_existing = existing.total_length > chain.total_length
+                                || (existing.total_length == chain.total_length
+                                    && (existing.query_start, existing.target_start)
+                                        <= (chain.query_start, chain.target_start));
+                            if keep_existing {
                                 has_significant_overlap = true;
                                 true  // Keep existing
                             } else {
@@ -735,7 +745,7 @@ impl StreamFilter {
 
     /// One-to-one filtering
     fn one_to_one_filter(&self, metadata: Vec<RecordMeta>) -> Result<Vec<RecordMeta>> {
-        let mut best_per_query: HashMap<String, RecordMeta> = HashMap::new();
+        let mut best_per_query: DetMap<String, RecordMeta> = DetMap::new();
 
         // Find best mapping per query
         for meta in metadata {
@@ -750,7 +760,7 @@ impl StreamFilter {
         }
 
         // From those, keep best per target
-        let mut best_per_target: HashMap<String, RecordMeta> = HashMap::new();
+        let mut best_per_target: DetMap<String, RecordMeta> = DetMap::new();
         for meta in best_per_query.into_values() {
             best_per_target
                 .entry(meta.target_name.clone())
@@ -770,7 +780,7 @@ impl StreamFilter {
         let mut result = Vec::new();
 
         // Group by query
-        let mut by_query: HashMap<String, Vec<RecordMeta>> = HashMap::new();
+        let mut by_query: DetMap<String, Vec<RecordMeta>> = DetMap::new();
         for meta in metadata {
             by_query.entry(meta.query_name.clone()).or_insert_with(Vec::new).push(meta);
         }
@@ -802,7 +812,7 @@ impl StreamFilter {
 
         // Apply per-query limit
         if let Some(limit) = self.config.max_per_query {
-            let mut by_query: HashMap<String, Vec<RecordMeta>> = HashMap::new();
+            let mut by_query: DetMap<String, Vec<RecordMeta>> = DetMap::new();
             for meta in result {
                 by_query.entry(meta.query_name.clone()).or_insert_with(Vec::new).push(meta);
             }
@@ -817,7 +827,7 @@ impl StreamFilter {
 
         // Apply per-target limit
         if let Some(limit) = self.config.max_per_target {
-            let mut by_target: HashMap<String, Vec<RecordMeta>> = HashMap::new();
+            let mut by_target: DetMap<String, Vec<RecordMeta>> = DetMap::new();
             for meta in result {
                 by_target.entry(meta.target_name.clone()).or_insert_with(Vec::new).push(meta);
             }
