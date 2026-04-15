@@ -1,12 +1,12 @@
 //! .1aln reader for tree-based sparsification
 //!
 //! This module provides .1aln file reading functionality specifically for
-//! tree-based sparsification (see tree_sparsify.rs).
+//! tree-based sparsification (see tree_filter.rs).
 //!
 //! Key features:
 //! - Reads .1aln files using fastga-rs AlnReader
 //! - Extracts alignments with identity calculation for building genome-pair matrices
-//! - Used exclusively by tree_sparsify module for identity-based filtering
+//! - Used exclusively by tree_filter module for identity-based filtering
 //!
 //! NOTE: For general .1aln filtering (applying plane sweep, scaffolding, etc.),
 //! use the unified_filter module instead, which preserves .1aln format without conversion.
@@ -15,7 +15,7 @@ use anyhow::{Context, Result};
 use std::path::Path;
 
 /// Alignment record from .1aln with identity calculation
-/// Used by tree_sparsify for building genome-pair identity matrices
+/// Used by tree_filter for building genome-pair identity matrices
 #[derive(Debug, Clone)]
 #[allow(dead_code)] // Some fields only used in tests or for future functionality
 pub struct AlnAlignment {
@@ -141,7 +141,7 @@ impl AlnAlignment {
 }
 
 // NOTE: General .1aln filtering functions have been moved to unified_filter.rs
-// This module now only contains the reader needed for tree_sparsify
+// This module now only contains the reader needed for tree_filter
 
 #[cfg(test)]
 mod tests {

@@ -3,22 +3,26 @@ mod aligner;
 mod aln_filter;
 mod batch_align;
 mod binary_paths;
+mod cli;
 mod compact_mapping;
 mod disk_usage;
 mod fastga_integration;
 mod filter_types;
 mod grouped_mappings;
+mod joblist;
 mod knn_graph;
 mod mapping;
 mod mash;
 mod paf;
+mod orchestrator;
 mod paf_filter;
+mod pansn;
 mod plane_sweep;
 mod plane_sweep_core;
 mod plane_sweep_exact;
 mod plane_sweep_scaffold;
 mod sequence_index;
-mod tree_sparsify;
+mod tree_filter;
 mod unified_filter;
 mod union_find;
 mod wfmash_integration;
@@ -26,6 +30,7 @@ mod wfmash_integration;
 use anyhow::{Context, Result};
 use clap::Parser;
 
+use crate::cli::{parse_identity_value, parse_metric_number, AlnArgs};
 use crate::paf_filter::{FilterConfig, FilterMode, PafFilter, ScoringFunction};
 use std::collections::HashMap;
 use std::fs::File;
@@ -90,7 +95,7 @@ impl TimingContext {
         let rss = disk_usage::format_bytes(Self::peak_rss_bytes());
         let disk_cur = disk_usage::format_bytes(disk_usage::current_usage());
         let disk_peak = disk_usage::format_bytes(disk_usage::peak_usage());
-        eprintln!(
+        log::info!(
             "[sweepga::{phase} {elapsed:.1}s] {message}  (rss:{rss} disk:{disk_cur} peak_disk:{disk_peak})"
         );
     }
@@ -180,44 +185,6 @@ enum NSort {
     Score,    // Sort by identity * log(length)
 }
 
-/// Parse a number that may have metric suffix (k/K=1000, m/M=1e6, g/G=1e9)
-fn parse_metric_number(s: &str) -> Result<u64, String> {
-    if s.is_empty() {
-        return Err("Empty string".to_string());
-    }
-
-    let (num_part, suffix) = if s.ends_with(|c: char| c.is_ascii_alphabetic()) {
-        let last_char = s.chars().last().unwrap();
-        (&s[..s.len() - last_char.len_utf8()], Some(last_char))
-    } else {
-        (s, None)
-    };
-
-    let base: f64 = num_part
-        .parse()
-        .map_err(|e| format!("Invalid number: {e}"))?;
-
-    let multiplier = match suffix {
-        Some('k') | Some('K') => 1000.0,
-        Some('m') | Some('M') => 1_000_000.0,
-        Some('g') | Some('G') => 1_000_000_000.0,
-        Some(c) => {
-            return Err(format!(
-                "Unknown suffix '{c}'. Use k/K (1000), m/M (1e6), or g/G (1e9)"
-            ))
-        }
-        None => 1.0,
-    };
-
-    let result = base * multiplier;
-
-    if result > u64::MAX as f64 {
-        return Err(format!("Value {result} too large for u64"));
-    }
-
-    Ok(result as u64)
-}
-
 /// SweepGA - Fast genome alignment with plane sweep filtering
 ///
 /// This tool wraps genome aligners (FastGA by default) and applies wfmash's filtering algorithms.
@@ -226,9 +193,6 @@ fn parse_metric_number(s: &str) -> Result<u64, String> {
 #[derive(Parser, Debug)]
 #[clap(author, version, about, long_about = None)]
 struct Args {
-    // ============================================================================
-    // Input/Output
-    // ============================================================================
     /// PAF (filter) or FASTA (align & filter). Multiple FASTAs for all-pairs alignment
     #[clap(value_name = "FILE", num_args = 0..,
            long_help = "Input files: FASTA (1+) or PAF (1 only), auto-detected\n\
@@ -251,200 +215,22 @@ struct Args {
     #[clap(long = "1aln")]
     output_1aln: bool,
 
-    // ============================================================================
-    // Alignment (FASTA input only)
-    // ============================================================================
-    /// Aligner to use for FASTA input
-    #[clap(long = "aligner", default_value = "fastga", value_parser = ["fastga", "wfmash"],
-           help_heading = "Alignment options")]
-    aligner: String,
+    /// All alignment, filtering, and orchestration flags live in `AlnArgs` —
+    /// the single flattenable struct exported by `sweepga::cli::AlnArgs`.
+    #[clap(flatten)]
+    aln: AlnArgs,
 
-    /// Use FastGA aligner (shorthand for --aligner fastga)
-    #[clap(short = 'F', long = "fastga", help_heading = "Alignment options")]
-    use_fastga: bool,
-
-    /// Use wfmash aligner (shorthand for --aligner wfmash)
-    #[clap(short = 'W', long = "wfmash", help_heading = "Alignment options")]
-    use_wfmash: bool,
-
-    /// FastGA k-mer frequency threshold (use k-mers occurring ≤ N times)
-    #[clap(short = 'f', long = "frequency", help_heading = "Alignment options")]
-    frequency: Option<usize>,
-
-    /// Minimum percent identity for wfmash mapping (e.g. "90" or ANI preset "ani50-2")
-    #[clap(
-        short = 'p',
-        long = "map-pct-identity",
-        help_heading = "Alignment options"
-    )]
-    map_pct_identity: Option<String>,
-
-    /// Align all genome pairs separately (slower, uses more memory, but handles many genomes)
-    #[clap(long = "all-pairs", help_heading = "Alignment options")]
-    all_pairs: bool,
-
-    /// Maximum sequence data per batch (e.g., "50M", "2G"). Partitions genomes into batches.
-    #[clap(long = "batch-bytes", value_parser = parse_metric_number, help_heading = "Alignment options")]
-    batch_bytes: Option<u64>,
-
-    /// Explicit number of genomes per batch (manual override). Overrides --batch-bytes and --max-disk.
-    #[clap(long = "batch-size", help_heading = "Alignment options")]
-    batch_size: Option<usize>,
-
-    /// Maximum disk space for temporary files during alignment (e.g., "100G", "500M").
-    /// Computes batch size automatically to stay within budget. Overrides --batch-bytes.
-    #[clap(long = "max-disk", value_parser = parse_metric_number, help_heading = "Alignment options")]
-    max_disk: Option<u64>,
-
-    /// Compress k-mer index with zstd for ~2x disk savings and faster I/O
-    #[clap(long = "zstd", help_heading = "Alignment options")]
-    zstd_compress: bool,
-
-    /// Zstd compression level (1-19, higher = smaller files but slower). Default: 3
-    #[clap(
-        long = "zstd-level",
-        default_value = "3",
-        help_heading = "Alignment options"
-    )]
-    zstd_level: u32,
-
-    // ============================================================================
-    // Basic Filtering
-    // ============================================================================
-    /// Minimum block length (omit to use aligner default)
-    #[clap(short = 'b', long = "block-length", value_parser = parse_metric_number,
-           help_heading = "Basic filtering")]
-    block_length: Option<u64>,
-
-    /// n:m-best mappings kept in query:target dimensions. 1:1 (orthogonal), use ∞/many for unbounded
-    #[clap(
-        short = 'n',
-        long = "num-mappings",
-        default_value = "1:1",
-        help_heading = "Basic filtering"
-    )]
-    num_mappings: String,
-
-    /// Maximum overlap ratio for plane sweep filtering
-    #[clap(
-        short = 'o',
-        long = "overlap",
-        default_value = "0.95",
-        help_heading = "Basic filtering"
-    )]
-    overlap: f64,
-
-    /// Scoring function for plane sweep
-    #[clap(long = "scoring", default_value = "log-length-ani",
-           value_parser = ["ani", "length", "length-ani", "log-length-ani", "matches"],
-           help_heading = "Basic filtering")]
-    scoring: String,
-
-    /// Minimum identity threshold (0-1 fraction, 1-100%, or "aniN" for Nth percentile)
-    #[clap(
-        short = 'i',
-        long = "min-identity",
-        default_value = "0",
-        help_heading = "Basic filtering"
-    )]
-    min_identity: String,
-
-    /// Keep self-mappings (excluded by default)
-    #[clap(long = "self", help_heading = "Basic filtering")]
-    keep_self: bool,
-
-    /// Disable all filtering
-    #[clap(short = 'N', long = "no-filter", help_heading = "Basic filtering")]
-    no_filter: bool,
-
-    // ============================================================================
-    // Scaffolding and Chaining
-    // ============================================================================
-    /// Scaffold jump (gap) distance. 0 = disable scaffolding, >0 = enable (accepts k/m/g suffix)
-    #[clap(short = 'j', long = "scaffold-jump", default_value = "0", value_parser = parse_metric_number,
-           help_heading = "Scaffolding and chaining")]
-    scaffold_jump: u64,
-
-    /// Minimum scaffold chain length (accepts k/m/g suffix)
-    #[clap(short = 's', long = "scaffold-mass", default_value = "10k", value_parser = parse_metric_number,
-           help_heading = "Scaffolding and chaining")]
-    scaffold_mass: u64,
-
-    /// Scaffold filter mode: "1:1" (best), "M:N" (M per query, N per target), "many" (unbounded)
-    #[clap(
-        short = 'm',
-        long = "scaffold-filter",
-        default_value = "many:many",
-        help_heading = "Scaffolding and chaining"
-    )]
-    scaffold_filter: String,
-
-    /// Scaffold chain overlap threshold for plane sweep filtering
-    #[clap(
-        short = 'O',
-        long = "scaffold-overlap",
-        default_value = "0.5",
-        help_heading = "Scaffolding and chaining"
-    )]
-    scaffold_overlap: f64,
-
-    /// Maximum Euclidean distance from scaffold anchor for rescue (0 = no rescue, accepts k/m/g suffix)
-    #[clap(short = 'd', long = "scaffold-dist", default_value = "0", value_parser = parse_metric_number,
-           help_heading = "Scaffolding and chaining")]
-    scaffold_dist: u64,
-
-    /// Minimum scaffold identity threshold (0-1 fraction, 1-100%, "aniN", or defaults to -i)
-    #[clap(
-        short = 'Y',
-        long = "min-scaffold-identity",
-        default_value = "0",
-        help_heading = "Scaffolding and chaining"
-    )]
-    min_scaffold_identity: String,
-
-    /// Output scaffold chains only (for debugging)
-    #[clap(long = "scaffolds-only", help_heading = "Scaffolding and chaining")]
-    scaffolds_only: bool,
-
-    // ============================================================================
-    // Advanced Filtering
-    // ============================================================================
-    /// Keep this fraction or tree pattern (e.g., "0.5" or "tree:3" or "tree:3,2,0.1")
-    #[clap(
-        short = 'x',
-        long = "sparsify",
-        default_value = "1.0",
-        help_heading = "Advanced filtering"
-    )]
-    sparsify: String,
-
-    /// Method for calculating ANI: all, orthogonal, nX[-sort] (e.g. n50, n90-identity, n100-score)
-    #[clap(
-        long = "ani-method",
-        default_value = "n100",
-        help_heading = "Advanced filtering"
-    )]
-    ani_method: String,
-
-    // ============================================================================
-    // General Options
-    // ============================================================================
+    // ========================================================================
+    // Binary-only general options (not passed through the library API).
+    // ========================================================================
     /// Number of threads for parallel processing
-    #[clap(
-        short = 't',
-        long = "threads",
-        default_value = "8",
-        help_heading = "General options"
-    )]
+    #[clap(short = 't', long = "threads", default_value = "8",
+           help_heading = "General options")]
     threads: usize,
 
     /// Quiet mode (no progress output)
     #[clap(long = "quiet", help_heading = "General options")]
     quiet: bool,
-
-    /// Temporary directory for intermediate files (defaults to TMPDIR env var, then current directory; use "ramdisk" for /dev/shm)
-    #[clap(long = "tempdir", help_heading = "General options")]
-    tempdir: Option<String>,
 
     /// Check FastGA binary locations and exit (diagnostic tool)
     #[clap(long = "check-fastga", help_heading = "General options")]
@@ -453,80 +239,6 @@ struct Args {
     /// Report disk usage statistics (current, peak, cumulative bytes written) [deprecated: now always shown]
     #[clap(long = "disk-usage", hide = true, help_heading = "General options")]
     disk_usage: bool,
-
-    // ============================================================================
-    // AGC Archive Options
-    // ============================================================================
-    /// Extract only samples matching this prefix (AGC input)
-    #[clap(long = "agc-prefix", help_heading = "AGC archive options")]
-    agc_prefix: Option<String>,
-
-    /// Extract only these samples (comma-separated or @file with one per line)
-    #[clap(long = "agc-samples", help_heading = "AGC archive options")]
-    agc_samples: Option<String>,
-
-    /// Query samples for asymmetric alignment (prefix or comma-separated/@file list)
-    #[clap(long = "agc-queries", help_heading = "AGC archive options")]
-    agc_queries: Option<String>,
-
-    /// Target samples for asymmetric alignment (prefix or comma-separated/@file list)
-    #[clap(long = "agc-targets", help_heading = "AGC archive options")]
-    agc_targets: Option<String>,
-
-    /// Temp directory for AGC extraction (defaults to --tempdir)
-    #[clap(long = "agc-tempdir", help_heading = "AGC archive options")]
-    agc_tempdir: Option<String>,
-
-    // ============================================================================
-    // Pair Selection (for incremental/targeted alignment)
-    // ============================================================================
-    /// File of sample pairs to align (TSV: query<tab>target, one pair per line)
-    #[clap(long = "pairs", help_heading = "Pair selection")]
-    pairs_file: Option<String>,
-
-    /// File to append completed pairs (for resume capability)
-    #[clap(long = "pairs-done", help_heading = "Pair selection")]
-    pairs_done: Option<String>,
-
-    /// File to write remaining pairs after run (for resume capability)
-    #[clap(long = "pairs-remaining", help_heading = "Pair selection")]
-    pairs_remaining: Option<String>,
-
-    /// List all sample pairs and exit (for generating pairs files)
-    #[clap(long = "list-pairs", help_heading = "Pair selection")]
-    list_pairs: bool,
-
-    /// Shuffle pair order (for load balancing across runs)
-    #[clap(long = "shuffle-pairs", help_heading = "Pair selection")]
-    shuffle_pairs: bool,
-
-    /// Seed for pair shuffling (for reproducible ordering)
-    #[clap(long = "shuffle-seed", help_heading = "Pair selection")]
-    shuffle_seed: Option<u64>,
-
-    /// Maximum number of pairs to process in this run (0 = unlimited)
-    #[clap(
-        long = "max-pairs",
-        default_value = "0",
-        help_heading = "Pair selection"
-    )]
-    max_pairs: usize,
-
-    /// Start index for pair range (0-based, use with shuffle-seed for stable ordering)
-    #[clap(
-        long = "pair-start",
-        default_value = "0",
-        help_heading = "Pair selection"
-    )]
-    pair_start: usize,
-
-    /// Sparsification strategy for pair selection (none, auto, random:<frac>, giant:<prob>, tree:<near>:<far>:<random>[:<kmer>])
-    #[clap(
-        long = "sparsify-pairs",
-        default_value = "none",
-        help_heading = "Pair selection"
-    )]
-    sparsify_pairs: String,
 }
 
 fn parse_filter_mode(mode: &str, _filter_type: &str) -> (FilterMode, Option<usize>, Option<usize>) {
@@ -561,20 +273,20 @@ fn parse_filter_mode(mode: &str, _filter_type: &str) -> (FilterMode, Option<usiz
                 };
                 return (mode, per_query, per_target);
             }
-            // eprintln!("Warning: Invalid {filter_type} filter '{s}', using default 1:1");
+            // log::info!("Warning: Invalid {filter_type} filter '{s}', using default 1:1");
             (FilterMode::OneToOne, Some(1), Some(1))
         }
         _ => {
             // Try parsing as a single number
             if let Ok(n) = mode.parse::<usize>() {
                 if n == 0 {
-                    // eprintln!("Error: 0 is not a valid filter value. Use 1 for best mapping only.");
+                    // log::info!("Error: 0 is not a valid filter value. Use 1 for best mapping only.");
                     std::process::exit(1);
                 }
                 // Single number means filter on query axis only
                 return (FilterMode::OneToMany, Some(n), None);
             }
-            // eprintln!("Warning: Invalid {filter_type} filter '{mode}', using default 1:1");
+            // log::info!("Warning: Invalid {filter_type} filter '{mode}', using default 1:1");
             (FilterMode::OneToOne, Some(1), Some(1))
         }
     }
@@ -618,70 +330,6 @@ fn parse_ani_method(method_str: &str) -> Option<AniMethod> {
     }
 }
 
-/// Parse identity value from string (fraction, percentage, or aniN)
-fn parse_identity_value(value: &str, ani_percentile: Option<f64>) -> Result<f64> {
-    let lower = value.to_lowercase();
-
-    if let Some(remainder) = lower.strip_prefix("ani") {
-        // Parse aniN, aniN+X, or aniN-X
-        if let Some(ani_value) = ani_percentile {
-            if remainder.is_empty() {
-                // Default "ani" means ani50
-                return Ok(ani_value);
-            }
-
-            // Parse percentile number and optional offset
-            // Find offset position if exists
-            let (percentile_str, offset_part) = if let Some(plus_pos) = remainder.find('+') {
-                (
-                    &remainder[..plus_pos],
-                    Some(('+', &remainder[plus_pos + 1..])),
-                )
-            } else if let Some(minus_pos) = remainder.find('-') {
-                (
-                    &remainder[..minus_pos],
-                    Some(('-', &remainder[minus_pos + 1..])),
-                )
-            } else {
-                (remainder, None)
-            };
-
-            // For now we only support ani50 (median), ignore the percentile number
-            // Could extend to support ani25, ani75, etc. in future
-            if !percentile_str.is_empty() && percentile_str != "50" {
-                // eprintln!(
-                //     "[sweepga] WARNING: Only ani50 (median) currently supported, using median"
-                // );
-            }
-
-            // Apply offset if provided
-            if let Some((sign, offset_str)) = offset_part {
-                let offset: f64 = offset_str
-                    .parse()
-                    .map_err(|_| anyhow::anyhow!("Invalid ANI offset: {offset_str}"))?;
-                match sign {
-                    '+' => Ok((ani_value + offset / 100.0).min(1.0)),
-                    '-' => Ok((ani_value - offset / 100.0).max(0.0)),
-                    _ => Ok(ani_value),
-                }
-            } else {
-                Ok(ani_value)
-            }
-        } else {
-            anyhow::bail!("Cannot use ANI-based threshold without input alignments");
-        }
-    } else if let Ok(val) = value.parse::<f64>() {
-        // Numeric value
-        if val > 1.0 {
-            Ok(val / 100.0) // Percentage to fraction
-        } else {
-            Ok(val) // Already fraction
-        }
-    } else {
-        anyhow::bail!("Invalid identity value: {value}");
-    }
-}
-
 /// Calculate ANI statistics between genome pairs using specified method
 fn calculate_ani_stats(input_path: &str, method: AniMethod, quiet: bool) -> Result<f64> {
     use crate::paf_filter::{FilterConfig, FilterMode, PafFilter, ScoringFunction};
@@ -695,7 +343,7 @@ fn calculate_ani_stats(input_path: &str, method: AniMethod, quiet: bool) -> Resu
         AniMethod::Orthogonal => {
             // First pass: Filter to get best 1:1 mappings only
             if !quiet {
-                // eprintln!("[sweepga] Calculating ANI from best 1:1 mappings (min length: 1kb)");
+                // log::info!("[sweepga] Calculating ANI from best 1:1 mappings (min length: 1kb)");
             }
             let temp_filtered = NamedTempFile::new()?;
             let filtered_path = temp_filtered.path().to_str().unwrap().to_string();
@@ -809,7 +457,7 @@ fn calculate_ani_stats(input_path: &str, method: AniMethod, quiet: bool) -> Resu
     }
 
     if genome_pairs.is_empty() {
-        // eprintln!("[sweepga] WARNING: No inter-genome alignments found for ANI calculation");
+        // log::info!("[sweepga] WARNING: No inter-genome alignments found for ANI calculation");
         return Ok(0.0); // Default to no filtering
     }
 
@@ -836,11 +484,11 @@ fn calculate_ani_stats(input_path: &str, method: AniMethod, quiet: bool) -> Resu
         ani_values[median_idx]
     };
 
-    // eprintln!(
+    // log::info!(
     //     "[sweepga] ANI statistics from {} genome pairs:",
     //     genome_pairs.len()
     // );
-    // eprintln!(
+    // log::info!(
     //     "[sweepga]   Min: {:.1}%, Median: {:.1}%, Max: {:.1}%",
     //     ani_values.first().unwrap_or(&0.0) * 100.0,
     //     ani50 * 100.0,
@@ -951,7 +599,7 @@ fn calculate_ani_n_percentile(
     }
 
     if alignments.is_empty() {
-        // eprintln!("[sweepga] WARNING: No inter-genome alignments found for ANI calculation");
+        // log::info!("[sweepga] WARNING: No inter-genome alignments found for ANI calculation");
         return Ok(0.0);
     }
 
@@ -983,7 +631,7 @@ fn calculate_ani_n_percentile(
     let n_threshold = total_genome_size * (percentile / 100.0);
 
     if !quiet {
-        // eprintln!(
+        // log::info!(
         //     "[sweepga] Total genome size: {:.1} Mb, N{} threshold: {:.1} Mb",
         //     total_genome_size / 1_000_000.0,
         //     percentile as i32,
@@ -1204,12 +852,24 @@ fn write_genome_fasta(input_path: &Path, output_path: &Path, genome_prefix: &str
     Ok(seq_count)
 }
 
+/// Count total PanSN genome groups across one or more FASTA files.
+///
+/// Used to adapt wfmash mapping density (`-x`) for `--sparsify wfmash:auto`
+/// at CLI entry points that align one or more whole-genome FASTAs.
+fn count_total_genomes<P: AsRef<Path>>(fasta_paths: &[P]) -> Result<usize> {
+    let mut n = 0;
+    for p in fasta_paths {
+        n += detect_genome_groups(p.as_ref())?.len();
+    }
+    Ok(n)
+}
+
 /// Perform all-pairs pairwise alignment for multiple FASTA files
 /// If a single FASTA with multiple genomes, splits by PanSN prefix
 #[allow(clippy::too_many_arguments)]
 fn align_multiple_fastas(
     fasta_files: &[String],
-    frequency: Option<usize>,
+    frequency: usize,
     map_pct_identity: Option<String>,
     all_pairs: bool,
     batch_bytes: Option<u64>,
@@ -1224,6 +884,7 @@ fn align_multiple_fastas(
     zstd_compress: bool,
     zstd_level: u32,
     aligner_name: &str,
+    sparsify: &knn_graph::SparsificationStrategy,
 ) -> Result<tempfile::NamedTempFile> {
     // Detect genome groups from input files
     let mut num_genomes = 0;
@@ -1239,9 +900,13 @@ fn align_multiple_fastas(
         }
     }
 
-    // --batch-size overrides --batch-bytes and --max-disk
-    if batch_size.is_some() && (batch_bytes.is_some() || max_disk.is_some()) && !quiet {
-        eprintln!("[batch] WARNING: --batch-size overrides --batch-bytes and --max-disk");
+    let wfmash_density = orchestrator::resolve_wfmash_density(sparsify, num_genomes);
+
+    // --batch-size conflicts with --batch-bytes / --max-disk — reject early.
+    if batch_size.is_some() && (batch_bytes.is_some() || max_disk.is_some()) {
+        anyhow::bail!(
+            "--batch-size conflicts with --batch-bytes / --max-disk; pass only one."
+        );
     }
 
     // Resolve effective batch bytes from --max-disk / --batch-bytes (used when --batch-size is not set)
@@ -1255,15 +920,7 @@ fn align_multiple_fastas(
 
     // Check for batch mode (either --batch-size or byte-based batching)
     if batch_size.is_some() || effective_batch_bytes.is_some() {
-        let batch_config = batch_align::BatchAlignConfig {
-            frequency,
-            threads,
-            min_alignment_length: min_alignment_length.unwrap_or(0),
-            zstd_compress,
-            zstd_level,
-            keep_self,
-            quiet,
-        };
+        let batch_config = batch_align::BatchAlignConfig { keep_self, quiet };
 
         let aligner: Box<dyn batch_align::BatchAligner> = match aligner_name {
             "wfmash" => Box::new(batch_align::WfmashBatchAligner::new(
@@ -1271,6 +928,7 @@ fn align_multiple_fastas(
                 min_alignment_length,
                 map_pct_identity.clone(),
                 tempdir.map(String::from),
+                wfmash_density,
             )),
             _ => Box::new(batch_align::FastGABatchAligner::new(
                 frequency,
@@ -1352,30 +1010,16 @@ fn align_multiple_fastas(
             zstd_compress,
             zstd_level,
             aligner_name,
+            sparsify,
         );
     }
-
-    // Default mode: single alignment run with adaptive frequency
-    // For FastGA, let fastga_integration.rs handle auto-detection via PanSN haplotype counting
-    let effective_frequency = if let Some(f) = frequency {
-        // User specified -f, use it as-is
-        if !quiet {
-            timing.log(
-                "align",
-                &format!("Using user-specified frequency threshold: {f}"),
-            );
-        }
-        Some(f)
-    } else {
-        // No user-specified frequency: let fastga_integration.rs auto-detect
-        // from PanSN naming convention
-        None
-    };
 
     if !quiet {
         timing.log(
             "align",
-            &format!("Aligning {num_genomes} genomes in single {aligner_name} run"),
+            &format!(
+                "Aligning {num_genomes} genomes in single {aligner_name} run (fastga k-mer frequency: {frequency})"
+            ),
         );
     }
 
@@ -1383,12 +1027,13 @@ fn align_multiple_fastas(
     let avg_seq = avg_seq_len_from_fai(Path::new(&fasta_files[0]))?;
     let aligner = create_aligner(
         aligner_name,
-        effective_frequency,
+        frequency,
         map_pct_identity,
         threads,
         min_alignment_length,
         tempdir.map(String::from),
         Some(avg_seq),
+        wfmash_density,
     )?;
 
     // Run alignment on the original input (all genomes together)
@@ -1404,7 +1049,7 @@ fn align_multiple_fastas(
             timing.log("index", "Building index for compression...");
         }
         let fastga = create_fastga_integration(
-            effective_frequency,
+            frequency,
             threads,
             min_alignment_length.unwrap_or(0),
             tempdir.map(String::from),
@@ -1437,14 +1082,14 @@ fn align_multiple_fastas(
 
 /// Check if pair-mode processing is requested
 fn is_pair_mode(args: &Args) -> bool {
-    args.pairs_file.is_some()
-        || args.list_pairs
-        || args.shuffle_pairs
-        || args.pair_start > 0
-        || args.max_pairs > 0
-        || args.pairs_done.is_some()
-        || args.pairs_remaining.is_some()
-        || args.sparsify_pairs != "none"
+    args.aln.pairs_file.is_some()
+        || args.aln.list_pairs
+        || args.aln.shuffle_pairs
+        || args.aln.pair_start > 0
+        || args.aln.max_pairs > 0
+        || args.aln.pairs_done.is_some()
+        || args.aln.pairs_remaining.is_some()
+        || args.aln.sparsify_pairs != "none"
 }
 
 fn process_agc_archive(
@@ -1471,12 +1116,12 @@ fn process_agc_archive(
     };
 
     // Check for pair-mode processing (--list-pairs, --pairs, --shuffle-pairs, etc.)
-    if is_pair_mode(args) || args.list_pairs {
+    if is_pair_mode(args) || args.aln.list_pairs {
         // Generate or read pairs
         let pairs = get_pairs_from_args(&mut agc, args, timing, Some(&temp_base))?;
 
         // Handle --list-pairs: output pairs and exit
-        if args.list_pairs {
+        if args.aln.list_pairs {
             // Apply shuffle and range before listing
             let pairs = apply_pair_filters(pairs, args, timing)?;
             for pair in &pairs {
@@ -1528,13 +1173,26 @@ fn process_agc_archive(
         );
     }
 
-    // Warn that --max-disk is not yet supported for AGC input
-    if args.max_disk.is_some() && !args.quiet {
-        eprintln!("[budget] WARNING: --max-disk is not yet supported for AGC input; ignoring");
-    }
+    // Resolve --max-disk / --batch-bytes using AGC sample sizes
+    let genome_sizes: Vec<u64> = sizes.values().copied().collect();
+    let batch_bytes_opt = args
+        .aln
+        .batch_bytes
+        .as_deref()
+        .map(parse_metric_number)
+        .transpose()
+        .map_err(|e| anyhow::anyhow!("Invalid --batch-bytes: {e}"))?;
+    let effective_batch_bytes = batch_align::resolve_batch_bytes_from_sizes(
+        args.aln.max_disk,
+        batch_bytes_opt,
+        &genome_sizes,
+        sizes.len(),
+        args.threads,
+        args.aln.zstd_compress,
+        args.quiet,
+    )?;
 
-    // Check if we should use batch mode
-    if let Some(max_index_bytes) = args.batch_bytes {
+    if let Some(max_index_bytes) = effective_batch_bytes {
         // Batch mode: partition samples and process incrementally
         return process_agc_batched(
             &mut agc,
@@ -1561,18 +1219,21 @@ fn process_agc_archive(
 
     // Run alignment using direct PAF output
     let avg_seq = avg_seq_len_from_fai(&fasta_path)?;
+    let num_genomes = count_total_genomes(&[&fasta_path])?;
+    let wfmash_density = orchestrator::resolve_wfmash_density(&args.aln.sparsify, num_genomes);
     let aligner = create_aligner(
-        &args.aligner,
-        args.frequency,
-        args.map_pct_identity.clone(),
+        &args.aln.aligner,
+        resolve_fastga_freq(&args, &args.files)?,
+        args.aln.map_pct_identity.clone(),
         args.threads,
-        args.block_length,
-        args.tempdir.clone(),
+        args.aln.block_length,
+        args.aln.tempdir.clone(),
         Some(avg_seq),
+        wfmash_density,
     )?;
 
     if !args.quiet {
-        timing.log("align", &format!("Running {} alignment...", args.aligner));
+        timing.log("align", &format!("Running {} alignment...", args.aln.aligner));
     }
 
     let paf_bytes = aligner.align_direct_paf(&fasta_path, &fasta_path)?;
@@ -1601,9 +1262,9 @@ fn determine_agc_samples(
     use agc::parse_sample_list;
 
     // Check for asymmetric alignment (queries vs targets)
-    if args.agc_queries.is_some() || args.agc_targets.is_some() {
-        let queries = get_agc_sample_set(agc, args.agc_queries.as_deref(), "queries", timing)?;
-        let targets = get_agc_sample_set(agc, args.agc_targets.as_deref(), "targets", timing)?;
+    if args.aln.agc_queries.is_some() || args.aln.agc_targets.is_some() {
+        let queries = get_agc_sample_set(agc, args.aln.agc_queries.as_deref(), "queries", timing)?;
+        let targets = get_agc_sample_set(agc, args.aln.agc_targets.as_deref(), "targets", timing)?;
 
         if !args.quiet {
             timing.log(
@@ -1620,7 +1281,7 @@ fn determine_agc_samples(
     }
 
     // Check for explicit sample list
-    if let Some(ref sample_spec) = args.agc_samples {
+    if let Some(ref sample_spec) = args.aln.agc_samples {
         let samples = parse_sample_list(sample_spec)?;
         if !args.quiet {
             timing.log("agc", &format!("Using {} samples from list", samples.len()));
@@ -1629,7 +1290,7 @@ fn determine_agc_samples(
     }
 
     // Check for prefix filter
-    if let Some(ref prefix) = args.agc_prefix {
+    if let Some(ref prefix) = args.aln.agc_prefix {
         let samples = agc.list_samples_with_prefix(prefix);
         if !args.quiet {
             timing.log(
@@ -1802,7 +1463,7 @@ fn get_pairs_from_args(
     _temp_base: Option<&std::path::Path>,
 ) -> Result<Vec<SamplePair>> {
     // Option 1: Read pairs from file
-    if let Some(ref pairs_file) = args.pairs_file {
+    if let Some(ref pairs_file) = args.aln.pairs_file {
         let pairs = read_pairs_file(pairs_file)?;
         if !args.quiet {
             timing.log("pairs", &format!("Read {} pairs from file", pairs.len()));
@@ -1811,9 +1472,9 @@ fn get_pairs_from_args(
     }
 
     // Option 2: Cartesian product of queries x targets
-    if args.agc_queries.is_some() && args.agc_targets.is_some() {
-        let queries = get_agc_sample_set(agc, args.agc_queries.as_deref(), "queries", timing)?;
-        let targets = get_agc_sample_set(agc, args.agc_targets.as_deref(), "targets", timing)?;
+    if args.aln.agc_queries.is_some() && args.aln.agc_targets.is_some() {
+        let queries = get_agc_sample_set(agc, args.aln.agc_queries.as_deref(), "queries", timing)?;
+        let targets = get_agc_sample_set(agc, args.aln.agc_targets.as_deref(), "targets", timing)?;
 
         let pairs = generate_cartesian_pairs(&queries, &targets);
         if !args.quiet {
@@ -1831,9 +1492,9 @@ fn get_pairs_from_args(
     }
 
     // Get samples list
-    let samples = if let Some(ref prefix) = args.agc_prefix {
+    let samples = if let Some(ref prefix) = args.aln.agc_prefix {
         agc.list_samples_with_prefix(prefix)
-    } else if let Some(ref sample_spec) = args.agc_samples {
+    } else if let Some(ref sample_spec) = args.aln.agc_samples {
         agc::parse_sample_list(sample_spec)?
     } else {
         agc.list_samples()
@@ -1841,6 +1502,7 @@ fn get_pairs_from_args(
 
     // Parse sparsification strategy
     let strategy: knn_graph::SparsificationStrategy = args
+        .aln
         .sparsify_pairs
         .parse()
         .map_err(|e| anyhow::anyhow!("Invalid sparsification strategy: {}", e))?;
@@ -1854,7 +1516,10 @@ fn get_pairs_from_args(
         // For sparsification, we need to compute mash sketches
         // Stream one sample at a time to avoid materializing all sequences in memory
 
-        let mash_params = knn_graph::MashParams::default();
+        let mash_params = knn_graph::MashParams {
+            kmer_size: args.aln.mash_kmer_size,
+            sketch_size: args.aln.mash_sketch_size,
+        };
 
         if !args.quiet {
             timing.log(
@@ -1945,10 +1610,11 @@ fn apply_pair_filters(
     let mut pairs = pairs;
 
     // Apply shuffle if requested
-    if args.shuffle_pairs {
-        pairs = shuffle_pairs(pairs, args.shuffle_seed);
+    if args.aln.shuffle_pairs {
+        pairs = shuffle_pairs(pairs, args.aln.shuffle_seed);
         if !args.quiet {
             let seed_str = args
+                .aln
                 .shuffle_seed
                 .map(|s| format!(" (seed={})", s))
                 .unwrap_or_default();
@@ -1957,11 +1623,11 @@ fn apply_pair_filters(
     }
 
     // Apply range selection (start + max)
-    if args.pair_start > 0 || args.max_pairs > 0 {
+    if args.aln.pair_start > 0 || args.aln.max_pairs > 0 {
         let total = pairs.len();
-        let start = args.pair_start.min(total);
-        let end = if args.max_pairs > 0 {
-            (start + args.max_pairs).min(total)
+        let start = args.aln.pair_start.min(total);
+        let end = if args.aln.max_pairs > 0 {
+            (start + args.aln.max_pairs).min(total)
         } else {
             total
         };
@@ -1975,7 +1641,7 @@ fn apply_pair_filters(
     }
 
     // Filter out done pairs if specified
-    if let Some(ref done_path) = args.pairs_done {
+    if let Some(ref done_path) = args.aln.pairs_done {
         let before = pairs.len();
         pairs = filter_done_pairs(pairs, done_path)?;
         let filtered = before - pairs.len();
@@ -1992,7 +1658,7 @@ fn apply_pair_filters(
     }
 
     // Write remaining pairs to file if requested
-    if let Some(ref remaining_path) = args.pairs_remaining {
+    if let Some(ref remaining_path) = args.aln.pairs_remaining {
         write_pairs_file(remaining_path, &pairs)?;
         if !args.quiet {
             timing.log(
@@ -2036,15 +1702,27 @@ fn process_agc_pairs(
         timing.log("pairs", &format!("Processing {} pairs", pairs.len()));
     }
 
-    // Create aligner (AGC pairs mode: avg_seq_len not known until extraction)
+    // Create aligner (AGC pairs mode: avg_seq_len not known until extraction).
+    // Density resolution uses the count of distinct samples referenced in
+    // the pairs file — the cohort the user is aligning — so `wfmash:auto`
+    // produces the same fraction it would for an all-vs-all of those
+    // samples, applied to every per-pair wfmash call.
+    let cohort_size = pairs
+        .iter()
+        .flat_map(|p| [p.query.as_str(), p.target.as_str()])
+        .collect::<std::collections::HashSet<_>>()
+        .len();
+    let wfmash_density =
+        orchestrator::resolve_wfmash_density(&args.aln.sparsify, cohort_size);
     let aligner = create_aligner(
-        &args.aligner,
-        args.frequency,
-        args.map_pct_identity.clone(),
+        &args.aln.aligner,
+        resolve_fastga_freq(&args, &args.files)?,
+        args.aln.map_pct_identity.clone(),
         args.threads,
-        args.block_length,
+        args.aln.block_length,
         Some(temp_base.to_string_lossy().to_string()),
         None,
+        wfmash_density,
     )?;
 
     // Create work directory for extractions
@@ -2061,11 +1739,11 @@ fn process_agc_pairs(
     let mut processed = 0;
 
     // For FastGA pair mode, we also need a FastGA instance for GDB/index operations
-    let fastga_for_index = if args.aligner == "fastga" {
+    let fastga_for_index = if args.aln.aligner == "fastga" {
         Some(create_fastga_integration(
-            args.frequency,
+            resolve_fastga_freq(&args, &args.files)?,
             args.threads,
-            args.block_length.unwrap_or(0),
+            args.aln.block_length.unwrap_or(0),
             Some(temp_base.to_string_lossy().to_string()),
         )?)
     } else {
@@ -2075,7 +1753,7 @@ fn process_agc_pairs(
     for pair in pairs {
         processed += 1;
         if !args.quiet {
-            eprintln!(
+            log::info!(
                 "[pairs] ({}/{}) {} -> {}",
                 processed,
                 pairs.len(),
@@ -2110,10 +1788,10 @@ fn process_agc_pairs(
                 let target_gdb = fastga.create_gdb_only(&target_fasta)?;
                 fastga.create_index_only(&target_gdb)?;
 
-                if args.zstd_compress {
+                if args.aln.zstd_compress {
                     fastga_integration::FastGAIntegration::compress_index(
                         &target_gdb,
-                        args.zstd_level,
+                        args.aln.zstd_level,
                     )?;
                 }
 
@@ -2137,13 +1815,13 @@ fn process_agc_pairs(
         }
 
         // Record completion if done file specified
-        if let Some(ref done_path) = args.pairs_done {
+        if let Some(ref done_path) = args.aln.pairs_done {
             append_pair_to_file(done_path, pair)?;
         }
 
         if !args.quiet {
             let pair_alignments = total_alignments - prev_total;
-            eprintln!(
+            log::info!(
                 "[pairs]   {} alignments (total: {})",
                 pair_alignments, total_alignments
             );
@@ -2180,7 +1858,7 @@ fn process_agc_batched(
     use std::io::Write;
 
     if !args.quiet {
-        eprintln!(
+        log::info!(
             "[batch] Batch mode: max {} index size",
             batch_align::format_bytes(max_index_bytes)
         );
@@ -2211,7 +1889,7 @@ fn process_agc_batched(
 
     let num_batches = batches.len();
     if !args.quiet {
-        eprintln!(
+        log::info!(
             "[batch] Partitioned {} samples into {} batches",
             samples.len(),
             num_batches
@@ -2227,7 +1905,7 @@ fn process_agc_batched(
         let batch_file = batch_dir.join(format!("batch_{}.fa", i));
         agc.extract_samples_to_fasta(batch, &batch_file)?;
         if !args.quiet {
-            eprintln!(
+            log::info!(
                 "[batch] Extracted batch {} ({} samples)",
                 i + 1,
                 batch.len()
@@ -2239,20 +1917,20 @@ fn process_agc_batched(
     // Create FastGA integration
     // Use temp_base (not batch_dir) so TMPDIR isn't set to a directory we'll delete
     let fastga = create_fastga_integration(
-        args.frequency,
+        resolve_fastga_freq(&args, &args.files)?,
         args.threads,
-        args.block_length.unwrap_or(0),
+        args.aln.block_length.unwrap_or(0),
         Some(temp_base.to_string_lossy().to_string()),
     )?;
 
     // Phase 2: Create GDB for all batches
     if !args.quiet {
-        eprintln!("[batch] Creating GDB files...");
+        log::info!("[batch] Creating GDB files...");
     }
     let mut gdb_bases: Vec<String> = Vec::new();
     for (i, batch_file) in batch_files.iter().enumerate() {
         if !args.quiet {
-            eprintln!("[batch]   GDB for batch {}...", i + 1);
+            log::info!("[batch]   GDB for batch {}...", i + 1);
         }
         let gdb_base = fastga.create_gdb_only(batch_file)?;
         gdb_bases.push(gdb_base);
@@ -2270,21 +1948,21 @@ fn process_agc_batched(
     // For each target batch i, create index, run alignments, cleanup index
     for i in 0..num_batches {
         if !args.quiet {
-            eprintln!("[batch] Building index for batch {}...", i + 1);
+            log::info!("[batch] Building index for batch {}...", i + 1);
         }
         fastga.create_index_only(&gdb_bases[i])?;
 
         // Compress if requested
-        if args.zstd_compress {
-            fastga_integration::FastGAIntegration::compress_index(&gdb_bases[i], args.zstd_level)?;
+        if args.aln.zstd_compress {
+            fastga_integration::FastGAIntegration::compress_index(&gdb_bases[i], args.aln.zstd_level)?;
         }
 
         for j in 0..num_batches {
             if !args.quiet {
                 if i == j {
-                    eprintln!("[batch] Aligning batch {} to itself...", i + 1);
+                    log::info!("[batch] Aligning batch {} to itself...", i + 1);
                 } else {
-                    eprintln!("[batch] Aligning batch {} vs batch {}...", j + 1, i + 1);
+                    log::info!("[batch] Aligning batch {} vs batch {}...", j + 1, i + 1);
                 }
             }
 
@@ -2298,7 +1976,7 @@ fn process_agc_batched(
             output_paf.as_file_mut().write_all(&paf_bytes)?;
 
             if !args.quiet {
-                eprintln!("[batch]   {} alignments", line_count);
+                log::info!("[batch]   {} alignments", line_count);
             }
 
             // Clean up query index if FastGA auto-created one (j != i)
@@ -2309,7 +1987,7 @@ fn process_agc_batched(
 
         // Clean up index for batch i to free disk space
         if !args.quiet {
-            eprintln!("[batch] Cleaning up index for batch {}...", i + 1);
+            log::info!("[batch] Cleaning up index for batch {}...", i + 1);
         }
         let _ = fastga_integration::FastGAIntegration::cleanup_index(&gdb_bases[i]);
     }
@@ -2321,7 +1999,7 @@ fn process_agc_batched(
     let _ = std::fs::remove_dir_all(&batch_dir);
 
     if !args.quiet {
-        eprintln!(
+        log::info!(
             "[batch] Completed batch alignment: {} total alignments",
             total_alignments
         );
@@ -2334,7 +2012,7 @@ fn process_agc_batched(
 #[allow(clippy::too_many_arguments)]
 fn align_all_pairs_mode(
     fasta_files: &[String],
-    frequency: Option<usize>,
+    frequency: usize,
     map_pct_identity: Option<String>,
     threads: usize,
     keep_self: bool,
@@ -2345,6 +2023,7 @@ fn align_all_pairs_mode(
     zstd_compress: bool,
     zstd_level: u32,
     aligner_name: &str,
+    sparsify: &knn_graph::SparsificationStrategy,
 ) -> Result<tempfile::NamedTempFile> {
     use std::io::Write;
 
@@ -2421,6 +2100,8 @@ fn align_all_pairs_mode(
 
     // Create aligner with adaptive parameters
     let avg_seq = avg_seq_len_from_fai(Path::new(&fasta_files[0]))?;
+    let num_genomes = count_total_genomes(fasta_files)?;
+    let wfmash_density = orchestrator::resolve_wfmash_density(sparsify, num_genomes);
     let aligner = create_aligner(
         aligner_name,
         frequency,
@@ -2429,6 +2110,7 @@ fn align_all_pairs_mode(
         min_alignment_length,
         tempdir.map(String::from),
         Some(avg_seq),
+        wfmash_density,
     )?;
 
     // Step 1: Build GDB and GIX indices for all genomes (FastGA only)
@@ -2574,9 +2256,18 @@ fn align_all_pairs_mode(
     Ok(merged_paf)
 }
 
-/// Create FastGA integration with optional frequency parameter
+/// Resolve the effective FastGA k-mer frequency from user args and the input FASTA paths.
+fn resolve_fastga_freq<P: AsRef<Path>>(args: &Args, fastas: &[P]) -> Result<usize> {
+    pansn::resolve_fastga_frequency(
+        args.aln.frequency,
+        args.aln.fastga_frequency_multiplier,
+        fastas,
+    )
+}
+
+/// Construct a `FastGAIntegration` with a fully-resolved k-mer frequency.
 fn create_fastga_integration(
-    frequency: Option<usize>,
+    frequency: usize,
     num_threads: usize,
     min_alignment_length: u64,
     temp_dir: Option<String>,
@@ -2592,8 +2283,11 @@ fn create_fastga_integration(
 
 /// Create an aligner backend based on the --aligner flag.
 /// Compute average sequence length from a FASTA index (.fai).
-/// Returns an error if the .fai file does not exist.
+/// Auto-creates the `.fai` on first call.
 fn avg_seq_len_from_fai(path: &Path) -> Result<u64> {
+    rust_htslib::faidx::Reader::from_path(path).map_err(|e| {
+        anyhow::anyhow!("Failed to read/create FASTA index for {}: {e}", path.display())
+    })?;
     let fai_path = path.with_extension(
         path.extension()
             .map(|e| format!("{}.fai", e.to_string_lossy()))
@@ -2618,18 +2312,19 @@ fn avg_seq_len_from_fai(path: &Path) -> Result<u64> {
 
 fn create_aligner(
     aligner_name: &str,
-    frequency: Option<usize>,
+    frequency: usize,
     map_pct_identity: Option<String>,
     num_threads: usize,
     min_alignment_length: Option<u64>,
     temp_dir: Option<String>,
     avg_seq_len: Option<u64>,
+    wfmash_density: Option<f64>,
 ) -> Result<Box<dyn aligner::Aligner>> {
+    // Invalid (aligner, flag) combinations are rejected at the CLI entry
+    // point; by the time we reach here, `map_pct_identity` is guaranteed
+    // to be `None` for fastga and `frequency` is only consumed by fastga.
     match aligner_name {
         "fastga" => {
-            if map_pct_identity.is_some() {
-                eprintln!("[sweepga] Warning: --map-pct-identity/-p is ignored when using --aligner fastga");
-            }
             let fastga = create_fastga_integration(
                 frequency,
                 num_threads,
@@ -2639,11 +2334,6 @@ fn create_aligner(
             Ok(Box::new(fastga))
         }
         "wfmash" => {
-            if frequency.is_some() {
-                eprintln!(
-                    "[sweepga] Warning: --frequency/-f is ignored when using --aligner wfmash"
-                );
-            }
             let wfmash = wfmash_integration::WfmashIntegration::adaptive(
                 num_threads,
                 min_alignment_length,
@@ -2651,7 +2341,7 @@ fn create_aligner(
                 temp_dir,
                 None, // segment_length: adaptive from avg_seq_len
                 avg_seq_len,
-                None, // sparsify
+                wfmash_density,
                 None, // num_mappings
                 None, // pairs_file
             )?;
@@ -2662,6 +2352,12 @@ fn create_aligner(
 }
 
 fn main() -> Result<()> {
+    // Default to `info` level; users can override via RUST_LOG.
+    env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info"))
+        .format_timestamp(None)
+        .format_target(false)
+        .init();
+
     // Set up PATH and WFMASH_BIN_DIR so FastGA/wfmash binaries are found.
     // build.rs caches them in ~/.cache/sweepga/{git_rev}/.
     binary_paths::setup_binary_env();
@@ -2739,8 +2435,8 @@ fn main() -> Result<()> {
         timing.log("start", &format!("{} | {}", timestamp, cmd_line.join(" ")));
     }
 
-    // Set TMPDIR if --tempdir is specified (FastGA uses this via Rust's tempfile crate)
-    if let Some(ref tempdir) = args.tempdir {
+    // Set TMPDIR if --temp-dir is specified (FastGA uses this via Rust's tempfile crate)
+    if let Some(ref tempdir) = args.aln.tempdir {
         std::env::set_var("TMPDIR", tempdir);
         if !args.quiet {
             timing.log("tempdir", &format!("Using temp directory: {tempdir}"));
@@ -2748,17 +2444,17 @@ fn main() -> Result<()> {
     }
 
     // Resolve -W / -F shorthand flags
-    if args.use_wfmash && args.use_fastga {
+    if args.aln.use_wfmash && args.aln.use_fastga {
         anyhow::bail!("Cannot specify both -W/--wfmash and -F/--fastga");
     }
-    if args.use_wfmash {
-        args.aligner = "wfmash".to_string();
-    } else if args.use_fastga {
-        args.aligner = "fastga".to_string();
+    if args.aln.use_wfmash {
+        args.aln.aligner = "wfmash".to_string();
+    } else if args.aln.use_fastga {
+        args.aln.aligner = "fastga".to_string();
     }
 
     // Validate aligner-specific constraints
-    if args.aligner == "wfmash" {
+    if args.aln.aligner == "wfmash" {
         if args.output_1aln
             || args
                 .output_file
@@ -2770,6 +2466,18 @@ fn main() -> Result<()> {
                  wfmash does not produce .1aln format."
             );
         }
+        if args.aln.frequency.is_some() {
+            anyhow::bail!(
+                "--fastga-frequency is only supported with --aligner fastga; \
+                 wfmash uses its own frequency estimation."
+            );
+        }
+    }
+    if args.aln.aligner == "fastga" && args.aln.map_pct_identity.is_some() {
+        anyhow::bail!(
+            "--map-pct-identity is only supported with --aligner wfmash; \
+             FastGA has no mapping-identity knob."
+        );
     }
 
     // Track alignment time separately
@@ -2783,6 +2491,45 @@ fn main() -> Result<()> {
     } else {
         vec![]
     };
+
+    // --joblist: emit one shell command per FASTA pair and exit. The
+    // emitted commands are standalone `sweepga` invocations, one per
+    // unordered pair (i,j) with i<j. Sparsify strategies are not yet
+    // applied here — a future revision can enumerate the sparsified pair
+    // set and reuse the same helper.
+    if args.aln.joblist {
+        if args.files.len() < 2 {
+            anyhow::bail!("--joblist requires at least 2 FASTA inputs");
+        }
+        if input_file_types.iter().any(|ft| *ft != FileType::Fasta) {
+            anyhow::bail!("--joblist requires FASTA inputs (got non-FASTA file)");
+        }
+        let mut pairs: Vec<(String, String)> = Vec::new();
+        for i in 0..args.files.len() {
+            for j in (i + 1)..args.files.len() {
+                pairs.push((args.files[i].clone(), args.files[j].clone()));
+            }
+        }
+        let out_dir = args
+            .aln
+            .joblist_output_dir
+            .clone()
+            .unwrap_or_else(|| ".".to_string());
+        let bin = std::env::current_exe()
+            .unwrap_or_else(|_| std::path::PathBuf::from("sweepga"));
+        let cfg = joblist::JoblistEmitConfig {
+            sweepga_bin: &bin,
+            output_dir: Path::new(&out_dir),
+            threads: args.threads,
+            extra_flags: &[],
+        };
+        let mut out: Box<dyn std::io::Write> = match &args.output_file {
+            Some(f) => Box::new(std::fs::File::create(f)?),
+            None => Box::new(std::io::stdout()),
+        };
+        joblist::write_pair_commands(&pairs, &cfg, &mut out)?;
+        return Ok(());
+    }
 
     // Enable .1aln workflow when:
     // - User explicitly requested .1aln output with --1aln flag
@@ -2816,10 +2563,10 @@ fn main() -> Result<()> {
             } else if !input_file_types.is_empty() && input_file_types[0] == FileType::Fasta {
                 // FASTA input - use FastGA to produce .1aln
                 if args.files.len() > 1 {
-                    // eprintln!(
+                    // log::info!(
                     //     "[sweepga] ERROR: Multiple FASTA files not supported in .1aln workflow yet"
                     // );
-                    // eprintln!("[sweepga] Use --paf flag to use PAF workflow for multiple files");
+                    // log::info!("[sweepga] Use --paf flag to use PAF workflow for multiple files");
                     std::process::exit(1);
                 }
 
@@ -2828,10 +2575,10 @@ fn main() -> Result<()> {
                 let path = std::fs::canonicalize(&args.files[0])
                     .with_context(|| format!("Failed to resolve path: {}", args.files[0]))?;
                 let fastga = create_fastga_integration(
-                    args.frequency,
+                    resolve_fastga_freq(&args, &args.files)?,
                     args.threads,
-                    args.block_length.unwrap_or(0),
-                    args.tempdir.clone(),
+                    args.aln.block_length.unwrap_or(0),
+                    args.aln.tempdir.clone(),
                 )?;
 
                 if !args.quiet {
@@ -2860,16 +2607,16 @@ fn main() -> Result<()> {
 
                 (Some(temp_1aln), aln_path)
             } else {
-                // eprintln!("[sweepga] ERROR: No valid input provided");
+                // log::info!("[sweepga] ERROR: No valid input provided");
                 std::process::exit(1);
             };
 
         // Step 2: Parse filter config
         let (plane_sweep_mode, plane_sweep_query_limit, plane_sweep_target_limit) =
-            parse_filter_mode(&args.num_mappings, "plane sweep");
+            parse_filter_mode(&args.aln.num_mappings, "plane sweep");
         let (scaffold_filter_mode, scaffold_max_per_query, scaffold_max_per_target) =
-            parse_filter_mode(&args.scaffold_filter, "scaffold");
-        let scoring_function = match args.scoring.as_str() {
+            parse_filter_mode(&args.aln.scaffold_filter, "scaffold");
+        let scoring_function = match args.aln.scoring.as_str() {
             "ani" | "identity" => ScoringFunction::Identity,
             "length" => ScoringFunction::Length,
             "length-ani" | "length-identity" => ScoringFunction::LengthIdentity,
@@ -2878,17 +2625,60 @@ fn main() -> Result<()> {
             _ => ScoringFunction::LogLengthIdentity,
         };
 
-        // Parse sparsification strategy
-        use tree_sparsify::SparsificationStrategy;
-        let sparsification_strategy = args.sparsify.parse::<SparsificationStrategy>()?;
-        let sparsity_fraction = match sparsification_strategy {
-            SparsificationStrategy::Fraction(f) => f,
-            SparsificationStrategy::Tree(_, _, _) => 1.0, // Tree filtering handled separately
+        // Sparsification strategy (already parsed by clap via FromStr).
+        use knn_graph::SparsificationStrategy;
+        let sparsity_fraction = match &args.aln.sparsify {
+            SparsificationStrategy::None => 1.0,
+            SparsificationStrategy::Random(f) => *f,
+            SparsificationStrategy::TreeSampling(_, _, _) => 1.0, // Tree filtering handled separately
+            SparsificationStrategy::Auto
+            | SparsificationStrategy::Connectivity(_)
+            | SparsificationStrategy::WfmashDensity(_) => {
+                return Err(anyhow::anyhow!(
+                    "--sparsify '{}' is not valid for post-alignment PAF/1aln filtering; \
+                     use `none`, `random:<f>`, a bare float, or `tree:<n>:<n>:<f>`",
+                    args.aln.sparsify
+                ));
+            }
         };
 
+        // If the user requested --adaptive-scaffolds and we have a FASTA
+        // input with an available .fai, clamp scaffold thresholds to the
+        // sequence-length scale. For .1aln-only input we have no FASTA to
+        // inspect, so clamping is a no-op.
+        let avg_seq_len_for_adaptive: Option<u64> = if !args.aln.no_adaptive_scaffolds {
+            args.files
+                .first()
+                .and_then(|p| avg_seq_len_from_fai(Path::new(p)).ok())
+        } else {
+            None
+        };
+        let (effective_scaffold_jump, effective_scaffold_mass) = pansn::clamp_scaffold_params(
+            args.aln.scaffold_jump,
+            args.aln.scaffold_mass,
+            avg_seq_len_for_adaptive,
+            !args.aln.no_adaptive_scaffolds,
+        );
+        if !args.aln.no_adaptive_scaffolds
+            && !args.quiet
+            && (effective_scaffold_jump != args.aln.scaffold_jump
+                || effective_scaffold_mass != args.aln.scaffold_mass)
+        {
+            timing.log(
+                "adaptive",
+                &format!(
+                    "Scaffold thresholds clamped (jump {} -> {}, mass {} -> {})",
+                    args.aln.scaffold_jump,
+                    effective_scaffold_jump,
+                    args.aln.scaffold_mass,
+                    effective_scaffold_mass,
+                ),
+            );
+        }
+
         let filter_config = FilterConfig {
-            chain_gap: args.scaffold_jump,
-            min_block_length: args.block_length.unwrap_or(0),
+            chain_gap: effective_scaffold_jump,
+            min_block_length: args.aln.block_length.unwrap_or(0),
             mapping_filter_mode: plane_sweep_mode,
             mapping_max_per_query: plane_sweep_query_limit,
             mapping_max_per_target: plane_sweep_target_limit,
@@ -2896,13 +2686,13 @@ fn main() -> Result<()> {
             scaffold_filter_mode,
             scaffold_max_per_query,
             scaffold_max_per_target,
-            overlap_threshold: args.overlap,
+            overlap_threshold: args.aln.overlap,
             sparsity: sparsity_fraction,
             no_merge: true,
-            scaffold_gap: args.scaffold_jump,
-            min_scaffold_length: args.scaffold_mass,
-            scaffold_overlap_threshold: args.scaffold_overlap,
-            scaffold_max_deviation: args.scaffold_dist,
+            scaffold_gap: effective_scaffold_jump,
+            min_scaffold_length: effective_scaffold_mass,
+            scaffold_overlap_threshold: args.aln.scaffold_overlap,
+            scaffold_max_deviation: args.aln.scaffold_dist,
             prefix_delimiter: '#',
             skip_prefix: false,
             scoring_function,
@@ -2912,13 +2702,13 @@ fn main() -> Result<()> {
 
         // Step 2.6: Apply tree filtering if requested (natively on .1aln format)
         let tree_filtered_input =
-            if let SparsificationStrategy::Tree(k_nearest, k_farthest, random_fraction) =
-                sparsification_strategy
+            if let &SparsificationStrategy::TreeSampling(k_nearest, k_farthest, random_fraction) =
+                &args.aln.sparsify
             {
                 // Apply tree filtering directly to .1aln
                 let temp_tree_filtered = tempfile::NamedTempFile::with_suffix(".1aln")?;
 
-                use tree_sparsify::apply_tree_filter_to_1aln;
+                use tree_filter::apply_tree_filter_to_1aln;
                 apply_tree_filter_to_1aln(
                     &aln_input_path,
                     temp_tree_filtered
@@ -2951,7 +2741,7 @@ fn main() -> Result<()> {
                 output_file,
                 &filter_config,
                 false,
-                args.keep_self,
+                args.aln.keep_self,
             )?;
         } else {
             // Write to temp file then copy to stdout
@@ -2961,7 +2751,7 @@ fn main() -> Result<()> {
                 temp_output.path(),
                 &filter_config,
                 false,
-                args.keep_self,
+                args.aln.keep_self,
             )?;
 
             // Copy binary to stdout
@@ -3028,21 +2818,28 @@ fn main() -> Result<()> {
                     let alignment_start = Instant::now();
                     let temp_paf = align_multiple_fastas(
                         &args.files,
-                        args.frequency,
-                        args.map_pct_identity.clone(),
-                        args.all_pairs,
-                        args.batch_bytes,
-                        args.batch_size,
-                        args.max_disk,
+                        resolve_fastga_freq(&args, &args.files)?,
+                        args.aln.map_pct_identity.clone(),
+                        args.aln.all_pairs,
+                        args
+                            .aln
+                            .batch_bytes
+                            .as_deref()
+                            .map(parse_metric_number)
+                            .transpose()
+                            .map_err(|e| anyhow::anyhow!("Invalid --batch-bytes: {e}"))?,
+                        args.aln.batch_size,
+                        args.aln.max_disk,
                         args.threads,
-                        args.keep_self,
-                        args.tempdir.as_deref(),
+                        args.aln.keep_self,
+                        args.aln.tempdir.as_deref(),
                         &timing,
                         args.quiet,
-                        args.block_length,
-                        args.zstd_compress,
-                        args.zstd_level,
-                        &args.aligner,
+                        args.aln.block_length,
+                        args.aln.zstd_compress,
+                        args.aln.zstd_level,
+                        &args.aln.aligner,
+                        &args.aln.sparsify,
                     )?;
 
                     alignment_time = Some(alignment_start.elapsed().as_secs_f64());
@@ -3067,20 +2864,24 @@ fn main() -> Result<()> {
                             "align",
                             &format!(
                                 "Running {} self-alignment on {}",
-                                args.aligner, args.files[0]
+                                args.aln.aligner, args.files[0]
                             ),
                         );
                     }
 
                     let avg_seq = avg_seq_len_from_fai(&path)?;
+                    let num_genomes = count_total_genomes(&[&path])?;
+                    let wfmash_density =
+                        orchestrator::resolve_wfmash_density(&args.aln.sparsify, num_genomes);
                     let aligner = create_aligner(
-                        &args.aligner,
-                        args.frequency,
-                        args.map_pct_identity.clone(),
+                        &args.aln.aligner,
+                        resolve_fastga_freq(&args, &args.files)?,
+                        args.aln.map_pct_identity.clone(),
                         args.threads,
-                        args.block_length,
-                        args.tempdir.clone(),
+                        args.aln.block_length,
+                        args.aln.tempdir.clone(),
                         Some(avg_seq),
+                        wfmash_density,
                     )?;
                     let temp_paf = aligner.align_to_temp_paf(&path, &path)?;
 
@@ -3090,7 +2891,7 @@ fn main() -> Result<()> {
                             "align",
                             &format!(
                                 "{} alignment complete ({:.1}s)",
-                                args.aligner,
+                                args.aln.aligner,
                                 alignment_time.unwrap()
                             ),
                         );
@@ -3121,21 +2922,28 @@ fn main() -> Result<()> {
                     let alignment_start = Instant::now();
                     let temp_paf = align_multiple_fastas(
                         &args.files,
-                        args.frequency,
-                        args.map_pct_identity.clone(),
-                        args.all_pairs,
-                        args.batch_bytes,
-                        args.batch_size,
-                        args.max_disk,
+                        resolve_fastga_freq(&args, &args.files)?,
+                        args.aln.map_pct_identity.clone(),
+                        args.aln.all_pairs,
+                        args
+                            .aln
+                            .batch_bytes
+                            .as_deref()
+                            .map(parse_metric_number)
+                            .transpose()
+                            .map_err(|e| anyhow::anyhow!("Invalid --batch-bytes: {e}"))?,
+                        args.aln.batch_size,
+                        args.aln.max_disk,
                         args.threads,
-                        args.keep_self,
-                        args.tempdir.as_deref(),
+                        args.aln.keep_self,
+                        args.aln.tempdir.as_deref(),
                         &timing,
                         args.quiet,
-                        args.block_length,
-                        args.zstd_compress,
-                        args.zstd_level,
-                        &args.aligner,
+                        args.aln.block_length,
+                        args.aln.zstd_compress,
+                        args.aln.zstd_level,
+                        &args.aln.aligner,
+                        &args.aln.sparsify,
                     )?;
 
                     alignment_time = Some(alignment_start.elapsed().as_secs_f64());
@@ -3160,7 +2968,7 @@ fn main() -> Result<()> {
                             "align",
                             &format!(
                                 "Running {} alignment: {} -> {}",
-                                args.aligner, args.files[0], args.files[1]
+                                args.aln.aligner, args.files[0], args.files[1]
                             ),
                         );
                     }
@@ -3171,14 +2979,20 @@ fn main() -> Result<()> {
                     let query = std::fs::canonicalize(&args.files[1])
                         .with_context(|| format!("Failed to resolve path: {}", args.files[1]))?;
                     let avg_seq = avg_seq_len_from_fai(&target)?;
+                    // Count genomes across both input FASTAs so `wfmash:auto`
+                    // adapts to the full 2-file cohort size.
+                    let num_genomes = count_total_genomes(&args.files)?;
+                    let wfmash_density =
+                        orchestrator::resolve_wfmash_density(&args.aln.sparsify, num_genomes);
                     let aligner = create_aligner(
-                        &args.aligner,
-                        args.frequency,
-                        args.map_pct_identity.clone(),
+                        &args.aln.aligner,
+                        resolve_fastga_freq(&args, &args.files)?,
+                        args.aln.map_pct_identity.clone(),
                         args.threads,
-                        args.block_length,
-                        args.tempdir.clone(),
+                        args.aln.block_length,
+                        args.aln.tempdir.clone(),
                         Some(avg_seq),
+                        wfmash_density,
                     )?;
                     let temp_paf = aligner.align_to_temp_paf(&target, &query)?;
 
@@ -3188,7 +3002,7 @@ fn main() -> Result<()> {
                             "align",
                             &format!(
                                 "{} alignment complete ({:.1}s)",
-                                args.aligner,
+                                args.aln.aligner,
                                 alignment_time.unwrap()
                             ),
                         );
@@ -3212,22 +3026,29 @@ fn main() -> Result<()> {
                 let alignment_start = Instant::now();
                 let temp_paf = align_multiple_fastas(
                     &args.files,
-                    args.frequency,
-                    args.map_pct_identity.clone(),
-                    args.all_pairs,
-                    args.batch_bytes,
-                    args.batch_size,
-                    args.max_disk,
+                    resolve_fastga_freq(&args, &args.files)?,
+                    args.aln.map_pct_identity.clone(),
+                    args.aln.all_pairs,
+                    args
+                        .aln
+                        .batch_bytes
+                        .as_deref()
+                        .map(parse_metric_number)
+                        .transpose()
+                        .map_err(|e| anyhow::anyhow!("Invalid --batch-bytes: {e}"))?,
+                    args.aln.batch_size,
+                    args.aln.max_disk,
                     args.threads,
-                    args.keep_self,
-                    args.tempdir.as_deref(),
+                    args.aln.keep_self,
+                    args.aln.tempdir.as_deref(),
                     &timing,
                     args.quiet,
-                    args.block_length,
-                    args.zstd_compress,
-                    args.zstd_level,
-                    &args.aligner,
-                )?;
+                    args.aln.block_length,
+                    args.aln.zstd_compress,
+                    args.aln.zstd_level,
+                    &args.aln.aligner,
+                        &args.aln.sparsify,
+                    )?;
 
                 alignment_time = Some(alignment_start.elapsed().as_secs_f64());
                 if !args.quiet {
@@ -3269,7 +3090,7 @@ fn main() -> Result<()> {
                 // AGC archive - extract samples and align
                 let alignment_start = Instant::now();
 
-                let agc_tempdir = args.agc_tempdir.as_deref().or(args.tempdir.as_deref());
+                let agc_tempdir = args.aln.agc_tempdir.as_deref().or(args.aln.tempdir.as_deref());
 
                 let temp_paf = process_agc_archive(&args.files[0], &args, agc_tempdir, &timing)?;
 
@@ -3306,7 +3127,7 @@ fn main() -> Result<()> {
 
         // Check if stdin had any content
         let file_size = std::fs::metadata(&temp_path)?.len();
-        if file_size == 0 && !args.no_filter {
+        if file_size == 0 && !args.aln.no_filter {
             use clap::CommandFactory;
             Args::command().print_help()?;
             std::process::exit(0);
@@ -3326,7 +3147,7 @@ fn main() -> Result<()> {
                 if !args.quiet {
                     timing.log(
                         "align",
-                        &format!("Running {} self-alignment on stdin", args.aligner),
+                        &format!("Running {} self-alignment on stdin", args.aln.aligner),
                     );
                 }
 
@@ -3334,14 +3155,18 @@ fn main() -> Result<()> {
                 let path = std::fs::canonicalize(&temp_path)
                     .with_context(|| format!("Failed to resolve path: {temp_path}"))?;
                 let avg_seq = avg_seq_len_from_fai(&path)?;
+                let num_genomes = count_total_genomes(&[&path])?;
+                let wfmash_density =
+                    orchestrator::resolve_wfmash_density(&args.aln.sparsify, num_genomes);
                 let aligner = create_aligner(
-                    &args.aligner,
-                    args.frequency,
-                    args.map_pct_identity.clone(),
+                    &args.aln.aligner,
+                    resolve_fastga_freq(&args, &args.files)?,
+                    args.aln.map_pct_identity.clone(),
                     args.threads,
-                    args.block_length,
-                    args.tempdir.clone(),
+                    args.aln.block_length,
+                    args.aln.tempdir.clone(),
                     Some(avg_seq),
+                    wfmash_density,
                 )?;
                 let temp_paf = aligner.align_to_temp_paf(&path, &path)?;
 
@@ -3351,7 +3176,7 @@ fn main() -> Result<()> {
                         "align",
                         &format!(
                             "{} alignment complete ({:.1}s)",
-                            args.aligner,
+                            args.aln.aligner,
                             alignment_time.unwrap()
                         ),
                     );
@@ -3397,7 +3222,7 @@ fn main() -> Result<()> {
         .build_global()?;
 
     // Handle no-filter mode - just copy input to stdout
-    if args.no_filter {
+    if args.aln.no_filter {
         use std::io::{BufRead, Write};
 
         let input = crate::paf::open_paf_input(&input_path)?;
@@ -3413,14 +3238,14 @@ fn main() -> Result<()> {
 
     // Parse -n parameter for plane sweep
     let (plane_sweep_mode, plane_sweep_query_limit, plane_sweep_target_limit) =
-        parse_filter_mode(&args.num_mappings, "plane sweep");
+        parse_filter_mode(&args.aln.num_mappings, "plane sweep");
 
     // Parse scaffold filter mode
     let (scaffold_filter_mode, scaffold_max_per_query, scaffold_max_per_target) =
-        parse_filter_mode(&args.scaffold_filter, "scaffold");
+        parse_filter_mode(&args.aln.scaffold_filter, "scaffold");
 
     // Parse scoring function
-    let scoring_function = match args.scoring.as_str() {
+    let scoring_function = match args.aln.scoring.as_str() {
         "ani" | "identity" => ScoringFunction::Identity,
         "length" => ScoringFunction::Length,
         "length-ani" | "length-identity" => ScoringFunction::LengthIdentity,
@@ -3429,18 +3254,61 @@ fn main() -> Result<()> {
         _ => ScoringFunction::LogLengthIdentity,
     };
 
-    // Parse sparsification strategy (PAF workflow)
-    use tree_sparsify::SparsificationStrategy;
-    let sparsification_strategy = args.sparsify.parse::<SparsificationStrategy>()?;
-    let sparsity_fraction = match sparsification_strategy {
-        SparsificationStrategy::Fraction(f) => f,
-        SparsificationStrategy::Tree(_, _, _) => 1.0, // Tree filtering will be applied to PAF
+    // Sparsification strategy (already parsed by clap via FromStr).
+    use knn_graph::SparsificationStrategy;
+    let sparsity_fraction = match &args.aln.sparsify {
+        SparsificationStrategy::None => 1.0,
+        SparsificationStrategy::Random(f) => *f,
+        SparsificationStrategy::TreeSampling(_, _, _) => 1.0, // Tree filtering will be applied to PAF
+        SparsificationStrategy::Auto
+        | SparsificationStrategy::Connectivity(_)
+        | SparsificationStrategy::WfmashDensity(_) => {
+            return Err(anyhow::anyhow!(
+                "--sparsify '{}' is not valid for post-alignment PAF/1aln filtering; \
+                 use `none`, `random:<f>`, a bare float, or `tree:<n>:<n>:<f>`",
+                args.aln.sparsify
+            ));
+        }
     };
+
+    // Adaptive scaffold clamping for PAF workflow. When input is a PAF we
+    // typically don't know the underlying average sequence length; this
+    // best-effort probe reads the first input if it happens to be a FASTA
+    // with a .fai sidecar (common for --paf runs over the same assembly).
+    let avg_seq_len_for_adaptive: Option<u64> = if !args.aln.no_adaptive_scaffolds {
+        args.files
+            .first()
+            .and_then(|p| avg_seq_len_from_fai(Path::new(p)).ok())
+    } else {
+        None
+    };
+    let (effective_scaffold_jump, effective_scaffold_mass) = pansn::clamp_scaffold_params(
+        args.aln.scaffold_jump,
+        args.aln.scaffold_mass,
+        avg_seq_len_for_adaptive,
+        !args.aln.no_adaptive_scaffolds,
+    );
+    if !args.aln.no_adaptive_scaffolds
+        && !args.quiet
+        && (effective_scaffold_jump != args.aln.scaffold_jump
+            || effective_scaffold_mass != args.aln.scaffold_mass)
+    {
+        timing.log(
+            "adaptive",
+            &format!(
+                "Scaffold thresholds clamped (jump {} -> {}, mass {} -> {})",
+                args.aln.scaffold_jump,
+                effective_scaffold_jump,
+                args.aln.scaffold_mass,
+                effective_scaffold_mass,
+            ),
+        );
+    }
 
     // Placeholder for identity values - will be calculated after we have input path
     let temp_config = FilterConfig {
-        chain_gap: args.scaffold_jump,
-        min_block_length: args.block_length.unwrap_or(0),
+        chain_gap: effective_scaffold_jump,
+        min_block_length: args.aln.block_length.unwrap_or(0),
         mapping_filter_mode: plane_sweep_mode,
         mapping_max_per_query: plane_sweep_query_limit,
         mapping_max_per_target: plane_sweep_target_limit,
@@ -3448,13 +3316,13 @@ fn main() -> Result<()> {
         scaffold_filter_mode,
         scaffold_max_per_query,
         scaffold_max_per_target,
-        overlap_threshold: args.overlap,
+        overlap_threshold: args.aln.overlap,
         sparsity: sparsity_fraction,
         no_merge: true,
-        scaffold_gap: args.scaffold_jump,
-        min_scaffold_length: args.scaffold_mass,
-        scaffold_overlap_threshold: args.scaffold_overlap,
-        scaffold_max_deviation: args.scaffold_dist,
+        scaffold_gap: effective_scaffold_jump,
+        min_scaffold_length: effective_scaffold_mass,
+        scaffold_overlap_threshold: args.aln.scaffold_overlap,
+        scaffold_max_deviation: args.aln.scaffold_dist,
         prefix_delimiter: '#',
         skip_prefix: false,
         scoring_function,
@@ -3463,18 +3331,18 @@ fn main() -> Result<()> {
     };
 
     // Parse ANI calculation method
-    let ani_method = parse_ani_method(&args.ani_method);
+    let ani_method = parse_ani_method(&args.aln.ani_method);
     if ani_method.is_none() {
-        // eprintln!(
+        // log::info!(
         //     "[sweepga] WARNING: Unknown ANI method '{}', using 'n50-identity'",
-        //     args.ani_method
+        //     args.aln.ani_method
         // );
     }
     let ani_method = ani_method.unwrap_or(AniMethod::NPercentile(50.0, NSort::Identity));
 
     // Now calculate ANI if needed for identity thresholds
-    let ani_percentile = if args.min_identity.to_lowercase().contains("ani")
-        || args.min_scaffold_identity.to_lowercase().contains("ani")
+    let ani_percentile = if args.aln.min_identity.to_lowercase().contains("ani")
+        || args.aln.min_scaffold_identity.to_lowercase().contains("ani")
     {
         Some(calculate_ani_stats(&input_path, ani_method, args.quiet)?)
     } else {
@@ -3482,11 +3350,11 @@ fn main() -> Result<()> {
     };
 
     // Parse identity thresholds
-    let min_identity = parse_identity_value(&args.min_identity, ani_percentile)?;
-    let min_scaffold_identity = if args.min_scaffold_identity.is_empty() {
+    let min_identity = parse_identity_value(&args.aln.min_identity, ani_percentile)?;
+    let min_scaffold_identity = if args.aln.min_scaffold_identity.is_empty() {
         min_identity // If empty string, use min_identity
     } else {
-        parse_identity_value(&args.min_scaffold_identity, ani_percentile)?
+        parse_identity_value(&args.aln.min_scaffold_identity, ani_percentile)?
     };
 
     // Only report thresholds if they're non-zero
@@ -3534,8 +3402,8 @@ fn main() -> Result<()> {
     drop(output_file); // Close the file handle so filter_paf can open it
 
     // Apply tree-based sparsification if requested
-    let tree_filtered_path = if let SparsificationStrategy::Tree(k_nearest, k_farthest, rand_frac) =
-        sparsification_strategy
+    let tree_filtered_path = if let &SparsificationStrategy::TreeSampling(k_nearest, k_farthest, rand_frac) =
+        &args.aln.sparsify
     {
         if !args.quiet {
             timing.log(
@@ -3564,7 +3432,7 @@ fn main() -> Result<()> {
         drop(tree_file); // Close so apply_tree_filter_to_paf can open it
 
         // Apply tree filtering
-        tree_sparsify::apply_tree_filter_to_paf(
+        tree_filter::apply_tree_filter_to_paf(
             &input_path,
             &tree_path,
             k_nearest,
@@ -3582,8 +3450,8 @@ fn main() -> Result<()> {
 
     // Note: -f (no_filter) implies --self (keep self-mappings)
     let filter = PafFilter::new(config)
-        .with_keep_self(args.keep_self || args.no_filter)
-        .with_scaffolds_only(args.scaffolds_only);
+        .with_keep_self(args.aln.keep_self || args.aln.no_filter)
+        .with_scaffolds_only(args.aln.scaffolds_only);
     filter.filter_paf(filter_input_path, &output_path)?;
 
     // Convert output format if requested
@@ -3602,7 +3470,7 @@ fn main() -> Result<()> {
         // Requires the original FASTA or .1aln file(s) for sequence metadata
         if input_file_types.is_empty() {
             if !args.quiet {
-                // eprintln!(
+                // log::info!(
                 //     "[sweepga] WARNING: .1aln output requires FASTA or .1aln input (not PAF), falling back to PAF output"
                 // );
             }
@@ -3611,7 +3479,7 @@ fn main() -> Result<()> {
             let first_type = input_file_types[0];
             if first_type != FileType::Fasta && first_type != FileType::Aln {
                 if !args.quiet {
-                    // eprintln!(
+                    // log::info!(
                     //     "[sweepga] WARNING: .1aln output requires FASTA or .1aln input (not PAF), falling back to PAF output"
                     // );
                 }
@@ -3725,7 +3593,7 @@ fn main() -> Result<()> {
         } else {
             format!("total:{total_elapsed:.1}s")
         };
-        eprintln!(
+        log::info!(
             "[sweepga::done] {time_parts} cpu:{cpu_ratio:.1}x rss:{rss} disk_peak:{disk_peak} disk_written:{disk_written}"
         );
     }

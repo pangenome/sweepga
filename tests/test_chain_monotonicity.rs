@@ -135,11 +135,11 @@ fn test_simple_collinear_chaining() {
     for gap in &gaps {
         let output = std::process::Command::new(sweepga_bin())
             .arg(paf_path)
-            .arg("-j")
+            .arg("--scaffold-jump")
             .arg(gap.to_string())
-            .arg("-i")
+            .arg("--min-aln-identity")
             .arg("0.90") // 90% identity threshold
-            .arg("-s")
+            .arg("--scaffold-mass")
             .arg("0") // No minimum scaffold length
             .output()
             .expect("Failed to run sweepga");
@@ -179,11 +179,11 @@ fn test_mixed_identity_chaining() {
     for (gap, threshold, expected) in test_cases {
         let output = std::process::Command::new(sweepga_bin())
             .arg(paf_path)
-            .arg("-j")
+            .arg("--scaffold-jump")
             .arg(gap.to_string())
-            .arg("-Y")
+            .arg("--min-scaffold-identity")
             .arg(threshold)
-            .arg("-s")
+            .arg("--scaffold-mass")
             .arg("0")
             .output()
             .expect("Failed to run sweepga");
@@ -220,11 +220,11 @@ fn test_fragmented_chaining_coverage() {
     for gap in &gaps {
         let output = std::process::Command::new(sweepga_bin())
             .arg(paf_path)
-            .arg("-j")
+            .arg("--scaffold-jump")
             .arg(gap.to_string())
-            .arg("-i")
+            .arg("--min-aln-identity")
             .arg("0.90")
-            .arg("-s")
+            .arg("--scaffold-mass")
             .arg("0")
             .output()
             .expect("Failed to run sweepga");
@@ -272,11 +272,11 @@ fn test_centromere_inversion_filtering() {
     // Test 1: With Y=0.80 (80%), chain should be filtered (76% < 80%)
     let output_80 = std::process::Command::new(sweepga_bin())
         .arg(paf.path())
-        .arg("-i")
+        .arg("--min-aln-identity")
         .arg("0.80")
-        .arg("-j")
+        .arg("--scaffold-jump")
         .arg("10000")
-        .arg("-s")
+        .arg("--scaffold-mass")
         .arg("0")
         .output()
         .expect("Failed to run sweepga");
@@ -298,11 +298,11 @@ fn test_centromere_inversion_filtering() {
     // Test 2: With Y=0.75 (75%), chain should pass (76% >= 75%)
     let output_75 = std::process::Command::new(sweepga_bin())
         .arg(paf.path())
-        .arg("-i")
+        .arg("--min-aln-identity")
         .arg("0.75")
-        .arg("-j")
+        .arg("--scaffold-jump")
         .arg("10000")
-        .arg("-s")
+        .arg("--scaffold-mass")
         .arg("0")
         .output()
         .expect("Failed to run sweepga");
@@ -324,11 +324,11 @@ fn test_centromere_inversion_filtering() {
     // Test 3: With Y=0 (no filter), chain should definitely pass
     let output_0 = std::process::Command::new(sweepga_bin())
         .arg(paf.path())
-        .arg("-i")
+        .arg("--min-aln-identity")
         .arg("0")
-        .arg("-j")
+        .arg("--scaffold-jump")
         .arg("10000")
-        .arg("-s")
+        .arg("--scaffold-mass")
         .arg("0")
         .output()
         .expect("Failed to run sweepga");

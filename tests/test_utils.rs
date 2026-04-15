@@ -211,17 +211,17 @@ impl TestConfig {
         let mut args = vec!["-t".to_string(), self.threads.to_string()];
 
         if let Some(ref bl) = self.block_length {
-            args.push("-b".to_string());
+            args.push("--min-aln-length".to_string());
             args.push(bl.clone());
         }
 
         if let Some(ref sj) = self.scaffold_jump {
-            args.push("-j".to_string());
+            args.push("--scaffold-jump".to_string());
             args.push(sj.clone());
         }
 
         if let Some(ref sm) = self.scaffold_mass {
-            args.push("-s".to_string());
+            args.push("--scaffold-mass".to_string());
             args.push(sm.clone());
         }
 

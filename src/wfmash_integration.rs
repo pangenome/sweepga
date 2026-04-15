@@ -110,8 +110,19 @@ impl WfmashIntegration {
     }
 }
 
+/// Ensure a `.fai` exists alongside `path`
+fn ensure_fai(path: &Path) -> Result<()> {
+    rust_htslib::faidx::Reader::from_path(path)
+        .map_err(|e| anyhow::anyhow!("Failed to create FASTA index for {}: {e}", path.display()))?;
+    Ok(())
+}
+
 impl Aligner for WfmashIntegration {
     fn align_to_temp_paf(&self, queries: &Path, targets: &Path) -> Result<NamedTempFile> {
+        ensure_fai(targets)?;
+        if queries != targets {
+            ensure_fai(queries)?;
+        }
         if queries == targets {
             self.wfmash
                 .align_self_to_temp_paf(queries)
@@ -125,6 +136,10 @@ impl Aligner for WfmashIntegration {
     }
 
     fn align_direct_paf(&self, queries: &Path, targets: &Path) -> Result<Vec<u8>> {
+        ensure_fai(targets)?;
+        if queries != targets {
+            ensure_fai(queries)?;
+        }
         if queries == targets {
             self.wfmash
                 .align_self(queries)

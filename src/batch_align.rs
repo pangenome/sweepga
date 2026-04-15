@@ -80,7 +80,7 @@ pub struct FastGABatchAligner {
 
 impl FastGABatchAligner {
     pub fn new(
-        frequency: Option<usize>,
+        frequency: usize,
         threads: usize,
         min_alignment_length: u64,
         tempdir: Option<String>,
@@ -104,13 +104,13 @@ impl FastGABatchAligner {
 impl BatchAligner for FastGABatchAligner {
     fn prepare_all(&self, batch_files: &[PathBuf], quiet: bool) -> Result<()> {
         if !quiet {
-            eprintln!("[batch] Creating GDB files for all batches...");
+            log::info!("[batch] Creating GDB files for all batches...");
         }
         let mut gdb_bases = self.gdb_bases.borrow_mut();
         gdb_bases.clear();
         for (i, batch_file) in batch_files.iter().enumerate() {
             if !quiet {
-                eprintln!("[batch]   GDB for batch {}...", i + 1);
+                log::info!("[batch]   GDB for batch {}...", i + 1);
             }
             let gdb_base = self.fastga.create_gdb_only(batch_file)?;
             gdb_bases.push(gdb_base);
@@ -121,7 +121,7 @@ impl BatchAligner for FastGABatchAligner {
     fn prepare_target(&self, batch_idx: usize, quiet: bool) -> Result<()> {
         let gdb_bases = self.gdb_bases.borrow();
         if !quiet {
-            eprintln!("[batch] Building index for batch {}...", batch_idx + 1);
+            log::info!("[batch] Building index for batch {}...", batch_idx + 1);
         }
         self.fastga.create_index_only(&gdb_bases[batch_idx])?;
 
@@ -148,7 +148,7 @@ impl BatchAligner for FastGABatchAligner {
     fn cleanup_target(&self, batch_idx: usize, quiet: bool) -> Result<()> {
         let gdb_bases = self.gdb_bases.borrow();
         if !quiet {
-            eprintln!("[batch] Cleaning up index for batch {}...", batch_idx + 1);
+            log::info!("[batch] Cleaning up index for batch {}...", batch_idx + 1);
         }
         // Estimate and untrack disk usage
         let index_dir = std::path::Path::new(&gdb_bases[batch_idx])
@@ -181,6 +181,9 @@ pub struct WfmashBatchAligner {
     min_alignment_length: Option<u64>,
     map_pct_identity: Option<String>,
     temp_dir: Option<String>,
+    /// Mapping density (wfmash `-x`). Forwarded verbatim to every per-batch
+    /// `WfmashIntegration`. `None` (or `Some(1.0)`) keeps all mappings.
+    sparsify: Option<f64>,
 }
 
 impl WfmashBatchAligner {
@@ -189,12 +192,14 @@ impl WfmashBatchAligner {
         min_alignment_length: Option<u64>,
         map_pct_identity: Option<String>,
         temp_dir: Option<String>,
+        sparsify: Option<f64>,
     ) -> Self {
         Self {
             num_threads,
             min_alignment_length,
             map_pct_identity,
             temp_dir,
+            sparsify,
         }
     }
 
@@ -206,9 +211,9 @@ impl WfmashBatchAligner {
             self.min_alignment_length,
             self.map_pct_identity.clone(),
             self.temp_dir.clone(),
-            None, // segment_length: adaptive
+            None, // segment_length: adapt from avg_seq
             avg_seq,
-            None, // sparsify
+            self.sparsify,
             None, // num_mappings
             None, // pairs_file
         )
@@ -413,13 +418,12 @@ pub fn partition_into_batches_by_bp(genomes: Vec<GenomeInfo>, max_bp: u64) -> Ve
     for genome in genomes {
         // A single genome bigger than the limit gets its own batch
         if genome.total_bp > max_bp {
-            eprintln!(
-                "[batch] WARNING: Genome {} ({}) exceeds batch limit {}",
+            log::warn!(
+                "[batch] Genome {} ({}) exceeds batch limit {}; including it as a single-genome batch anyway",
                 genome.prefix,
                 format_bytes(genome.total_bp),
                 format_bytes(max_bp),
             );
-            eprintln!("[batch] Including it as a single-genome batch anyway");
 
             if !current_batch.genomes.is_empty() {
                 batches.push(current_batch);
@@ -527,7 +531,7 @@ pub fn report_batch_plan(batches: &[GenomeBatch], total_bp: u64, quiet: bool) {
     let self_pairs = batches.len();
     let cross_pairs = total_pairs - self_pairs;
 
-    eprintln!(
+    log::info!(
         "[batch] Partitioned {} genomes ({}) into {} batches:",
         total_genomes,
         format_bytes(total_bp),
@@ -535,7 +539,7 @@ pub fn report_batch_plan(batches: &[GenomeBatch], total_bp: u64, quiet: bool) {
     );
 
     for (i, batch) in batches.iter().enumerate() {
-        eprintln!(
+        log::info!(
             "[batch]   Batch {}: {} genomes, {}",
             i + 1,
             batch.genomes.len(),
@@ -543,7 +547,7 @@ pub fn report_batch_plan(batches: &[GenomeBatch], total_bp: u64, quiet: bool) {
         );
     }
 
-    eprintln!(
+    log::info!(
         "[batch] Will run {} batch alignments ({} self + {} cross-batch)",
         total_pairs, self_pairs, cross_pairs
     );
@@ -614,13 +618,15 @@ pub fn estimate_peak_disk(
     fixed + index_cost
 }
 
-/// Resolve effective batch bytes from --max-disk and --batch-bytes flags.
+/// Resolve effective batch bytes from `--max-disk` and `--batch-bytes` flags.
 ///
-/// Returns `Some(max_bp)` if batching should be used, `None` otherwise.
-pub fn resolve_batch_bytes(
+/// Returns `Some(max_bp)` if batching should be used, `None` if the whole
+/// input fits within the budget (or if neither flag was set).
+pub fn resolve_batch_bytes_from_sizes(
     max_disk: Option<u64>,
     batch_bytes: Option<u64>,
-    fasta_files: &[String],
+    genome_sizes: &[u64],
+    n_genomes: usize,
     n_threads: usize,
     zstd: bool,
     quiet: bool,
@@ -628,24 +634,18 @@ pub fn resolve_batch_bytes(
     match (max_disk, batch_bytes) {
         (None, None) => Ok(None),
         (None, Some(bb)) => Ok(Some(bb)),
-        (Some(budget), bb) => {
-            if bb.is_some() && !quiet {
-                eprintln!(
-                    "[budget] WARNING: --max-disk overrides --batch-bytes; ignoring --batch-bytes"
-                );
-            }
-
-            let genomes = parse_genome_sizes(fasta_files)?;
-            let total_bp: u64 = genomes.iter().map(|g| g.total_bp).sum();
-            let genome_sizes: Vec<u64> = genomes.iter().map(|g| g.total_bp).collect();
-
+        (Some(_), Some(_)) => {
+            anyhow::bail!("--max-disk conflicts with --batch-bytes; pass only one.")
+        }
+        (Some(budget), None) => {
             if genome_sizes.is_empty() {
-                anyhow::bail!("No genomes found in input files");
+                anyhow::bail!("No genomes found in input");
             }
 
+            let total_bp: u64 = genome_sizes.iter().sum();
             let max_batch_bp = compute_batch_bp_from_budget(
                 total_bp,
-                &genome_sizes,
+                genome_sizes,
                 n_threads,
                 zstd,
                 budget,
@@ -668,19 +668,22 @@ pub fn resolve_batch_bytes(
                     );
                 }
                 Some(bp) => {
-                    let estimated_peak = estimate_peak_disk(total_bp, genomes.len(), Some(bp), n_threads, zstd);
-                    let n_batches = if bp >= total_bp { 1 } else {
+                    let estimated_peak =
+                        estimate_peak_disk(total_bp, n_genomes, Some(bp), n_threads, zstd);
+                    let n_batches = if bp >= total_bp {
+                        1
+                    } else {
                         (total_bp + bp - 1) / bp
                     };
 
                     if !quiet {
-                        eprintln!("[budget] Disk budget: {}", format_bytes(budget));
-                        eprintln!(
+                        log::info!("[budget] Disk budget: {}", format_bytes(budget));
+                        log::info!(
                             "[budget] Estimated peak: {} ({:.0}% of budget)",
                             format_bytes(estimated_peak),
                             estimated_peak as f64 / budget as f64 * 100.0,
                         );
-                        eprintln!(
+                        log::info!(
                             "[budget] Batch size: {} (~{} batches)",
                             format_bytes(bp),
                             n_batches,
@@ -690,15 +693,15 @@ pub fn resolve_batch_bytes(
                     // Pre-flight: check available disk space
                     if let Ok(available) = crate::disk_usage::available_disk_bytes("/tmp") {
                         if !quiet {
-                            eprintln!(
+                            log::info!(
                                 "[budget] Pre-flight: {} available on /tmp ({})",
                                 format_bytes(available),
                                 if available >= estimated_peak { "OK" } else { "WARNING: may be tight" },
                             );
                         }
                         if available < estimated_peak {
-                            eprintln!(
-                                "[budget] WARNING: Available disk ({}) is less than estimated peak ({})",
+                            log::warn!(
+                                "[budget] Available disk ({}) is less than estimated peak ({})",
                                 format_bytes(available),
                                 format_bytes(estimated_peak),
                             );
@@ -707,7 +710,7 @@ pub fn resolve_batch_bytes(
 
                     if bp >= total_bp {
                         if !quiet {
-                            eprintln!("[budget] All genomes fit within budget, no batching needed");
+                            log::info!("[budget] All genomes fit within budget, no batching needed");
                         }
                         return Ok(None);
                     }
@@ -719,36 +722,42 @@ pub fn resolve_batch_bytes(
     }
 }
 
-/// Configuration for batch alignment
-pub struct BatchAlignConfig {
-    pub frequency: Option<usize>,
-    pub threads: usize,
-    pub min_alignment_length: u64,
-    pub zstd_compress: bool,
-    pub zstd_level: u32,
-    pub keep_self: bool,
-    pub quiet: bool,
+/// Resolve effective batch bytes from `--max-disk` / `--batch-bytes` for FASTA input.
+pub fn resolve_batch_bytes(
+    max_disk: Option<u64>,
+    batch_bytes: Option<u64>,
+    fasta_files: &[String],
+    n_threads: usize,
+    zstd: bool,
+    quiet: bool,
+) -> Result<Option<u64>> {
+    if max_disk.is_none() {
+        // Fast path: nothing to compute if no budget was set.
+        return resolve_batch_bytes_from_sizes(
+            max_disk, batch_bytes, &[], 0, n_threads, zstd, quiet,
+        );
+    }
+    let genomes = parse_genome_sizes(fasta_files)?;
+    let genome_sizes: Vec<u64> = genomes.iter().map(|g| g.total_bp).collect();
+    resolve_batch_bytes_from_sizes(
+        max_disk,
+        batch_bytes,
+        &genome_sizes,
+        genomes.len(),
+        n_threads,
+        zstd,
+        quiet,
+    )
 }
 
-/// Parse a human-readable size string like "2G", "500M", "100k" into bytes.
-pub fn parse_size_string(s: &str) -> Result<u64> {
-    let s = s.trim();
-    if s.is_empty() {
-        anyhow::bail!("Empty size string");
-    }
-
-    let (num_str, multiplier) = match s.as_bytes().last() {
-        Some(b'k' | b'K') => (&s[..s.len() - 1], 1_000u64),
-        Some(b'm' | b'M') => (&s[..s.len() - 1], 1_000_000u64),
-        Some(b'g' | b'G') => (&s[..s.len() - 1], 1_000_000_000u64),
-        Some(b't' | b'T') => (&s[..s.len() - 1], 1_000_000_000_000u64),
-        _ => (s, 1u64),
-    };
-
-    let value: f64 = num_str
-        .parse()
-        .with_context(|| format!("Invalid size value: {s}"))?;
-    Ok((value * multiplier as f64) as u64)
+/// Configuration for batch alignment. The aligner's own parameters
+/// (threads, k-mer frequency, block length, zstd) live on the
+/// `BatchAligner` instance passed alongside this config; this struct
+/// only carries the orchestration-level knobs that the batch runner
+/// itself consumes.
+pub struct BatchAlignConfig {
+    pub keep_self: bool,
+    pub quiet: bool,
 }
 
 /// Maximum number of adaptive restarts before giving up.
@@ -776,7 +785,7 @@ pub fn run_batch_alignment_with_budget(
 ) -> Result<tempfile::NamedTempFile> {
     // Parse genome sizes once (shared across restarts)
     if !config.quiet {
-        eprintln!("[batch] Scanning input files for genome sizes...");
+        log::info!("[batch] Scanning input files for genome sizes...");
     }
     let genomes = parse_genome_sizes(fasta_files)?;
     let total_bp: u64 = genomes.iter().map(|g| g.total_bp).sum();
@@ -806,7 +815,7 @@ pub fn run_batch_alignment_with_budget(
         let batches = partition_into_batches_by_bp(genomes.clone(), max_batch_bp);
 
         if !config.quiet {
-            eprintln!(
+            log::info!(
                 "[budget] Batch size: {} ({} batches)",
                 format_bytes(max_batch_bp),
                 batches.len(),
@@ -816,7 +825,7 @@ pub fn run_batch_alignment_with_budget(
         // Single batch → no budget concerns from batching, use optimized path
         if batches.len() == 1 {
             if !config.quiet {
-                eprintln!(
+                log::info!(
                     "[batch] All genomes ({}) fit in single batch, no batching needed",
                     format_bytes(total_bp),
                 );
@@ -837,7 +846,7 @@ pub fn run_batch_alignment_with_budget(
             std::fs::create_dir_all(&batch_subdir)?;
             let batch_path = batch_subdir.join("genomes.fa");
             if !config.quiet {
-                eprintln!(
+                log::info!(
                     "[batch] Writing batch {} ({} genomes)...",
                     i + 1,
                     batch.genomes.len(),
@@ -871,7 +880,7 @@ pub fn run_batch_alignment_with_budget(
                         err.downcast_ref::<crate::fastga_integration::IndexCreationError>()
                     }) {
                         if let crate::fastga_integration::IndexCreationError::SizeLimitExceeded { batch_size_mb, .. } = error_chain {
-                            eprintln!(
+                            log::info!(
                                 "[gixmake] Index creation failed for batch {} ({}MB) - batch too large for GIXmake",
                                 i + 1, batch_size_mb
                             );
@@ -895,7 +904,7 @@ pub fn run_batch_alignment_with_budget(
             let (exceeded, current, _) =
                 crate::disk_usage::check_budget(disk_budget, BUDGET_THRESHOLD);
             if exceeded {
-                eprintln!(
+                log::info!(
                     "[budget] Disk usage {} exceeds {:.0}% of budget {}",
                     crate::disk_usage::format_bytes(current),
                     BUDGET_THRESHOLD * 100.0,
@@ -907,7 +916,7 @@ pub fn run_batch_alignment_with_budget(
             }
 
             if !config.quiet {
-                eprintln!(
+                log::info!(
                     "[batch] Target batch {} [disk: {} / {}]",
                     i + 1,
                     crate::disk_usage::format_bytes(current),
@@ -918,9 +927,9 @@ pub fn run_batch_alignment_with_budget(
             for j in 0..num_batches {
                 if !config.quiet {
                     if i == j {
-                        eprintln!("[batch] Aligning batch {} to itself...", i + 1);
+                        log::info!("[batch] Aligning batch {} to itself...", i + 1);
                     } else {
-                        eprintln!("[batch] Aligning batch {} vs batch {}...", j + 1, i + 1);
+                        log::info!("[batch] Aligning batch {} vs batch {}...", j + 1, i + 1);
                     }
                 }
 
@@ -930,7 +939,7 @@ pub fn run_batch_alignment_with_budget(
                 merged_output.write_all(&paf_bytes)?;
 
                 if !config.quiet {
-                    eprintln!("[batch]   {} alignments", line_count);
+                    log::info!("[batch]   {} alignments", line_count);
                 }
             }
 
@@ -938,7 +947,7 @@ pub fn run_batch_alignment_with_budget(
 
             if !config.quiet {
                 let current = crate::disk_usage::current_usage();
-                eprintln!(
+                log::info!(
                     "[batch] Completed target batch {} [disk: {} / {}]",
                     i + 1,
                     crate::disk_usage::format_bytes(current),
@@ -954,12 +963,12 @@ pub fn run_batch_alignment_with_budget(
         if !budget_exceeded {
             // Success — report and verify
             if !config.quiet {
-                eprintln!(
+                log::info!(
                     "[batch] Completed batch alignment: {} total alignments",
                     total_alignments,
                 );
                 let peak = crate::disk_usage::peak_usage();
-                eprintln!(
+                log::info!(
                     "[budget] Peak disk usage: {} ({:.0}% of budget)",
                     crate::disk_usage::format_bytes(peak),
                     peak as f64 / disk_budget as f64 * 100.0,
@@ -978,7 +987,7 @@ pub fn run_batch_alignment_with_budget(
                 !config.keep_self,
             )?;
             if !config.quiet {
-                eprintln!(
+                log::info!(
                     "[batch] Verification: {}/{} genome pairs present",
                     verification.found_pairs, verification.expected_pairs,
                 );
@@ -1027,7 +1036,7 @@ pub fn run_batch_alignment_with_budget(
 
         match restart_reason {
             RestartReason::BudgetExceeded => {
-                eprintln!(
+                log::info!(
                     "[budget] Restart {}/{}: reducing batch from {} to {} (disk budget exceeded)",
                     restarts,
                     MAX_RESTARTS,
@@ -1036,7 +1045,7 @@ pub fn run_batch_alignment_with_budget(
                 );
             }
             RestartReason::IndexSizeLimitExceeded { batch_size_mb } => {
-                eprintln!(
+                log::info!(
                     "[gixmake] Restart {}/{}: reducing batch from {} to {} (GIXmake index size limit, {}MB batch failed)",
                     restarts,
                     MAX_RESTARTS,
@@ -1076,7 +1085,7 @@ pub fn run_batch_alignment_generic(
 
     // Parse genome sizes
     if !config.quiet {
-        eprintln!("[batch] Scanning input files for genome sizes...");
+        log::info!("[batch] Scanning input files for genome sizes...");
     }
     let genomes = parse_genome_sizes(fasta_files)?;
     let total_bp: u64 = genomes.iter().map(|g| g.total_bp).sum();
@@ -1090,7 +1099,7 @@ pub fn run_batch_alignment_generic(
 
     if batches.len() == 1 {
         if !config.quiet {
-            eprintln!(
+            log::info!(
                 "[batch] All genomes ({}) fit in single batch, no batching needed",
                 format_bytes(total_bp),
             );
@@ -1109,7 +1118,7 @@ pub fn run_batch_alignment_generic(
         std::fs::create_dir_all(&batch_subdir)?;
         let batch_path = batch_subdir.join("genomes.fa");
         if !config.quiet {
-            eprintln!(
+            log::info!(
                 "[batch] Writing batch {} ({} genomes)...",
                 i + 1,
                 batch.genomes.len()
@@ -1153,9 +1162,9 @@ pub fn run_batch_alignment_generic(
         for j in 0..num_batches {
             if !config.quiet {
                 if i == j {
-                    eprintln!("[batch] Aligning batch {} to itself...", i + 1);
+                    log::info!("[batch] Aligning batch {} to itself...", i + 1);
                 } else {
-                    eprintln!("[batch] Aligning batch {} vs batch {}...", j + 1, i + 1);
+                    log::info!("[batch] Aligning batch {} vs batch {}...", j + 1, i + 1);
                 }
             }
 
@@ -1167,7 +1176,7 @@ pub fn run_batch_alignment_generic(
             merged_output.write_all(&paf_bytes)?;
 
             if !config.quiet {
-                eprintln!("[batch]   {} alignments", line_count);
+                log::info!("[batch]   {} alignments", line_count);
             }
         }
 
@@ -1178,7 +1187,7 @@ pub fn run_batch_alignment_generic(
     aligner.cleanup_all()?;
 
     if !config.quiet {
-        eprintln!(
+        log::info!(
             "[batch] Completed batch alignment: {} total alignments",
             total_alignments
         );
@@ -1196,7 +1205,7 @@ pub fn run_batch_alignment_generic(
         !config.keep_self,
     )?;
     if !config.quiet {
-        eprintln!(
+        log::info!(
             "[batch] Verification: {}/{} genome pairs present",
             verification.found_pairs, verification.expected_pairs
         );
@@ -1230,7 +1239,7 @@ pub fn run_batch_alignment_by_count(
     std::fs::create_dir_all(&batch_dir)?;
 
     if !config.quiet {
-        eprintln!("[batch] Scanning input files for genome sizes...");
+        log::info!("[batch] Scanning input files for genome sizes...");
     }
     let genomes = parse_genome_sizes(fasta_files)?;
     let total_bp: u64 = genomes.iter().map(|g| g.total_bp).sum();
@@ -1243,7 +1252,7 @@ pub fn run_batch_alignment_by_count(
 
     if batches.len() == 1 {
         if !config.quiet {
-            eprintln!(
+            log::info!(
                 "[batch] All genomes ({}) fit in single batch, no batching needed",
                 format_bytes(total_bp),
             );
@@ -1260,7 +1269,7 @@ pub fn run_batch_alignment_by_count(
         std::fs::create_dir_all(&batch_subdir)?;
         let batch_path = batch_subdir.join("genomes.fa");
         if !config.quiet {
-            eprintln!(
+            log::info!(
                 "[batch] Writing batch {} ({} genomes)...",
                 i + 1,
                 batch.genomes.len()
@@ -1301,9 +1310,9 @@ pub fn run_batch_alignment_by_count(
         for j in 0..num_batches {
             if !config.quiet {
                 if i == j {
-                    eprintln!("[batch] Aligning batch {} to itself...", i + 1);
+                    log::info!("[batch] Aligning batch {} to itself...", i + 1);
                 } else {
-                    eprintln!("[batch] Aligning batch {} vs batch {}...", j + 1, i + 1);
+                    log::info!("[batch] Aligning batch {} vs batch {}...", j + 1, i + 1);
                 }
             }
 
@@ -1313,7 +1322,7 @@ pub fn run_batch_alignment_by_count(
             merged_output.write_all(&paf_bytes)?;
 
             if !config.quiet {
-                eprintln!("[batch]   {} alignments", line_count);
+                log::info!("[batch]   {} alignments", line_count);
             }
         }
 
@@ -1323,7 +1332,7 @@ pub fn run_batch_alignment_by_count(
     aligner.cleanup_all()?;
 
     if !config.quiet {
-        eprintln!(
+        log::info!(
             "[batch] Completed batch alignment: {} total alignments",
             total_alignments
         );
@@ -1340,7 +1349,7 @@ pub fn run_batch_alignment_by_count(
         !config.keep_self,
     )?;
     if !config.quiet {
-        eprintln!(
+        log::info!(
             "[batch] Verification: {}/{} genome pairs present",
             verification.found_pairs, verification.expected_pairs
         );
@@ -1352,14 +1361,16 @@ pub fn run_batch_alignment_by_count(
 }
 
 /// Result of batch completeness verification.
+///
+/// The `missing` pair list is surfaced to the user via `log::warn!`
+/// inside `verify_batch_completeness`; callers here only need the
+/// `found_pairs` / `expected_pairs` counters.
 #[derive(Debug, Clone)]
 pub struct BatchVerification {
     /// Genome pairs found in the output.
     pub found_pairs: usize,
     /// Expected genome pairs.
     pub expected_pairs: usize,
-    /// Missing genome pairs (query_prefix -> target_prefix).
-    pub missing: Vec<(String, String)>,
 }
 
 /// Verify that a PAF file contains alignments for all expected genome pairs.
@@ -1412,24 +1423,21 @@ pub fn verify_batch_completeness(
         .cloned()
         .collect::<Vec<_>>();
 
-    let result = BatchVerification {
-        found_pairs: expected.intersection(&found).count(),
-        expected_pairs: expected.len(),
-        missing: missing.clone(),
-    };
-
     if !missing.is_empty() {
-        eprintln!(
-            "[batch] WARNING: {}/{} genome pairs missing from output",
+        log::warn!(
+            "[batch] {}/{} genome pairs missing from output",
             missing.len(),
             expected.len()
         );
         for (q, t) in &missing {
-            eprintln!("[batch]   missing: {} -> {}", q, t);
+            log::warn!("[batch]   missing: {} -> {}", q, t);
         }
     }
 
-    Ok(result)
+    Ok(BatchVerification {
+        found_pairs: expected.intersection(&found).count(),
+        expected_pairs: expected.len(),
+    })
 }
 
 #[cfg(test)]
@@ -1449,17 +1457,6 @@ mod tests {
         assert_eq!(extract_pansn_prefix("SGDref#1#chrI"), "SGDref#1#");
         assert_eq!(extract_pansn_prefix("genome#hap#seq"), "genome#hap#");
         assert_eq!(extract_pansn_prefix("simple"), "simple#");
-    }
-
-    #[test]
-    fn test_parse_size_string() {
-        assert_eq!(parse_size_string("500M").unwrap(), 500_000_000);
-        assert_eq!(parse_size_string("2G").unwrap(), 2_000_000_000);
-        assert_eq!(parse_size_string("1.5G").unwrap(), 1_500_000_000);
-        assert_eq!(parse_size_string("100k").unwrap(), 100_000);
-        assert_eq!(parse_size_string("1234").unwrap(), 1234);
-        assert!(parse_size_string("").is_err());
-        assert!(parse_size_string("abc").is_err());
     }
 
     #[test]
@@ -1488,7 +1485,7 @@ mod tests {
         let result = verify_batch_completeness(paf.path(), &genomes, true).unwrap();
         assert_eq!(result.expected_pairs, 6); // 3 genomes, exclude self = 3*2
         assert_eq!(result.found_pairs, 6);
-        assert!(result.missing.is_empty());
+        assert_eq!(result.found_pairs, result.expected_pairs);
     }
 
     #[test]
@@ -1508,7 +1505,7 @@ mod tests {
         let result = verify_batch_completeness(paf.path(), &genomes, true).unwrap();
         assert_eq!(result.expected_pairs, 6);
         assert_eq!(result.found_pairs, 2);
-        assert_eq!(result.missing.len(), 4); // A->C, C->A, B->C, C->B
+        assert_eq!(result.expected_pairs - result.found_pairs, 4); // A->C, C->A, B->C, C->B
     }
 
     #[test]
@@ -1534,7 +1531,7 @@ mod tests {
         let result = verify_batch_completeness(paf.path(), &genomes, false).unwrap();
         assert_eq!(result.expected_pairs, 4); // 2*2 = 4 (A->A, A->B, B->A, B->B)
         assert_eq!(result.found_pairs, 4);
-        assert!(result.missing.is_empty());
+        assert_eq!(result.found_pairs, result.expected_pairs);
     }
 
     #[test]

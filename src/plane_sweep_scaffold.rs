@@ -5,7 +5,7 @@ use crate::plane_sweep_exact::{plane_sweep_both, PlaneSweepMapping};
 /// This module provides reusable plane sweep logic that works on any chain-like structure.
 /// It's used by both filter_scaffold.rs and paf_filter.rs to deduplicate overlapping scaffolds.
 use anyhow::Result;
-use std::collections::HashMap;
+use indexmap::IndexMap;
 
 /// Extract PanSN genome prefix from sequence name
 /// Default: first two parts (genome#haplotype#) for standard PanSN format
@@ -110,9 +110,11 @@ fn apply_one_to_one_sweep(
     overlap_threshold: f64,
     scoring_function: ScoringFunction,
 ) -> Result<Vec<usize>> {
-    // First, organize by genome pair (for logging/organization)
-    let mut genome_pairs: HashMap<(String, String), HashMap<(String, String), Vec<usize>>> =
-        HashMap::new();
+    // First, organize by genome pair (for logging/organization).
+    // IndexMap preserves PAF-input insertion order so plane-sweep tie-breaks
+    // are deterministic across runs.
+    let mut genome_pairs: IndexMap<(String, String), IndexMap<(String, String), Vec<usize>>> =
+        IndexMap::new();
 
     for (i, (_, q, t)) in plane_sweep_mappings.iter().enumerate() {
         let q_prefix = extract_genome_prefix(q);
@@ -131,7 +133,7 @@ fn apply_one_to_one_sweep(
     if !genome_pairs.is_empty() {
         let mut genome_pair_list: Vec<_> = genome_pairs.keys().collect();
         genome_pair_list.sort();
-        eprintln!(
+        log::info!(
             "[sweepga::scaffold] Found {} genome pairs for scaffold filtering:",
             genome_pair_list.len()
         );
@@ -140,7 +142,7 @@ fn apply_one_to_one_sweep(
                 .get(&(q_prefix.clone(), t_prefix.clone()))
                 .map(|m| m.len())
                 .unwrap_or(0);
-            eprintln!(
+            log::info!(
                 "[sweepga::scaffold]   {} -> {} ({} chromosome pairs)",
                 q_prefix.trim_end_matches('#'),
                 t_prefix.trim_end_matches('#'),
@@ -197,9 +199,10 @@ fn apply_many_sweep(
     let query_limit = max_per_query.unwrap_or(usize::MAX);
     let target_limit = max_per_target.unwrap_or(usize::MAX);
 
-    // First, organize by genome pair, then by chromosome pair
-    let mut genome_pairs: HashMap<(String, String), HashMap<(String, String), Vec<usize>>> =
-        HashMap::new();
+    // First, organize by genome pair, then by chromosome pair.
+    // IndexMap preserves insertion order for deterministic processing.
+    let mut genome_pairs: IndexMap<(String, String), IndexMap<(String, String), Vec<usize>>> =
+        IndexMap::new();
 
     for (i, (_, q, t)) in plane_sweep_mappings.iter().enumerate() {
         let q_prefix = extract_genome_prefix(q);

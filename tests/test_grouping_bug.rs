@@ -37,7 +37,7 @@ chrII_query\t15000\t2000\t3000\t+\tchrII_target2\t10000\t4000\t5000\t1000\t1000\
             "--output-file",
             output_path,
             "-n=1", // Keep only best per position
-            "-s",
+            "--scaffold-mass",
             "0",
         ]) // No scaffolding
         .output()
@@ -124,7 +124,7 @@ query1\t5000\t1000\t2000\t+\ttarget_D\t10000\t1000\t2000\t1000\t1000\t60\tcg:Z:1
             "--output-file",
             output_path,
             "-n=1", // Keep only best
-            "-s",
+            "--scaffold-mass",
             "0",
         ]) // No scaffolding
         .output()

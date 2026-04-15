@@ -35,8 +35,8 @@ pub fn extract_1aln_metadata<P: AsRef<Path>>(
     // See: https://github.com/pangenome/onecode-rs/issues/XXX (TODO: file bug)
     if let Err(e) = reader.file.goto('A', 1) {
         // If goto fails (e.g., no alignments), that's OK - read_alignment will return None
-        eprintln!(
-            "[unified_filter] Warning: could not seek to first alignment: {}",
+        log::warn!(
+            "[unified_filter] could not seek to first alignment: {}",
             e
         );
     }
@@ -47,7 +47,7 @@ pub fn extract_1aln_metadata<P: AsRef<Path>>(
         name_to_id.insert(name.clone(), *id);
     }
 
-    // eprintln!(
+    // log::info!(
     //     "[unified_filter] Loaded {} sequence names from .1aln",
     //     id_to_name.len()
     // );
@@ -145,7 +145,7 @@ pub fn extract_1aln_metadata<P: AsRef<Path>>(
         rank += 1;
     }
 
-    // eprintln!(
+    // log::info!(
     //     "[unified_filter] Read {} alignments from .1aln",
     //     metadata.len()
     // );
@@ -207,22 +207,22 @@ pub fn write_1aln_filtered<P1: AsRef<Path>, P2: AsRef<Path>>(
 
         if line_type == 'A' {
             // Found an alignment record
-            eprintln!("[DEBUG] Processing alignment rank {}, line_type before = {}", rank, line_type);
+            log::info!("[DEBUG] Processing alignment rank {}, line_type before = {}", rank, line_type);
             if passing_ranks.contains_key(&rank) {
                 // This record passed filtering - copy it directly with trace data
-                eprintln!("[DEBUG] Rank {} PASSED filtering, copying...", rank);
+                log::info!("[DEBUG] Rank {} PASSED filtering, copying...", rank);
                 match writer.copy_alignment_record_from_file(input_file) {
                     Ok(()) => {
                         written += 1;
-                        eprintln!("[DEBUG] Successfully copied rank {}, written count = {}", rank, written);
+                        log::info!("[DEBUG] Successfully copied rank {}, written count = {}", rank, written);
                     }
                     Err(e) => {
-                        eprintln!("[ERROR] Failed to copy rank {}: {:?}", rank, e);
+                        log::info!("[ERROR] Failed to copy rank {}: {:?}", rank, e);
                         return Err(e);
                     }
                 }
             } else {
-                eprintln!("[DEBUG] Rank {} SKIPPED (not in passing_ranks)", rank);
+                log::info!("[DEBUG] Rank {} SKIPPED (not in passing_ranks)", rank);
                 // Skip this alignment - read past all its associated records
                 loop {
                     let next_type = input_file.read_line();
@@ -249,17 +249,17 @@ pub fn write_1aln_filtered<P1: AsRef<Path>, P2: AsRef<Path>>(
             // If so, that 'A' is cached in the file state and we should NOT increment rank
             // because the next iteration needs to process it with the current rank+1
             let current_line_type = input_file.line_type();
-            eprintln!("[DEBUG] After processing rank {}: line_type={}, cached={:?}",
+            log::info!("[DEBUG] After processing rank {}: line_type={}, cached={:?}",
                      rank, current_line_type, cached_line_type);
 
             if current_line_type == 'A' && cached_line_type.is_none() {
                 // The copy or skip operation left us positioned at the next 'A'
                 // Cache it so next iteration uses it
-                eprintln!("[DEBUG] Caching 'A' found after copy/skip, NOT incrementing rank");
+                log::info!("[DEBUG] Caching 'A' found after copy/skip, NOT incrementing rank");
                 cached_line_type = Some('A');
             } else {
                 // Normal case: increment rank
-                eprintln!("[DEBUG] Incrementing rank from {} to {}", rank, rank + 1);
+                log::info!("[DEBUG] Incrementing rank from {} to {}", rank, rank + 1);
                 rank += 1;
             }
         }
@@ -307,15 +307,15 @@ pub fn filter_file<P1: AsRef<Path>, P2: AsRef<Path>>(
 
     if is_1aln {
         // .1aln input workflow
-        // eprintln!("[unified_filter] Reading .1aln metadata...");
+        // log::info!("[unified_filter] Reading .1aln metadata...");
         let (metadata, name_to_id) = extract_1aln_metadata(&input_path)?;
 
         // Use SAME filtering logic as PAF!
-        // eprintln!("[unified_filter] Applying filters...");
+        // log::info!("[unified_filter] Applying filters...");
         let filter = PafFilter::new(config.clone()).with_keep_self(keep_self);
         let passing_ranks = filter.apply_filters(metadata)?;
 
-        // eprintln!(
+        // log::info!(
         //     "[unified_filter] {} records passed filtering",
         //     passing_ranks.len()
         // );
@@ -355,7 +355,7 @@ mod tests {
     fn test_unified_1aln_filtering() {
         // Skip test if test_output.1aln doesn't exist
         if !std::path::Path::new("test_output.1aln").exists() {
-            // eprintln!("Skipping test - test_output.1aln not found");
+            // log::info!("Skipping test - test_output.1aln not found");
             return;
         }
 
@@ -395,7 +395,7 @@ mod tests {
         // Verify output exists
         assert!(std::path::Path::new("test_filtered_result.1aln").exists());
 
-        // eprintln!("✓ Test passed - filtered output created successfully");
+        // log::info!("✓ Test passed - filtered output created successfully");
 
         // Clean up
         let _ = std::fs::remove_file("test_filtered_result.1aln");

@@ -45,11 +45,14 @@ impl UnionFind {
         self.find(x) == self.find(y)
     }
 
-    /// Get all sets as groups of indices
+    /// Get all sets as groups of indices.
+    ///
+    /// Determinism: groups are returned in ascending order of root index,
+    /// and members within each group are in ascending element order.
     pub fn get_sets(&mut self) -> Vec<Vec<usize>> {
         let n = self.parent.len();
-        let mut root_to_group: std::collections::HashMap<usize, Vec<usize>> =
-            std::collections::HashMap::new();
+        let mut root_to_group: std::collections::BTreeMap<usize, Vec<usize>> =
+            std::collections::BTreeMap::new();
 
         for i in 0..n {
             let root = self.find(i);

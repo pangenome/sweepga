@@ -48,7 +48,23 @@ pub enum SparsificationStrategy {
 impl std::str::FromStr for SparsificationStrategy {
     type Err = String;
 
+    /// Parse a `--sparsify` CLI value. Every variant uses `:` as separator.
+    ///
+    /// - `none` / `all`
+    /// - `auto`
+    /// - `<frac>` or `random:<frac>`                       (0 < frac ≤ 1)
+    /// - `giant:<prob>` / `connectivity:<prob>`            (0 < prob < 1)
+    /// - `tree:<near>[:<far>[:<random>]]` / `knn:…`
+    /// - `wfmash:auto` / `wfmash:<frac>`
     fn from_str(s: &str) -> Result<Self, Self::Err> {
+        // Bare float shorthand for `random:<frac>`.
+        if let Ok(frac) = s.parse::<f64>() {
+            if frac <= 0.0 || frac > 1.0 {
+                return Err("Bare-float sparsify must be between 0 and 1".to_string());
+            }
+            return Ok(SparsificationStrategy::Random(frac));
+        }
+
         match s {
             "none" | "all" => Ok(SparsificationStrategy::None),
             "auto" => Ok(SparsificationStrategy::Auto),
@@ -73,20 +89,32 @@ impl std::str::FromStr for SparsificationStrategy {
             }
             s if s.starts_with("tree:") || s.starts_with("knn:") => {
                 let colon_pos = s.find(':').unwrap();
-                let parts: Vec<&str> = s[colon_pos + 1..].split(':').collect();
-                if parts.len() != 3 {
-                    return Err("Invalid tree format. Use: tree:<k_nearest>:<k_farthest>:<random_fraction>".to_string());
+                let body = &s[colon_pos + 1..];
+                let parts: Vec<&str> = body.split(':').collect();
+                if parts.is_empty() || parts.len() > 3 {
+                    return Err(
+                        "Invalid tree format. Use: tree:<k_nearest>[:<k_farthest>[:<random_fraction>]]"
+                            .to_string(),
+                    );
                 }
 
                 let k_nearest: usize = parts[0]
                     .parse()
                     .map_err(|_| "Invalid k nearest count".to_string())?;
-                let k_farthest: usize = parts[1]
-                    .parse()
-                    .map_err(|_| "Invalid k farthest count".to_string())?;
-                let random_frac: f64 = parts[2]
-                    .parse()
-                    .map_err(|_| "Invalid random fraction".to_string())?;
+                let k_farthest: usize = if parts.len() > 1 {
+                    parts[1]
+                        .parse()
+                        .map_err(|_| "Invalid k farthest count".to_string())?
+                } else {
+                    0
+                };
+                let random_frac: f64 = if parts.len() > 2 {
+                    parts[2]
+                        .parse()
+                        .map_err(|_| "Invalid random fraction".to_string())?
+                } else {
+                    0.0
+                };
 
                 if k_nearest == 0 && k_farthest == 0 {
                     return Err(

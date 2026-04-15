@@ -232,7 +232,7 @@ fn test_one_to_one_preserves_pairs() -> Result<()> {
             "--",
             temp_input.to_str().unwrap(),
             "--paf",
-            "-n",
+            "--num-mappings",
             "N:N",
         ])
         .stdout(fs::File::create(&unfiltered_paf)?)
@@ -249,7 +249,7 @@ fn test_one_to_one_preserves_pairs() -> Result<()> {
             "sweepga",
             "--",
             unfiltered_paf.to_str().unwrap(),
-            "-n",
+            "--num-mappings",
             "1:1",
         ])
         .stdout(fs::File::create(&filtered_paf)?)
@@ -308,7 +308,7 @@ fn test_filtering_mode_comparison() -> Result<()> {
                 "--",
                 temp_input.to_str().unwrap(),
                 "--paf",
-                "-n",
+                "--num-mappings",
                 "N:N",
             ])
             .stdout(file)
@@ -330,7 +330,7 @@ fn test_filtering_mode_comparison() -> Result<()> {
                 "--",
                 temp_input.to_str().unwrap(),
                 "--paf",
-                "-n",
+                "--num-mappings",
                 "1:1",
             ])
             .stdout(file)

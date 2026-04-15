@@ -69,9 +69,9 @@ fn test_fastga_self_alignment() {
         "-t",
         "2",
         "--self", // Include self-mappings
-        "-n",
+        "--num-mappings",
         "N", // No mapping filter
-        "-j",
+        "--scaffold-jump",
         "0",     // No scaffolding
         "--paf", // Output PAF format (with extended CIGAR)
     ]);
@@ -144,7 +144,7 @@ fn test_fastga_pairwise_alignment() {
         "fastga",
         "-t",
         "1",
-        "-i",
+        "--min-aln-identity",
         "0",     // Disable identity threshold to avoid filtering test alignment
         "--paf", // Output PAF format
     ]);
@@ -248,7 +248,7 @@ fn test_filtering_with_fastga() {
     // Test with different block length filters
     let result_loose = run_sweepga(&[
         "data/scerevisiae8.fa.gz",
-        "-b",
+        "--min-aln-length",
         "0", // No minimum block length
         "-t",
         "2",
@@ -258,7 +258,7 @@ fn test_filtering_with_fastga() {
 
     let result_strict = run_sweepga(&[
         "data/scerevisiae8.fa.gz",
-        "-b",
+        "--min-aln-length",
         "10k", // 10kb minimum
         "-t",
         "2",
@@ -295,9 +295,9 @@ fn test_scaffold_filtering() {
     // With scaffolding
     let result1 = run_sweepga(&[
         "data/scerevisiae8.fa.gz",
-        "-j",
+        "--scaffold-jump",
         "100k", // Enable scaffolding with 100kb jump
-        "-s",
+        "--scaffold-mass",
         "50k", // Minimum scaffold mass
         "-t",
         "2",
@@ -308,7 +308,7 @@ fn test_scaffold_filtering() {
     // Without scaffolding
     let result2 = run_sweepga(&[
         "data/scerevisiae8.fa.gz",
-        "-j",
+        "--scaffold-jump",
         "0", // Disable scaffolding
         "-t",
         "2",
