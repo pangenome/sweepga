@@ -34,11 +34,14 @@ fn open_fasta(path: &Path) -> Result<Box<dyn BufRead>> {
     }
 }
 
-/// Grouping level for PanSN keys
-#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+/// Grouping level for PanSN keys. Directly usable as a `clap::ValueEnum`
+/// for CLI parsing; the `Sequence` variant is skipped from CLI choices
+/// because "no PanSN aggregation" is expressed by omitting the flag
+#[derive(Copy, Clone, Debug, PartialEq, Eq, clap::ValueEnum)]
 pub enum PanSnLevel {
     /// Whole name. Use for per-contig/per-sequence
     /// counting where PanSN grouping is not desired.
+    #[value(skip)]
     Sequence,
     /// First `#`-separated segment (`SAMPLE`). Falls back to the whole
     /// name for non-PanSN inputs.
