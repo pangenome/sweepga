@@ -657,11 +657,24 @@ impl FastGAIntegration {
     }
 
     /// Run FastGA alignment and write output to a temporary PAF file
-    /// Assumes GDB/GIX indices already exist for the input files
+    /// Pre-builds GDB/GIX indices before invoking FastGA;
     /// Returns the temporary file handle (which auto-deletes when dropped)
     pub fn align_to_temp_paf(&self, queries: &Path, targets: &Path) -> Result<NamedTempFile> {
         // Ensure fastga-rs can find binaries
         // binary_paths::setup_binary_env() in main() already set up PATH
+
+        // Pre-build GDB + GIX up front so FastGA doesn't have to build
+        // them internally on-the-fly (which crashes with a buffer
+        // overflow on small inputs in `batch_align.rs` for the working pattern).
+        let q_gdb = self.create_gdb_only(queries)?;
+        self.create_index_only(&q_gdb)?;
+        let t_gdb = if targets == queries {
+            None
+        } else {
+            let t = self.create_gdb_only(targets)?;
+            self.create_index_only(&t)?;
+            Some(t)
+        };
 
         // Set TMPDIR for FastGA's internal temp files (ONEcode uses this)
         if let Some(ref dir) = self.temp_dir {
@@ -736,6 +749,12 @@ impl FastGAIntegration {
         // Stop the monitor thread (it will cleanup the index bytes on exit)
         stop_flag.store(true, Ordering::Relaxed);
         let _ = monitor_handle.join();
+
+        // Best-effort cleanup of the GDB/GIX artifacts we created upfront.
+        let _ = Self::cleanup_all(&q_gdb);
+        if let Some(t) = t_gdb {
+            let _ = Self::cleanup_all(&t);
+        }
 
         // Write to temporary file
         let mut temp_file = NamedTempFile::new().context("Failed to create temporary PAF file")?;

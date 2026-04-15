@@ -2283,8 +2283,11 @@ fn create_fastga_integration(
 
 /// Create an aligner backend based on the --aligner flag.
 /// Compute average sequence length from a FASTA index (.fai).
-/// Returns an error if the .fai file does not exist.
+/// Auto-creates the `.fai` on first call.
 fn avg_seq_len_from_fai(path: &Path) -> Result<u64> {
+    rust_htslib::faidx::Reader::from_path(path).map_err(|e| {
+        anyhow::anyhow!("Failed to read/create FASTA index for {}: {e}", path.display())
+    })?;
     let fai_path = path.with_extension(
         path.extension()
             .map(|e| format!("{}.fai", e.to_string_lossy()))
