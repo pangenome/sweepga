@@ -34,33 +34,68 @@ fn open_fasta(path: &Path) -> Result<Box<dyn BufRead>> {
     }
 }
 
-/// Extract the PanSN `SAMPLE#HAPLOTYPE` prefix from a FASTA header.
+/// Grouping level for PanSN keys
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub enum PanSnLevel {
+    /// Whole name. Use for per-contig/per-sequence
+    /// counting where PanSN grouping is not desired.
+    Sequence,
+    /// First `#`-separated segment (`SAMPLE`). Falls back to the whole
+    /// name for non-PanSN inputs.
+    Sample,
+    /// First two `#`-separated segments (`SAMPLE#HAPLOTYPE`). Falls back
+    /// to just `SAMPLE` if the second segment is missing/empty, which in
+    /// turn falls back to the whole name for non-PanSN inputs.
+    Haplotype,
+}
+
+/// Extract a grouping key from a sequence name at the requested level.
 ///
-/// Non-PanSN headers (fewer than 2 `#`-separated parts) are treated as their
-/// own unique "genome" — i.e. we fall back to whole-header identity. This
-/// matches how FastGA treats non-PanSN inputs.
-fn extract_haplotype_id(header: &str) -> String {
-    // Strip leading '>' and trailing whitespace (take first whitespace-delimited token).
-    let name = header
-        .trim_start_matches('>')
-        .split_whitespace()
-        .next()
-        .unwrap_or("");
-    let parts: Vec<&str> = name.split('#').collect();
-    if parts.len() >= 2 {
-        format!("{}#{}", parts[0], parts[1])
-    } else {
-        name.to_string()
+/// Returns `None` when the normalized name is empty.
+pub fn extract_pansn_key(name: &str, level: PanSnLevel) -> Option<String> {
+    let name = name.trim_start_matches('>').trim();
+    let name = name.split_whitespace().next().unwrap_or("");
+    let base = name.split(':').next().unwrap_or(name);
+    if base.is_empty() {
+        return None;
+    }
+    match level {
+        PanSnLevel::Sequence => Some(base.to_string()),
+        PanSnLevel::Sample => {
+            let sample = base.split('#').next().unwrap_or(base);
+            if sample.is_empty() {
+                None
+            } else {
+                Some(sample.to_string())
+            }
+        }
+        PanSnLevel::Haplotype => {
+            let mut parts = base.split('#');
+            let sample = parts.next().unwrap_or("");
+            if sample.is_empty() {
+                return None;
+            }
+            match parts.next() {
+                Some(h) if !h.is_empty() => Some(format!("{sample}#{h}")),
+                _ => Some(sample.to_string()),
+            }
+        }
     }
 }
 
-/// Count unique PanSN haplotypes (`SAMPLE#HAPLOTYPE` prefixes) across one or
-/// more FASTA files.
-///
-/// Each file may be plain or gzipped (detected by `.gz` extension).
-/// Returns `haplotypes.len().max(1)` to avoid returning 0 for edge-case
-/// inputs with no sequences; a zero would poison downstream `num_genomes *
-/// multiplier` math.
+/// Count unique PanSN keys at the requested level across an iterator of names.
+pub fn count_pansn_keys<'a, I>(names: I, level: PanSnLevel) -> usize
+where
+    I: IntoIterator<Item = &'a str>,
+{
+    let set: HashSet<String> = names
+        .into_iter()
+        .filter_map(|n| extract_pansn_key(n, level))
+        .collect();
+    set.len().max(1)
+}
+
+/// Count unique PanSN haplotypes across one or more FASTA files.
 pub fn count_haplotypes<P: AsRef<Path>>(fasta_paths: &[P]) -> Result<usize> {
     let mut haplotypes: HashSet<String> = HashSet::new();
 
@@ -72,8 +107,10 @@ pub fn count_haplotypes<P: AsRef<Path>>(fasta_paths: &[P]) -> Result<usize> {
             let line = line.with_context(|| {
                 format!("Failed to read a line from '{}'", path.display())
             })?;
-            if let Some(header) = line.strip_prefix('>') {
-                haplotypes.insert(extract_haplotype_id(header));
+            if line.starts_with('>') {
+                if let Some(key) = extract_pansn_key(&line, PanSnLevel::Haplotype) {
+                    haplotypes.insert(key);
+                }
             }
         }
     }
@@ -165,18 +202,70 @@ mod tests {
     use super::*;
 
     #[test]
-    fn extract_pansn_prefix() {
-        assert_eq!(extract_haplotype_id(">HG01106#1#CM087962.1"), "HG01106#1");
+    fn extract_pansn_key_haplotype() {
         assert_eq!(
-            extract_haplotype_id(">HG01106#1#chr1 extra annotation"),
-            "HG01106#1"
+            extract_pansn_key(">HG01106#1#CM087962.1", PanSnLevel::Haplotype),
+            Some("HG01106#1".to_string())
+        );
+        assert_eq!(
+            extract_pansn_key(">HG01106#1#chr1 extra annotation", PanSnLevel::Haplotype),
+            Some("HG01106#1".to_string())
         );
     }
 
     #[test]
-    fn extract_non_pansn_returns_whole_name() {
-        assert_eq!(extract_haplotype_id(">chr1"), "chr1");
-        assert_eq!(extract_haplotype_id(">chr1 extra"), "chr1");
+    fn extract_pansn_key_sample() {
+        assert_eq!(
+            extract_pansn_key("HG01106#1#CM087962.1", PanSnLevel::Sample),
+            Some("HG01106".to_string())
+        );
+    }
+
+    #[test]
+    fn extract_pansn_key_sequence_strips_interval() {
+        // impg query-output names carry `:start-end` — interval suffix is stripped.
+        assert_eq!(
+            extract_pansn_key("HG01106#1#chr1:29000000-29003000", PanSnLevel::Sequence),
+            Some("HG01106#1#chr1".to_string())
+        );
+        assert_eq!(
+            extract_pansn_key("HG01106#1#chr1:29000000-29003000", PanSnLevel::Haplotype),
+            Some("HG01106#1".to_string())
+        );
+    }
+
+    #[test]
+    fn extract_pansn_key_non_pansn_returns_whole_name() {
+        // Fewer than 2 `#` segments: fall back to whole name for haplotype mode.
+        assert_eq!(
+            extract_pansn_key("chr1", PanSnLevel::Haplotype),
+            Some("chr1".to_string())
+        );
+        assert_eq!(
+            extract_pansn_key(">chr1 extra", PanSnLevel::Haplotype),
+            Some("chr1".to_string())
+        );
+    }
+
+    #[test]
+    fn count_pansn_keys_basic() {
+        let names = [
+            "HG01#1#chr1",
+            "HG01#1#chr2",
+            "HG01#2#chr1",
+            "HG02#1#chr1",
+            "chm13#0#chr6",
+        ];
+        assert_eq!(count_pansn_keys(names.iter().copied(), PanSnLevel::Sample), 3);
+        assert_eq!(count_pansn_keys(names.iter().copied(), PanSnLevel::Haplotype), 4);
+        assert_eq!(count_pansn_keys(names.iter().copied(), PanSnLevel::Sequence), 5);
+    }
+
+    #[test]
+    fn count_pansn_keys_empty_returns_one() {
+        let names: [&str; 0] = [];
+        // `.max(1)` invariant: never return 0 for `num * multiplier` math.
+        assert_eq!(count_pansn_keys(names.iter().copied(), PanSnLevel::Haplotype), 1);
     }
 
     #[test]
