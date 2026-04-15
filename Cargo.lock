@@ -1815,6 +1815,7 @@ dependencies = [
  "env_logger",
  "fastga-rs",
  "flate2",
+ "indexmap",
  "libc",
  "log",
  "nom",
