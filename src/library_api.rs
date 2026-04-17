@@ -392,6 +392,7 @@ fn sweepga_align_all_vs_all(
             config.map_pct_identity.clone(),
             config.temp_dir.clone(),
             wfmash_density,
+            None, // pairs_file: all-vs-all path doesn't use pair selection
             batch_bytes,
             true, // quiet
         ),

@@ -929,6 +929,7 @@ fn align_multiple_fastas(
                 map_pct_identity.clone(),
                 tempdir.map(String::from),
                 wfmash_density,
+                None, // pairs_file: CLI batch path doesn't plumb pair selection
             )),
             _ => Box::new(batch_align::FastGABatchAligner::new(
                 frequency,

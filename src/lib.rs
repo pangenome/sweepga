@@ -30,7 +30,7 @@ pub mod wfmash_integration;
 pub use cli::{parse_identity_value, parse_metric_number, AlnArgs};
 
 use anyhow::Result;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 /// Direct (non-batched) self-alignment: hands `fasta_path` to the
 /// already-constructed `aligner` and returns its raw PAF temp file.
@@ -44,6 +44,13 @@ pub fn align_self_paf_direct(
 /// Batched self-alignment: partitions genomes within `fasta_path` into
 /// batches sized by `batch_bytes` (e.g. `"2G"`) and aligns each batch
 /// pair, limiting per-batch resource usage.
+///
+/// `pairs_file`: optional path to a `query\ttarget` TSV (as produced by
+/// pair-level sparsification upstream). When set AND the aligner is
+/// `wfmash`, every per-batch wfmash invocation uses `--pairs-file` to
+/// restrict to those pairs — so batching and pair sparsification
+/// compose correctly. Ignored for FastGA (which doesn't support
+/// pair-file filtering).
 pub fn align_self_paf_batched(
     fasta_path: &Path,
     aligner_name: &str,
@@ -53,6 +60,7 @@ pub fn align_self_paf_batched(
     map_pct_identity: Option<String>,
     temp_dir: Option<String>,
     wfmash_density: Option<f64>,
+    pairs_file: Option<PathBuf>,
     batch_bytes: &str,
     quiet: bool,
 ) -> Result<tempfile::NamedTempFile> {
@@ -66,6 +74,7 @@ pub fn align_self_paf_batched(
             map_pct_identity,
             temp_dir.clone(),
             wfmash_density,
+            pairs_file,
         )),
         _ => Box::new(batch_align::FastGABatchAligner::new(
             kmer_frequency,
