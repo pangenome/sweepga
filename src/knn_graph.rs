@@ -559,6 +559,124 @@ pub fn select_pairs_from_sketches(
     }
 }
 
+/// Merge MinHash sketches by unioning their minimizer vectors and
+/// re-truncating to `sketch_size`. MinHash bottom-k has the mergeability
+/// property that the bottom-k of the union equals the bottom-k of the
+/// merged bottom-k sketches — so this produces exactly the sketch we
+/// would have gotten had we computed it over the concatenated sequence,
+/// without re-hashing.
+pub fn merge_sketches(
+    parts: &[&mash::KmerSketch],
+    sketch_size: usize,
+) -> mash::KmerSketch {
+    let k = parts.first().map(|s| s.k).unwrap_or(mash::DEFAULT_KMER_SIZE);
+    let mut minimizers: Vec<u64> = parts
+        .iter()
+        .flat_map(|s| s.minimizers.iter().copied())
+        .collect();
+    let length: usize = parts.iter().map(|s| s.length).sum();
+    minimizers.sort_unstable();
+    minimizers.dedup();
+    minimizers.truncate(sketch_size);
+    mash::KmerSketch { minimizers, k, length }
+}
+
+/// Expand PanSN haplotype-level pairs into contig-level pairs:
+/// the cross-product of contigs across selected haplotype pairs, plus every
+/// intra-haplotype contig pair (same-sample contigs — always kept together).
+///
+/// Output pairs are normalized `(min, max)` and deduplicated.
+pub fn expand_haplotype_pairs(
+    hap_pairs: &[(usize, usize)],
+    hap_groups: &[Vec<usize>],
+) -> Vec<(usize, usize)> {
+    use std::collections::HashSet;
+    let mut seen: HashSet<(usize, usize)> = HashSet::new();
+    for &(hi, hj) in hap_pairs {
+        for &ci in &hap_groups[hi] {
+            for &cj in &hap_groups[hj] {
+                if ci == cj {
+                    continue;
+                }
+                let pair = if ci < cj { (ci, cj) } else { (cj, ci) };
+                seen.insert(pair);
+            }
+        }
+    }
+    for contigs in hap_groups {
+        for a in 0..contigs.len() {
+            for b in a + 1..contigs.len() {
+                let (ci, cj) = (contigs[a], contigs[b]);
+                let pair = if ci < cj { (ci, cj) } else { (cj, ci) };
+                seen.insert(pair);
+            }
+        }
+    }
+    let mut out: Vec<(usize, usize)> = seen.into_iter().collect();
+    out.sort_unstable();
+    out
+}
+
+/// Sparsify at PanSN haplotype granularity, then project back to contig
+/// pairs.
+///
+/// For pangenome inputs where "sample#haplotype#contig" names pack multiple
+/// contigs per haplotype, running `select_pairs_from_sketches` directly at
+/// the contig level loses biological structure — a random fraction of
+/// contig pairs gives an uneven sample across haplotypes. This helper
+/// groups contigs by haplotype, merges their MinHash sketches into one
+/// per-haplotype sketch, runs the strategy on the haplotype graph, and
+/// then expands each selected haplotype pair to the full cross-product of
+/// contig pairs (plus all intra-haplotype contig pairs, which are
+/// free-to-keep).
+///
+/// Falls back to plain contig-level `select_pairs_from_sketches` when the
+/// input isn't PanSN-named (detected as: the number of distinct haplotype
+/// groups equals the number of input contigs).
+pub fn select_pairs_haplotype_aware(
+    names: &[&str],
+    contig_sketches: &[mash::KmerSketch],
+    strategy: &SparsificationStrategy,
+    sketch_size: usize,
+) -> Vec<(usize, usize)> {
+    use crate::pansn::{group_indices_by_pansn, PanSnLevel};
+    let hap_groups = group_indices_by_pansn(names.iter().copied(), PanSnLevel::Haplotype);
+    if hap_groups.len() == contig_sketches.len() {
+        return select_pairs_from_sketches(contig_sketches, strategy);
+    }
+    let hap_sketches: Vec<mash::KmerSketch> = hap_groups
+        .iter()
+        .map(|idxs| {
+            let parts: Vec<&mash::KmerSketch> =
+                idxs.iter().map(|&i| &contig_sketches[i]).collect();
+            merge_sketches(&parts, sketch_size)
+        })
+        .collect();
+    let hap_pairs = select_pairs_from_sketches(&hap_sketches, strategy);
+    expand_haplotype_pairs(&hap_pairs, &hap_groups)
+}
+
+/// Sketch-free variant of [`select_pairs_haplotype_aware`] for the
+/// `None` / `Random(_)` / `WfmashDensity(_)` strategies that don't
+/// need per-node distances. The strategy is applied at the haplotype level
+/// — so `Random(0.05)` samples 5% of *haplotype pairs* (and then expands
+/// each to contig pairs), which matches the biologically-meaningful unit
+/// rather than the per-contig pair count that can be wildly uneven.
+pub fn select_pairs_haplotype_aware_no_sketch(
+    names: &[&str],
+    strategy: &SparsificationStrategy,
+    mash_params: &MashParams,
+) -> Vec<(usize, usize)> {
+    use crate::pansn::{group_indices_by_pansn, PanSnLevel};
+    let n = names.len();
+    let hap_groups = group_indices_by_pansn(names.iter().copied(), PanSnLevel::Haplotype);
+    if hap_groups.len() == n {
+        return select_pairs(n, None, strategy, mash_params);
+    }
+    let hap_pairs = select_pairs(hap_groups.len(), None, strategy, mash_params);
+    expand_haplotype_pairs(&hap_pairs, &hap_groups)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -613,6 +731,64 @@ mod tests {
     fn test_select_pairs_none() {
         let pairs = select_pairs(4, None, &SparsificationStrategy::None, &MashParams::default());
         assert_eq!(pairs.len(), 6); // 4 choose 2 = 6
+    }
+
+    #[test]
+    fn test_merge_sketches_is_bottom_k_union() {
+        let a = mash::KmerSketch::from_sequence(b"ACGTACGTACGTACGT", 5, 100);
+        let b = mash::KmerSketch::from_sequence(b"TTTTGGGGAAAACCCC", 5, 100);
+        let merged = merge_sketches(&[&a, &b], 100);
+        assert_eq!(merged.k, 5);
+        assert_eq!(merged.length, a.length + b.length);
+        // Every merged minimizer must come from one of the parts
+        let union: std::collections::HashSet<u64> =
+            a.minimizers.iter().chain(b.minimizers.iter()).copied().collect();
+        for m in &merged.minimizers {
+            assert!(union.contains(m));
+        }
+        // Sketch is sorted & deduped
+        for w in merged.minimizers.windows(2) {
+            assert!(w[0] < w[1]);
+        }
+    }
+
+    #[test]
+    fn test_expand_haplotype_pairs_cross_and_intra() {
+        // hap_0 = indices [0,1], hap_1 = [2,3,4]
+        let groups = vec![vec![0, 1], vec![2, 3, 4]];
+        let pairs = expand_haplotype_pairs(&[(0, 1)], &groups);
+        // 2*3 cross + 1 intra(hap0) + 3 intra(hap1) = 10 pairs
+        assert_eq!(pairs.len(), 10);
+        assert!(pairs.contains(&(0, 1))); // intra hap_0
+        assert!(pairs.contains(&(2, 3))); // intra hap_1
+        assert!(pairs.contains(&(0, 2))); // cross
+        assert!(pairs.contains(&(1, 4))); // cross
+    }
+
+    #[test]
+    fn test_haplotype_aware_none_strategy_matches_all_pairs() {
+        // 4 contigs across 2 haplotypes; None strategy at hap level expands
+        // to all 6 contig pairs.
+        let names = ["S1#1#a", "S1#1#b", "S2#1#a", "S2#1#b"];
+        let pairs = select_pairs_haplotype_aware_no_sketch(
+            &names,
+            &SparsificationStrategy::None,
+            &MashParams::default(),
+        );
+        assert_eq!(pairs.len(), 6);
+    }
+
+    #[test]
+    fn test_haplotype_aware_non_pansn_falls_back_to_contig() {
+        // Non-PanSN names: every name is its own haplotype, so behavior must
+        // be identical to direct contig-level selection.
+        let names = ["chr1", "chr2", "chr3"];
+        let pairs = select_pairs_haplotype_aware_no_sketch(
+            &names,
+            &SparsificationStrategy::None,
+            &MashParams::default(),
+        );
+        assert_eq!(pairs.len(), 3); // 3 choose 2
     }
 
     #[test]

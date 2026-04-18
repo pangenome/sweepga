@@ -184,6 +184,11 @@ pub struct WfmashBatchAligner {
     /// Mapping density (wfmash `-x`). Forwarded verbatim to every per-batch
     /// `WfmashIntegration`. `None` (or `Some(1.0)`) keeps all mappings.
     sparsify: Option<f64>,
+    /// Pair-level sparsification: when `Some`, restrict alignment to the
+    /// `query\ttarget` pairs listed in the TSV. Applied via wfmash's
+    /// `--pairs-file` within each per-batch wfmash invocation — so
+    /// batching and pair sparsification compose correctly.
+    pairs_file: Option<PathBuf>,
 }
 
 impl WfmashBatchAligner {
@@ -193,6 +198,7 @@ impl WfmashBatchAligner {
         map_pct_identity: Option<String>,
         temp_dir: Option<String>,
         sparsify: Option<f64>,
+        pairs_file: Option<PathBuf>,
     ) -> Self {
         Self {
             num_threads,
@@ -200,6 +206,7 @@ impl WfmashBatchAligner {
             map_pct_identity,
             temp_dir,
             sparsify,
+            pairs_file,
         }
     }
 
@@ -215,7 +222,7 @@ impl WfmashBatchAligner {
             avg_seq,
             self.sparsify,
             None, // num_mappings
-            None, // pairs_file
+            self.pairs_file.clone(),
         )
     }
 }
