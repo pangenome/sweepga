@@ -73,17 +73,22 @@ pub fn write_pair_commands<W: Write>(
     Ok(())
 }
 
-/// Configuration for emitting a wfmash-per-haplotype-pair joblist.
+/// One PanSN haplotype-pair wfmash job: the `(target_hap, query_hap)`
+/// keys and the target / query FASTA paths the command should run on.
 ///
-/// Targets the "one PanSN-named FASTA in, one wfmash invocation per
-/// selected `SAMPLE#HAPLOTYPE` pair out" flow: wfmash filters queries and
-/// targets to those haplotype prefixes via `-Q` / `-T`, aligning only the
-/// contigs that match, without the user having to pre-split the input
-/// into per-haplotype FASTAs.
+/// Single-file callers set `target_fasta == query_fasta`; multi-file
+/// callers point each side at whichever FASTA contains the relevant
+/// haplotype's contigs. When the two paths are equal the emitted command
+/// omits the query file (wfmash self-map form).
+pub struct WfmashPansnJob {
+    pub target_hap: String,
+    pub query_hap: String,
+    pub target_fasta: std::path::PathBuf,
+    pub query_fasta: std::path::PathBuf,
+}
+
+/// Shared emission config for [`write_wfmash_pansn_commands`].
 pub struct WfmashPansnEmitConfig<'a> {
-    /// Path to the PanSN-named FASTA input (used for both query and
-    /// target sides of each wfmash invocation).
-    pub fasta: &'a Path,
     /// Output directory for per-pair PAFs.
     pub output_dir: &'a Path,
     /// Number of threads to pass via `-t`.
@@ -103,32 +108,37 @@ fn sanitize_for_filename(s: &str) -> String {
         .collect()
 }
 
-/// Emit one `wfmash -T <target_hap> -Q <query_hap>` command per PanSN
-/// haplotype pair.
+/// Emit one `wfmash -T <target_hap> -Q <query_hap> target.fa [query.fa]`
+/// command per PanSN haplotype-pair job.
 ///
-/// `hap_pairs` are `(target_haplotype_key, query_haplotype_key)` string
-/// tuples — e.g. `("HG01106#1", "HG00733#2")`. The output filename for
-/// each pair is `<output_dir>/<target>_vs_<query>.paf`, with `#` replaced
-/// by `_`. When `block_length` is non-zero the emitted command includes
-/// `-l <block_length>`; this is the only filtering flag that wfmash's
-/// `-T`/`-Q` workflow honors.
+/// Works for both single-FASTA PanSN inputs (each job's target and query
+/// FASTA are the same physical file; wfmash self-maps with `-T`/`-Q`
+/// filtering) and multi-FASTA PanSN inputs (jobs point at whichever
+/// FASTA holds the haplotype's contigs; the second file is passed
+/// through when it differs from the first).
+///
+/// Output filename is `<output_dir>/<target>_vs_<query>.paf`, with
+/// PanSN `#` replaced by `_` for filesystem safety.
 pub fn write_wfmash_pansn_commands<W: Write>(
-    hap_pairs: &[(String, String)],
+    jobs: &[WfmashPansnJob],
     cfg: &WfmashPansnEmitConfig,
     writer: &mut W,
 ) -> Result<()> {
-    for (target_hap, query_hap) in hap_pairs {
+    for job in jobs {
         let output = cfg.output_dir.join(format!(
             "{}_vs_{}.paf",
-            sanitize_for_filename(target_hap),
-            sanitize_for_filename(query_hap),
+            sanitize_for_filename(&job.target_hap),
+            sanitize_for_filename(&job.query_hap),
         ));
         let mut cmd = format!("wfmash -t {}", cfg.threads);
         if cfg.block_length > 0 {
             cmd.push_str(&format!(" -l {}", cfg.block_length));
         }
-        cmd.push_str(&format!(" -T {} -Q {}", target_hap, query_hap));
-        cmd.push_str(&format!(" {}", cfg.fasta.display()));
+        cmd.push_str(&format!(" -T {} -Q {}", job.target_hap, job.query_hap));
+        cmd.push_str(&format!(" {}", job.target_fasta.display()));
+        if job.query_fasta != job.target_fasta {
+            cmd.push_str(&format!(" {}", job.query_fasta.display()));
+        }
         cmd.push_str(&format!(" > {}", output.display()));
         writeln!(writer, "{}", cmd)?;
     }
@@ -179,20 +189,29 @@ mod tests {
         assert!(buf.is_empty());
     }
 
+    fn pj(tgt: &str, qry: &str, tgt_fa: &str, qry_fa: &str) -> WfmashPansnJob {
+        WfmashPansnJob {
+            target_hap: tgt.to_string(),
+            query_hap: qry.to_string(),
+            target_fasta: std::path::PathBuf::from(tgt_fa),
+            query_fasta: std::path::PathBuf::from(qry_fa),
+        }
+    }
+
     #[test]
-    fn wfmash_pansn_emits_T_Q_per_hap_pair() {
-        let pairs = vec![
-            ("HG01106#1".to_string(), "HG00733#2".to_string()),
-            ("SGDref#0".to_string(), "HG01106#1".to_string()),
+    fn wfmash_pansn_emits_T_Q_per_hap_pair_single_fasta() {
+        // Same file on both sides → emit with self-map form (one file arg).
+        let jobs = vec![
+            pj("HG01106#1", "HG00733#2", "/data/pangenome.fa", "/data/pangenome.fa"),
+            pj("SGDref#0", "HG01106#1", "/data/pangenome.fa", "/data/pangenome.fa"),
         ];
         let cfg = WfmashPansnEmitConfig {
-            fasta: Path::new("/data/pangenome.fa"),
             output_dir: Path::new("/out"),
             threads: 8,
             block_length: 0,
         };
         let mut buf = Vec::new();
-        write_wfmash_pansn_commands(&pairs, &cfg, &mut buf).unwrap();
+        write_wfmash_pansn_commands(&jobs, &cfg, &mut buf).unwrap();
         let s = String::from_utf8(buf).unwrap();
         let lines: Vec<&str> = s.lines().collect();
         assert_eq!(lines.len(), 2);
@@ -207,16 +226,34 @@ mod tests {
     }
 
     #[test]
-    fn wfmash_pansn_includes_block_length_when_set() {
-        let pairs = vec![("A#0".to_string(), "B#0".to_string())];
+    fn wfmash_pansn_emits_both_files_when_distinct() {
+        // Different files on each side → emit both, in wfmash order
+        // (target.fa query.fa).
+        let jobs = vec![pj("HG01106#1", "HG00733#2", "/data/hg01106.fa", "/data/hg00733.fa")];
         let cfg = WfmashPansnEmitConfig {
-            fasta: Path::new("pg.fa"),
+            output_dir: Path::new("/out"),
+            threads: 4,
+            block_length: 0,
+        };
+        let mut buf = Vec::new();
+        write_wfmash_pansn_commands(&jobs, &cfg, &mut buf).unwrap();
+        let s = String::from_utf8(buf).unwrap();
+        assert_eq!(
+            s.trim_end(),
+            "wfmash -t 4 -T HG01106#1 -Q HG00733#2 /data/hg01106.fa /data/hg00733.fa > /out/HG01106_1_vs_HG00733_2.paf"
+        );
+    }
+
+    #[test]
+    fn wfmash_pansn_includes_block_length_when_set() {
+        let jobs = vec![pj("A#0", "B#0", "pg.fa", "pg.fa")];
+        let cfg = WfmashPansnEmitConfig {
             output_dir: Path::new("."),
             threads: 4,
             block_length: 20_000,
         };
         let mut buf = Vec::new();
-        write_wfmash_pansn_commands(&pairs, &cfg, &mut buf).unwrap();
+        write_wfmash_pansn_commands(&jobs, &cfg, &mut buf).unwrap();
         let s = String::from_utf8(buf).unwrap();
         assert!(s.contains("-l 20000"));
         assert!(s.contains("-T A#0 -Q B#0"));
