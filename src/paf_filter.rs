@@ -402,7 +402,9 @@ impl PafFilter {
 
         // Report plane sweep if it filtered anything
         if before_plane_sweep != after_plane_sweep {
-            log::info!("[sweepga] Plane sweep: {before_plane_sweep} → {after_plane_sweep} mappings");
+            log::info!(
+                "[sweepga] Plane sweep: {before_plane_sweep} → {after_plane_sweep} mappings"
+            );
         }
 
         // If no scaffolding (scaffold_gap == 0), we're done - return the plane-swept mappings
@@ -833,6 +835,11 @@ impl PafFilter {
                     };
 
                     if q_gap <= max_gap && r_gap <= max_gap {
+                        if self.config.scaffold_max_deviation > 0
+                            && q_gap.abs_diff(r_gap) > self.config.scaffold_max_deviation
+                        {
+                            continue;
+                        }
                         let dist_sq = q_gap * q_gap + r_gap * r_gap;
 
                         // Best-buddy: only link if i is the best predecessor for j
@@ -1756,4 +1763,78 @@ pub fn extract_metadata<P: AsRef<Path>>(path: P) -> Result<(Vec<RecordMeta>, ())
     let filter = PafFilter::new(config);
     let metadata = filter.extract_metadata(path)?;
     Ok((metadata, ()))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn exact_record(rank: usize, q_start: u64, t_start: u64) -> RecordMeta {
+        RecordMeta {
+            rank,
+            query_name: "q".to_string(),
+            target_name: "t".to_string(),
+            query_start: q_start,
+            query_end: q_start + 100,
+            target_start: t_start,
+            target_end: t_start + 100,
+            block_length: 100,
+            identity: 1.0,
+            matches: 100,
+            alignment_length: 100,
+            strand: '+',
+            chain_id: None,
+            chain_status: ChainStatus::Unassigned,
+            discard: false,
+            overlapped: false,
+        }
+    }
+
+    fn scaffold_test_config() -> FilterConfig {
+        FilterConfig {
+            chain_gap: 0,
+            min_block_length: 100,
+            mapping_filter_mode: FilterMode::ManyToMany,
+            mapping_max_per_query: None,
+            mapping_max_per_target: None,
+            plane_sweep_secondaries: 0,
+            scaffold_filter_mode: FilterMode::ManyToMany,
+            scaffold_max_per_query: None,
+            scaffold_max_per_target: None,
+            overlap_threshold: 0.95,
+            sparsity: 1.0,
+            no_merge: true,
+            scaffold_gap: 50_000,
+            min_scaffold_length: 500,
+            scaffold_overlap_threshold: 0.5,
+            scaffold_max_deviation: 500,
+            prefix_delimiter: '#',
+            skip_prefix: true,
+            scoring_function: ScoringFunction::LogLengthIdentity,
+            min_identity: 0.0,
+            min_scaffold_identity: 0.0,
+        }
+    }
+
+    #[test]
+    fn scaffold_deviation_splits_off_diagonal_seed() {
+        let mut records: Vec<RecordMeta> = (0..6)
+            .map(|i| exact_record(i, i as u64 * 200, i as u64 * 200))
+            .collect();
+        records.push(exact_record(6, 1200, 10_000));
+
+        let passing = PafFilter::new(scaffold_test_config())
+            .with_keep_self(true)
+            .with_scaffolds_only(true)
+            .apply_filters(records)
+            .unwrap();
+
+        for rank in 0..6 {
+            assert!(passing.contains_key(&rank), "missing diagonal rank {rank}");
+        }
+        assert!(
+            !passing.contains_key(&6),
+            "off-diagonal singleton should not be scaffolded"
+        );
+    }
 }
