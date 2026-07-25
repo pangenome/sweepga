@@ -3,7 +3,8 @@
 //! Search order:
 //! 1. ~/.cache/sweepga/{cache_key}/  (installed by build.rs)
 //! 2. target/{profile}/build/{dep}-*/out/  (development fallback)
-//! 3. PATH  (system fallback)
+//! 3. <exe_dir>/../libexec/<exe_stem>/  (packaged installs, e.g. conda)
+//! 4. PATH  (system fallback)
 
 use anyhow::{anyhow, Result};
 use std::env;
@@ -44,7 +45,15 @@ pub fn get_embedded_binary_path(binary_name: &str) -> Result<PathBuf> {
         return Ok(path);
     }
 
-    // 3. System PATH
+    // 3. Private install directory (packaged installs, e.g. conda)
+    if let Some(dir) = libexec_dir() {
+        let p = dir.join(binary_name);
+        if p.exists() {
+            return Ok(p);
+        }
+    }
+
+    // 4. System PATH
     if let Ok(output) = std::process::Command::new("which")
         .arg(binary_name)
         .output()
@@ -59,9 +68,28 @@ pub fn get_embedded_binary_path(binary_name: &str) -> Result<PathBuf> {
 
     Err(anyhow!(
         "Binary '{binary_name}' not found.\n\
-         Searched: cache (~/.cache/sweepga/), build tree, PATH.\n\
+         Searched: cache (~/.cache/sweepga/), build tree, libexec, PATH.\n\
          Try running 'cargo build --release' first."
     ))
+}
+
+/// Private install directory next to the running executable:
+/// `<exe_dir>/../libexec/<exe_stem>/`.
+///
+/// Package managers use this to keep bundled wfmash and FastGA binaries out of
+/// `bin/`, where they would overwrite the separately packaged versions.
+pub fn libexec_dir() -> Option<PathBuf> {
+    let exe = env::current_exe().ok()?;
+    let dir = exe
+        .parent()?
+        .parent()?
+        .join("libexec")
+        .join(exe.file_stem()?);
+    if dir.is_dir() {
+        Some(dir)
+    } else {
+        None
+    }
 }
 
 /// Prepend the binary cache/build directory to PATH and set WFMASH_BIN_DIR.
