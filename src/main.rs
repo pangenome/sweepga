@@ -787,6 +787,208 @@ fn extract_genome_prefix(seq_name: &str) -> Option<String> {
     }
 }
 
+/// Read sequence names and lengths from a FASTA file (bgzf or plain).
+fn read_fasta_names_and_lengths(fasta_path: &Path) -> Result<(Vec<String>, Vec<usize>)> {
+    use std::io::{BufRead, BufReader};
+    let file = File::open(fasta_path)
+        .with_context(|| format!("Failed to open FASTA '{}'", fasta_path.display()))?;
+    let reader: Box<dyn BufRead> = if fasta_path.to_string_lossy().ends_with(".gz") {
+        Box::new(BufReader::new(noodles::bgzf::io::reader::Reader::new(file)))
+    } else {
+        Box::new(BufReader::new(file))
+    };
+    let mut names = Vec::new();
+    let mut lengths = Vec::new();
+    let mut cur_len: usize = 0;
+    let mut have_current = false;
+    for line in reader.lines() {
+        let line = line?;
+        if let Some(stripped) = line.strip_prefix('>') {
+            if have_current {
+                lengths.push(cur_len);
+            }
+            names.push(
+                stripped
+                    .split_whitespace()
+                    .next()
+                    .unwrap_or("")
+                    .to_string(),
+            );
+            cur_len = 0;
+            have_current = true;
+        } else {
+            cur_len += line.trim().len();
+        }
+    }
+    if have_current {
+        lengths.push(cur_len);
+    }
+    Ok((names, lengths))
+}
+
+/// Across one or more PanSN-named input FASTAs, return the sparsified
+/// list of `WfmashPansnJob`s that `--joblist` should emit wfmash
+/// commands for.
+///
+/// - Single-FASTA input: `target_fasta == query_fasta` for every job, and
+///   wfmash's self-map form is emitted.
+/// - Multi-FASTA input: each job's `target_fasta` / `query_fasta` point
+///   at whichever input FASTA contains the job's haplotype's contigs.
+///   When a haplotype spans multiple FASTAs (rare), the first-seen FASTA
+///   wins.
+///
+/// Every haplotype is also emitted as a self-pair so intra-haplotype
+/// alignments are explicit in the joblist (wfmash's `-Y` group-prefix
+/// may internally skip them; keeping them in the list is harmless and
+/// gives downstream orchestration a complete enumeration).
+///
+/// Returns an empty Vec when none of the input FASTAs carry PanSN
+/// structure — signal for the caller to fall back to the legacy
+/// per-file-pair `sweepga` joblist flow.
+fn pansn_joblist_jobs(
+    fastas: &[String],
+    aln: &AlnArgs,
+) -> Result<Vec<joblist::WfmashPansnJob>> {
+    use crate::pansn::{extract_pansn_key, group_indices_by_pansn, PanSnLevel};
+    use std::path::PathBuf;
+
+    // Collect all contigs across all files, tagged with their source FASTA.
+    let mut all_names: Vec<String> = Vec::new();
+    let mut all_files: Vec<PathBuf> = Vec::new();
+    for f in fastas {
+        let (names, _lens) = read_fasta_names_and_lengths(Path::new(f))?;
+        for n in names {
+            all_names.push(n);
+            all_files.push(PathBuf::from(f));
+        }
+    }
+    if all_names.is_empty() {
+        return Ok(Vec::new());
+    }
+    let name_refs: Vec<&str> = all_names.iter().map(|s| s.as_str()).collect();
+
+    // Per-contig haplotype key, and per-haplotype representative file.
+    let hap_of: Vec<String> = name_refs
+        .iter()
+        .map(|n| extract_pansn_key(n, PanSnLevel::Haplotype).unwrap_or_else(|| (*n).to_string()))
+        .collect();
+    let hap_groups = group_indices_by_pansn(name_refs.iter().copied(), PanSnLevel::Haplotype);
+    // If the input has no PanSN structure (every contig is its own
+    // haplotype), signal fallback to the legacy flow.
+    if hap_groups.len() == all_names.len() {
+        return Ok(Vec::new());
+    }
+    let mut hap_file: std::collections::BTreeMap<String, PathBuf> =
+        std::collections::BTreeMap::new();
+    for g in &hap_groups {
+        if let Some(&first) = g.first() {
+            let key = hap_of[first].clone();
+            hap_file.entry(key).or_insert_with(|| all_files[first].clone());
+        }
+    }
+
+    // Sparsify at haplotype granularity. Sketch-based strategies read
+    // per-contig sequences; sketch-free strategies skip that.
+    let mash_params = knn_graph::MashParams {
+        kmer_size: aln.mash_kmer_size,
+        sketch_size: aln.mash_sketch_size,
+    };
+    let contig_pair_indices: Vec<(usize, usize)> = match &aln.sparsify {
+        knn_graph::SparsificationStrategy::None
+        | knn_graph::SparsificationStrategy::Random(_)
+        | knn_graph::SparsificationStrategy::WfmashDensity(_) => {
+            knn_graph::select_pairs_haplotype_aware_no_sketch(
+                &name_refs,
+                &aln.sparsify,
+                &mash_params,
+            )
+        }
+        _ => {
+            let mut sequences: Vec<Vec<u8>> = Vec::with_capacity(all_names.len());
+            for f in fastas {
+                let mut seqs = read_fasta_sequences_for_sketching(Path::new(f))?;
+                sequences.append(&mut seqs);
+            }
+            let sketches = mash::compute_sketches_parallel(
+                &sequences,
+                mash_params.kmer_size,
+                mash_params.sketch_size,
+            );
+            knn_graph::select_pairs_haplotype_aware(
+                &name_refs,
+                &sketches,
+                &aln.sparsify,
+                mash_params.sketch_size,
+            )
+        }
+    };
+
+    // Collapse contig-pair output to unique haplotype-pair jobs.
+    let mut seen: std::collections::BTreeSet<(String, String)> =
+        std::collections::BTreeSet::new();
+    for (i, j) in contig_pair_indices {
+        let (a, b) = (&hap_of[i], &hap_of[j]);
+        let pair = if a <= b {
+            (a.clone(), b.clone())
+        } else {
+            (b.clone(), a.clone())
+        };
+        seen.insert(pair);
+    }
+    // Intra-haplotype self-pairs, always represented.
+    for k in hap_file.keys() {
+        seen.insert((k.clone(), k.clone()));
+    }
+
+    let empty_path = PathBuf::new();
+    let mut jobs: Vec<joblist::WfmashPansnJob> = Vec::with_capacity(seen.len());
+    for (target_hap, query_hap) in seen {
+        let target_fasta = hap_file.get(&target_hap).cloned().unwrap_or_default();
+        let query_fasta = hap_file.get(&query_hap).cloned().unwrap_or_default();
+        if target_fasta == empty_path || query_fasta == empty_path {
+            continue;
+        }
+        jobs.push(joblist::WfmashPansnJob {
+            target_hap,
+            query_hap,
+            target_fasta,
+            query_fasta,
+        });
+    }
+    Ok(jobs)
+}
+
+/// Read FASTA sequences (plain / bgzf) into a `Vec<Vec<u8>>` (one per
+/// record, in file order). Used for sketch-based joblist sparsification.
+fn read_fasta_sequences_for_sketching(fasta_path: &Path) -> Result<Vec<Vec<u8>>> {
+    use std::io::{BufRead, BufReader};
+    let file = File::open(fasta_path)
+        .with_context(|| format!("Failed to open FASTA '{}'", fasta_path.display()))?;
+    let reader: Box<dyn BufRead> = if fasta_path.to_string_lossy().ends_with(".gz") {
+        Box::new(BufReader::new(noodles::bgzf::io::reader::Reader::new(file)))
+    } else {
+        Box::new(BufReader::new(file))
+    };
+    let mut out: Vec<Vec<u8>> = Vec::new();
+    let mut cur: Vec<u8> = Vec::new();
+    let mut have_current = false;
+    for line in reader.lines() {
+        let line = line?;
+        if line.starts_with('>') {
+            if have_current {
+                out.push(std::mem::take(&mut cur));
+            }
+            have_current = true;
+        } else {
+            cur.extend_from_slice(line.trim().as_bytes());
+        }
+    }
+    if have_current {
+        out.push(cur);
+    }
+    Ok(out)
+}
+
 /// Detect genome groups from a FASTA file by reading headers
 fn detect_genome_groups(fasta_path: &Path) -> Result<Vec<String>> {
     use std::collections::BTreeSet;
@@ -929,6 +1131,7 @@ fn align_multiple_fastas(
                 map_pct_identity.clone(),
                 tempdir.map(String::from),
                 wfmash_density,
+                None, // pairs_file: CLI batch path doesn't plumb pair selection
             )),
             _ => Box::new(batch_align::FastGABatchAligner::new(
                 frequency,
@@ -2492,17 +2695,60 @@ fn main() -> Result<()> {
         vec![]
     };
 
-    // --joblist: emit one shell command per FASTA pair and exit. The
-    // emitted commands are standalone `sweepga` invocations, one per
-    // unordered pair (i,j) with i<j. Sparsify strategies are not yet
-    // applied here — a future revision can enumerate the sparsified pair
-    // set and reuse the same helper.
+    // --joblist: emit one shell command per haplotype-pair job and exit.
+    //
+    // Works on one or many PanSN-named FASTAs. All input FASTAs are
+    // scanned for `SAMPLE#HAPLOTYPE#CONTIG` names, haplotypes are
+    // sparsified per the `--sparsify` strategy, and one
+    // `wfmash -T <hap_i> -Q <hap_j> target.fa [query.fa]` command is
+    // emitted per selected haplotype pair. wfmash's prefix filters mean
+    // the input FASTA(s) don't need pre-splitting; multi-FASTA inputs
+    // (e.g. one FASTA per haplotype) are handled transparently.
+    //
+    // Falls back to the legacy `sweepga QUERY TARGET` per-file-pair
+    // flow only when no PanSN haplotype structure is detectable in the
+    // input — which is the pre-PanSN-aware behavior sweepga already had.
     if args.aln.joblist {
-        if args.files.len() < 2 {
-            anyhow::bail!("--joblist requires at least 2 FASTA inputs");
+        if args.files.is_empty() {
+            anyhow::bail!("--joblist requires FASTA input");
         }
         if input_file_types.iter().any(|ft| *ft != FileType::Fasta) {
             anyhow::bail!("--joblist requires FASTA inputs (got non-FASTA file)");
+        }
+        let out_dir = args
+            .aln
+            .joblist_output_dir
+            .clone()
+            .unwrap_or_else(|| ".".to_string());
+        let out_dir_path = Path::new(&out_dir);
+        std::fs::create_dir_all(out_dir_path).with_context(|| {
+            format!("Failed to create joblist output dir '{}'", out_dir)
+        })?;
+
+        let mut out: Box<dyn std::io::Write> = match &args.output_file {
+            Some(f) => Box::new(std::fs::File::create(f)?),
+            None => Box::new(std::io::stdout()),
+        };
+
+        // Try the PanSN haplotype-aware path first. Builds per-hap-pair
+        // wfmash jobs regardless of how many input FASTAs were provided.
+        let jobs = pansn_joblist_jobs(&args.files, &args.aln)?;
+        if !jobs.is_empty() {
+            let cfg = joblist::WfmashPansnEmitConfig {
+                output_dir: out_dir_path,
+                threads: args.threads,
+                block_length: args.aln.block_length.unwrap_or(0),
+            };
+            joblist::write_wfmash_pansn_commands(&jobs, &cfg, &mut out)?;
+            return Ok(());
+        }
+
+        // No PanSN structure detected — legacy per-file-pair sweepga flow.
+        if args.files.len() < 2 {
+            anyhow::bail!(
+                "--joblist on a single non-PanSN FASTA has no pairs to emit; \
+                 either provide PanSN-named input or pass 2+ FASTAs"
+            );
         }
         let mut pairs: Vec<(String, String)> = Vec::new();
         for i in 0..args.files.len() {
@@ -2510,22 +2756,13 @@ fn main() -> Result<()> {
                 pairs.push((args.files[i].clone(), args.files[j].clone()));
             }
         }
-        let out_dir = args
-            .aln
-            .joblist_output_dir
-            .clone()
-            .unwrap_or_else(|| ".".to_string());
         let bin = std::env::current_exe()
             .unwrap_or_else(|_| std::path::PathBuf::from("sweepga"));
         let cfg = joblist::JoblistEmitConfig {
             sweepga_bin: &bin,
-            output_dir: Path::new(&out_dir),
+            output_dir: out_dir_path,
             threads: args.threads,
             extra_flags: &[],
-        };
-        let mut out: Box<dyn std::io::Write> = match &args.output_file {
-            Some(f) => Box::new(std::fs::File::create(f)?),
-            None => Box::new(std::io::stdout()),
         };
         joblist::write_pair_commands(&pairs, &cfg, &mut out)?;
         return Ok(());

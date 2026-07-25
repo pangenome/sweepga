@@ -98,6 +98,30 @@ where
     set.len().max(1)
 }
 
+/// Group sequence indices by their PanSN key at the requested level.
+///
+/// Returns a `Vec` of groups; each group is the list of input indices that
+/// share a key. Non-PanSN names (or names with no extractable key) fall back
+/// to the whole name, so every such contig becomes its own group — callers
+/// can therefore use this uniformly and treat "one group per name" as
+/// "input is not PanSN".
+///
+/// Ordering is stable: groups are sorted by their PanSN key, which makes the
+/// output reproducible across runs. Indices within each group keep their
+/// input order.
+pub fn group_indices_by_pansn<'a, I>(names: I, level: PanSnLevel) -> Vec<Vec<usize>>
+where
+    I: IntoIterator<Item = &'a str>,
+{
+    use std::collections::BTreeMap;
+    let mut map: BTreeMap<String, Vec<usize>> = BTreeMap::new();
+    for (i, name) in names.into_iter().enumerate() {
+        let key = extract_pansn_key(name, level).unwrap_or_else(|| name.to_string());
+        map.entry(key).or_default().push(i);
+    }
+    map.into_values().collect()
+}
+
 /// Count unique PanSN haplotypes across one or more FASTA files.
 pub fn count_haplotypes<P: AsRef<Path>>(fasta_paths: &[P]) -> Result<usize> {
     let mut haplotypes: HashSet<String> = HashSet::new();
