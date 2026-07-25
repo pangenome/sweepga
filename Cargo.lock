@@ -616,14 +616,14 @@ dependencies = [
 [[package]]
 name = "fastga-rs"
 version = "0.1.2"
-source = "git+https://github.com/pangenome/fastga-rs?rev=2da9567#2da95679886f8d5674406ae444494ac3022afda1"
+source = "git+https://github.com/pangenome/fastga-rs?rev=b8efc7f8886c9772b6a4d4f22c642807cb43da01#b8efc7f8886c9772b6a4d4f22c642807cb43da01"
 dependencies = [
  "anyhow",
  "cc",
  "libc",
  "nix",
  "num_cpus",
- "onecode 0.1.0 (git+https://github.com/pangenome/onecode-rs)",
+ "onecode",
  "pkg-config",
  "tempfile",
  "thiserror 1.0.69",
@@ -1191,16 +1191,7 @@ checksum = "384b8ab6d37215f3c5301a95a4accb5d64aa607f1fcb26a11b5303878451b4fe"
 [[package]]
 name = "onecode"
 version = "0.1.0"
-source = "git+https://github.com/pangenome/onecode-rs?rev=f531f5b0ff54001a898ec4e0c0c761b2bd0a1f34#f531f5b0ff54001a898ec4e0c0c761b2bd0a1f34"
-dependencies = [
- "cc",
- "libc",
-]
-
-[[package]]
-name = "onecode"
-version = "0.1.0"
-source = "git+https://github.com/pangenome/onecode-rs#f531f5b0ff54001a898ec4e0c0c761b2bd0a1f34"
+source = "git+https://github.com/pangenome/onecode-rs?rev=5fa1e9333f18b311580f1346751c630c626d8342#5fa1e9333f18b311580f1346751c630c626d8342"
 dependencies = [
  "cc",
  "libc",
@@ -1757,7 +1748,7 @@ dependencies = [
  "nom",
  "noodles",
  "num_cpus",
- "onecode 0.1.0 (git+https://github.com/pangenome/onecode-rs?rev=f531f5b0ff54001a898ec4e0c0c761b2bd0a1f34)",
+ "onecode",
  "ordered-float",
  "pretty_assertions",
  "proptest",
