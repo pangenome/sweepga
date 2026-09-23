@@ -248,6 +248,7 @@ pub fn filter_config_from_align_cfg(cfg: &SweepgaAlignConfig, avg_seq_len: u64) 
         no_merge: true,
         scaffold_gap: scaffold_jump,
         min_scaffold_length: scaffold_mass,
+        auto_scaffold_mass: false,
         scaffold_overlap_threshold: 0.5,
         scaffold_max_deviation: cfg.scaffold_dist,
         prefix_delimiter: '#',

@@ -78,6 +78,7 @@ fn main() -> Result<()> {
         no_merge: true,
         scaffold_gap: 0,
         min_scaffold_length: 0,
+        auto_scaffold_mass: false,
         scaffold_overlap_threshold: 0.95,
         scaffold_max_deviation: 0,
         prefix_delimiter: '#',

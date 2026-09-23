@@ -189,6 +189,7 @@ fn test_nearest_neighbor_chaining() {
         no_merge: false,      // Enable chaining
         scaffold_gap: 10_000, // 10kb gap allows all three to chain
         min_scaffold_length: 0,
+        auto_scaffold_mass: false,
         scaffold_overlap_threshold: 0.0,
         scaffold_max_deviation: 20_000,
         prefix_delimiter: '#',
@@ -291,6 +292,7 @@ fn test_overlap_penalty() {
         no_merge: false,      // Enable chaining
         scaffold_gap: 10_000, // Large enough to allow chaining
         min_scaffold_length: 0,
+        auto_scaffold_mass: false,
         scaffold_overlap_threshold: 0.0,
         scaffold_max_deviation: 20_000,
         prefix_delimiter: '#',

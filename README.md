@@ -75,17 +75,21 @@ settings):
 | `--aligner` | `fastga` | Aligner backend. Use `--wfmash` or `--aligner wfmash` to switch. |
 | `--num-mappings` | `many:many` | Pre-scaffold plane-sweep: keep all mappings per query/target. |
 | `--scaffold-jump` | `50k` | Scaffolding **is enabled by default**; chains mappings within a 50kb gap. Pass `--scaffold-jump 0` to disable. |
-| `--scaffold-mass` | `10k` | Drop scaffold chains shorter than 10kb. |
+| `--scaffold-mass` | `auto` | Drop scaffold chains below an automatically derived minimum. The threshold is read from the chain-span distribution (noise vs. synteny modes); pass a value like `10k` to override. |
 | `--scaffold-filter` | `many:many` | Keep all non-overlapping scaffolds. Use `1:1` for the aggressive (best-per-chromosome-pair) filter. |
 | `--overlap` | `0.95` | Drop mappings whose overlap with a better-scoring one exceeds 95%. |
 | `--scoring` | `log-length-ani` | Plane-sweep scoring function. |
 | `--threads` | `8` | Parallelism. |
 
-Adaptive behavior: when the input average sequence length is known
-(FASTA with `.fai`), `--scaffold-mass` and `--scaffold-jump` are clamped
-to the sequence-length scale so short inputs (e.g. pangenome-window
-excerpts) don't get filtered empty. Pass `--no-adaptive-scaffolds` to
-turn clamping off.
+Adaptive behavior: `--scaffold-mass` defaults to `auto`, which derives a
+threshold from the empirical chain-span distribution of the alignment
+(the valley between the short/off-diagonal and the long/synteny modes),
+falling back to a fraction of the dominant scaffold span for unimodal
+inputs. When `--scaffold-mass` is given explicitly and the input average
+sequence length is known (FASTA with `.fai`), it is clamped to the
+sequence-length scale so short inputs (e.g. pangenome-window excerpts)
+don't get filtered empty. Pass `--no-adaptive-scaffolds` to turn clamping
+off.
 
 ## Scaffolding pipeline
 

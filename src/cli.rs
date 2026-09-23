@@ -246,10 +246,11 @@ pub struct AlnArgs {
            help_heading = "Scaffolding and chaining")]
     pub scaffold_jump: u64,
 
-    /// Minimum scaffold chain length (accepts k/m/g suffix)
-    #[clap(long = "scaffold-mass", default_value = "10k", value_parser = parse_metric_number,
+    /// Minimum scaffold chain length (accepts k/m/g suffix). Omit to
+    /// auto-scale the threshold from the empirical chain-span distribution.
+    #[clap(long = "scaffold-mass", value_parser = parse_metric_number,
            help_heading = "Scaffolding and chaining")]
-    pub scaffold_mass: u64,
+    pub scaffold_mass: Option<u64>,
 
     /// Scaffold filter mode: "1:1" (best), "M:N" (M per query, N per target), "many" (unbounded)
     #[clap(long = "scaffold-filter", default_value = "many:many",

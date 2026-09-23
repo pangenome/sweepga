@@ -364,6 +364,7 @@ fn calculate_ani_stats(input_path: &str, method: AniMethod, quiet: bool) -> Resu
                 no_merge: false,
                 scaffold_gap: 10000,
                 min_scaffold_length: 0, // No scaffolding for ANI calculation
+                auto_scaffold_mass: false,
                 scaffold_overlap_threshold: 0.95,
                 scaffold_max_deviation: 0,
                 prefix_delimiter: '#',
@@ -2890,16 +2891,17 @@ fn main() -> Result<()> {
         } else {
             None
         };
+        let requested_scaffold_mass = args.aln.scaffold_mass.unwrap_or(10_000);
         let (effective_scaffold_jump, effective_scaffold_mass) = pansn::clamp_scaffold_params(
             args.aln.scaffold_jump,
-            args.aln.scaffold_mass,
+            requested_scaffold_mass,
             avg_seq_len_for_adaptive,
             !args.aln.no_adaptive_scaffolds,
         );
         if !args.aln.no_adaptive_scaffolds
             && !args.quiet
             && (effective_scaffold_jump != args.aln.scaffold_jump
-                || effective_scaffold_mass != args.aln.scaffold_mass)
+                || effective_scaffold_mass != requested_scaffold_mass)
         {
             timing.log(
                 "adaptive",
@@ -2907,7 +2909,7 @@ fn main() -> Result<()> {
                     "Scaffold thresholds clamped (jump {} -> {}, mass {} -> {})",
                     args.aln.scaffold_jump,
                     effective_scaffold_jump,
-                    args.aln.scaffold_mass,
+                    requested_scaffold_mass,
                     effective_scaffold_mass,
                 ),
             );
@@ -2928,6 +2930,7 @@ fn main() -> Result<()> {
             no_merge: true,
             scaffold_gap: effective_scaffold_jump,
             min_scaffold_length: effective_scaffold_mass,
+            auto_scaffold_mass: args.aln.scaffold_mass.is_none(),
             scaffold_overlap_threshold: args.aln.scaffold_overlap,
             scaffold_max_deviation: args.aln.scaffold_dist,
             prefix_delimiter: '#',
@@ -3519,16 +3522,17 @@ fn main() -> Result<()> {
     } else {
         None
     };
+    let requested_scaffold_mass = args.aln.scaffold_mass.unwrap_or(10_000);
     let (effective_scaffold_jump, effective_scaffold_mass) = pansn::clamp_scaffold_params(
         args.aln.scaffold_jump,
-        args.aln.scaffold_mass,
+        requested_scaffold_mass,
         avg_seq_len_for_adaptive,
         !args.aln.no_adaptive_scaffolds,
     );
     if !args.aln.no_adaptive_scaffolds
         && !args.quiet
         && (effective_scaffold_jump != args.aln.scaffold_jump
-            || effective_scaffold_mass != args.aln.scaffold_mass)
+            || effective_scaffold_mass != requested_scaffold_mass)
     {
         timing.log(
             "adaptive",
@@ -3536,7 +3540,7 @@ fn main() -> Result<()> {
                 "Scaffold thresholds clamped (jump {} -> {}, mass {} -> {})",
                 args.aln.scaffold_jump,
                 effective_scaffold_jump,
-                args.aln.scaffold_mass,
+                requested_scaffold_mass,
                 effective_scaffold_mass,
             ),
         );
@@ -3558,6 +3562,7 @@ fn main() -> Result<()> {
         no_merge: true,
         scaffold_gap: effective_scaffold_jump,
         min_scaffold_length: effective_scaffold_mass,
+        auto_scaffold_mass: args.aln.scaffold_mass.is_none(),
         scaffold_overlap_threshold: args.aln.scaffold_overlap,
         scaffold_max_deviation: args.aln.scaffold_dist,
         prefix_delimiter: '#',

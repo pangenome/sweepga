@@ -37,6 +37,7 @@ pub struct FilterConfig {
     pub no_merge: bool,           // -M/--no-merge
     pub scaffold_gap: u64,        // -j/--scaffold-jump
     pub min_scaffold_length: u64, // -S/--scaffold-mass
+    pub auto_scaffold_mass: bool, // derive -S from the chain-span distribution
     pub scaffold_overlap_threshold: f64,
     pub scaffold_max_deviation: u64, // -D/--scaffold-dist
     pub prefix_delimiter: char,
@@ -46,6 +47,73 @@ pub struct FilterConfig {
     pub scoring_function: ScoringFunction,
     pub min_identity: f64, // Minimum block identity threshold (0.0-1.0)
     pub min_scaffold_identity: f64, // Minimum scaffold identity threshold (0.0-1.0)
+}
+
+/// Round down to a human-friendly threshold.
+fn round_nice_mass(x: u64) -> u64 {
+    for step in [1_000u64, 2_000, 5_000, 10_000, 20_000, 50_000, 100_000] {
+        if x <= 2 * step {
+            return step.max((x / step) * step);
+        }
+    }
+    x
+}
+
+/// Derive a scaffold-mass threshold from the empirical chain-span distribution.
+///
+/// Chain spans of true synteny are typically 1-2 orders of magnitude larger
+/// than spurious local chains, so the distribution is bimodal. We pick the
+/// largest count drop across log-spaced span bins when that drop is clear
+/// (>= 2x); otherwise we fall back to a fraction (1/25) of a robust dominant
+/// span. The result is floored at 5 kb and capped at the dominant span.
+fn derive_scaffold_mass(spans: &[u64]) -> Option<u64> {
+    if spans.is_empty() {
+        return None;
+    }
+    const BOUNDS: [u64; 13] = [
+        0, 1_000, 2_000, 5_000, 10_000, 20_000, 30_000, 50_000, 100_000, 200_000,
+        500_000, 1_000_000, u64::MAX,
+    ];
+    const NBINS: usize = 12;
+
+    let mut hist = [0usize; NBINS];
+    for &s in spans {
+        for (i, w) in hist.iter_mut().enumerate() {
+            if s >= BOUNDS[i] && s < BOUNDS[i + 1] {
+                *w += 1;
+                break;
+            }
+        }
+    }
+
+    let mut best_ratio = 0.0f64;
+    let mut best_thr = 0u64;
+    // Require the pre-drop bin to hold a meaningful share of chains, so a
+    // tiny tail bin (e.g. 36 -> 4) can't win on a noisy ratio.
+    let min_support = (spans.len() / 100).max(5);
+    for i in 0..NBINS - 1 {
+        if hist[i] < min_support {
+            continue;
+        }
+        let ratio = hist[i] as f64 / hist[i + 1].max(1) as f64;
+        if ratio > best_ratio {
+            best_ratio = ratio;
+            best_thr = BOUNDS[i + 1];
+        }
+    }
+
+    let mut sorted = spans.to_vec();
+    sorted.sort_unstable_by(|a, b| b.cmp(a));
+    let k = sorted.len().min(30);
+    let dominant = sorted[k / 2];
+    let relative = round_nice_mass(dominant / 25).max(5_000);
+
+    let mass = if best_ratio >= 2.0 && best_thr > 0 {
+        best_thr.max(5_000)
+    } else {
+        relative
+    };
+    Some(mass.min(dominant.max(5_000)))
 }
 
 /// Record metadata for filtering without modifying records
@@ -446,10 +514,30 @@ impl PafFilter {
         // );
 
         // Step 2: Filter chains by minimum scaffold length and identity
+        let effective_min_scaffold_length = if self.config.auto_scaffold_mass {
+            let spans: Vec<u64> = merged_chains.iter().map(|c| c.total_length).collect();
+            match derive_scaffold_mass(&spans) {
+                Some(m) => {
+                    let dominant = spans.iter().copied().max().unwrap_or(0);
+                    log::info!(
+                        "[sweepga] auto scaffold-mass = {} ({:.1}% of dominant {}; {} chains)",
+                        m,
+                        if dominant > 0 { 100.0 * m as f64 / dominant as f64 } else { 0.0 },
+                        dominant,
+                        spans.len()
+                    );
+                    m
+                }
+                None => self.config.min_scaffold_length,
+            }
+        } else {
+            self.config.min_scaffold_length
+        };
+
         let mut filtered_chains: Vec<MergedChain> = merged_chains
             .into_iter()
             .filter(|chain| {
-                chain.total_length >= self.config.min_scaffold_length
+                chain.total_length >= effective_min_scaffold_length
                     && chain.weighted_identity >= self.config.min_scaffold_identity
             })
             .collect();
@@ -1744,6 +1832,7 @@ pub fn extract_metadata<P: AsRef<Path>>(path: P) -> Result<(Vec<RecordMeta>, ())
         no_merge: true,
         scaffold_gap: 0,
         min_scaffold_length: 0,
+        auto_scaffold_mass: false,
         scaffold_overlap_threshold: 0.95,
         scaffold_max_deviation: 0,
         prefix_delimiter: '#',
@@ -1756,4 +1845,46 @@ pub fn extract_metadata<P: AsRef<Path>>(path: P) -> Result<(Vec<RecordMeta>, ())
     let filter = PafFilter::new(config);
     let metadata = filter.extract_metadata(path)?;
     Ok((metadata, ()))
+}
+
+#[cfg(test)]
+mod auto_scaffold_mass_tests {
+    use super::derive_scaffold_mass;
+
+    fn spans(pairs: &[(u64, usize)]) -> Vec<u64> {
+        let mut v = Vec::new();
+        for &(s, n) in pairs {
+            v.extend(std::iter::repeat(s).take(n));
+        }
+        v
+    }
+
+    #[test]
+    fn picks_valley_between_noise_and_synteny_modes() {
+        let s = spans(&[
+            (1_500, 300),
+            (3_000, 200),
+            (7_000, 150),
+            (15_000, 100),
+            (25_000, 80),
+            (40_000, 60),
+            (70_000, 5),
+            (200_000, 15),
+            (900_000, 10),
+        ]);
+        let m = derive_scaffold_mass(&s).unwrap();
+        assert_eq!(m, 50_000, "expected the 30-50kb -> 50-100kb valley");
+    }
+
+    #[test]
+    fn empty_is_none() {
+        assert!(derive_scaffold_mass(&[]).is_none());
+    }
+
+    #[test]
+    fn never_exceeds_dominant_span() {
+        let s = spans(&[(1_000, 300), (20_000, 30), (30_000, 30)]);
+        let m = derive_scaffold_mass(&s).unwrap();
+        assert!(m <= 30_000, "got {m}");
+    }
 }
