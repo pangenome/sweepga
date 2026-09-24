@@ -826,6 +826,37 @@ fn read_fasta_names_and_lengths(fasta_path: &Path) -> Result<(Vec<String>, Vec<u
     Ok((names, lengths))
 }
 
+/// Build a sequence-name -> genome-key map for filtering.
+///
+/// PanSN names use their `#` prefix. Names without PanSN are grouped by input
+/// file, so separate genome FASTAs are treated as separate genomes even when
+/// their contigs share names.
+fn build_genome_assignment(files: &[String]) -> Result<std::collections::HashMap<String, String>> {
+    let mut assignment = std::collections::HashMap::new();
+    for f in files {
+        let (names, _lens) = read_fasta_names_and_lengths(Path::new(f))?;
+        let pansn = names.iter().any(|n| n.contains('#'));
+        for n in names {
+            let key = if pansn {
+                extract_genome_prefix(&n).unwrap_or_else(|| f.clone())
+            } else {
+                f.clone()
+            };
+            if let Some(existing) = assignment.get(&n) {
+                if existing != &key {
+                    log::warn!(
+                        "[sweepga] sequence name '{}' occurs in multiple inputs with \
+                         different genomes; genome grouping may be ambiguous",
+                        n
+                    );
+                }
+            }
+            assignment.insert(n, key);
+        }
+    }
+    Ok(assignment)
+}
+
 /// Across one or more PanSN-named input FASTAs, return the sparsified
 /// list of `WfmashPansnJob`s that `--joblist` should emit wfmash
 /// commands for.
@@ -3689,6 +3720,18 @@ fn main() -> Result<()> {
     let filter = PafFilter::new(config)
         .with_keep_self(args.aln.keep_self || args.aln.no_filter)
         .with_scaffolds_only(args.aln.scaffolds_only);
+    // Group sequences by genome even without PanSN names: when we aligned input
+    // FASTAs, use each file as a genome key (the aligned PAF reuses the header
+    // names). PAF input has no file provenance, so it relies on PanSN or the
+    // pairwise query/target fallback in PafFilter.
+    let filter = if !input_is_paf && !args.files.is_empty() {
+        match build_genome_assignment(&args.files) {
+            Ok(map) if !map.is_empty() => filter.with_genome_assignment(map),
+            _ => filter,
+        }
+    } else {
+        filter
+    };
     filter.filter_paf(filter_input_path, &output_path)?;
 
     // Convert output format if requested

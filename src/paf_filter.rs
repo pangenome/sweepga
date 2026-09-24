@@ -232,6 +232,10 @@ pub struct PafFilter {
     temp_dir: Option<String>,
     keep_self: bool,
     scaffolds_only: bool,
+    /// Optional sequence-name -> genome-key assignment. When present, all
+    /// sequences of a genome group together even without PanSN names (e.g.
+    /// one key per input FASTA).
+    genome_assignment: Option<HashMap<String, String>>,
 }
 
 #[allow(dead_code)]
@@ -244,6 +248,7 @@ impl PafFilter {
                 .or_else(|| Some("/tmp".to_string())),
             keep_self: false, // Exclude self-mappings by default
             scaffolds_only: false,
+            genome_assignment: None,
         }
     }
 
@@ -272,6 +277,37 @@ impl PafFilter {
     pub fn with_scaffolds_only(mut self, scaffolds_only: bool) -> Self {
         self.scaffolds_only = scaffolds_only;
         self
+    }
+
+    /// Provide a sequence-name -> genome-key map so that all sequences of a
+    /// genome group together during filtering, even when their names carry no
+    /// PanSN structure (e.g. one key per input FASTA, or separate genome files).
+    pub fn with_genome_assignment(mut self, assignment: HashMap<String, String>) -> Self {
+        self.genome_assignment = Some(assignment);
+        self
+    }
+
+    /// Resolve the genome key for a sequence name.
+    ///
+    /// Order: explicit assignment (from input files or a caller), then PanSN
+    /// prefix (text up to and including the last delimiter), then a per-role
+    /// fallback so plain-name pairwise input still groups all query sequences
+    /// and all target sequences separately, rather than treating every contig
+    /// as its own genome.
+    fn genome_key(&self, name: &str, is_query: bool) -> String {
+        if let Some(assignment) = &self.genome_assignment {
+            if let Some(key) = assignment.get(name) {
+                return key.clone();
+            }
+        }
+        if let Some(pos) = name.rfind(self.config.prefix_delimiter) {
+            return name[..=pos].to_string();
+        }
+        if is_query {
+            "\u{0}query".to_string()
+        } else {
+            "\u{0}target".to_string()
+        }
     }
 
     /// Main filtering pipeline using record ranks
@@ -1013,32 +1049,29 @@ impl PafFilter {
             FilterMode::ManyToMany => self.config.mapping_max_per_target.unwrap_or(usize::MAX),
         };
 
-        // Helper function to extract genome prefix from sequence name
-        // For "SGDref#1#chrI", returns "SGDref#1#"
-        // For sequences without '#', behavior depends on filter mode:
-        // Extract genome prefix:
-        // - If PanSN format (has #): prefix up to and including last #
-        // - If no #: use full sequence name (treat as single-sequence genome)
-        let extract_genome_prefix = |seq_name: &str| -> String {
-            if let Some(last_pos) = seq_name.rfind('#') {
-                seq_name[..=last_pos].to_string()
-            } else {
-                // No # separator: treat full name as the group prefix
-                // This handles non-PanSN genomes (e.g., "genome_x" instead of "genome_x#1#chr1")
-                seq_name.to_string()
-            }
-        };
+        // Genome grouping: without PanSN or a file-based assignment, treat all
+        // query sequences and all target sequences as one genome each (the
+        // pairwise assumption). This is what allows the per-chromosome sweeps
+        // below to compare a query chromosome against *all* its target
+        // chromosomes and drop cross-chromosome noise.
+        if self.genome_assignment.is_none()
+            && !mappings
+                .iter()
+                .any(|m| m.query_name.contains('#') || m.target_name.contains('#'))
+        {
+            log::warn!(
+                "[sweepga] no PanSN or file grouping detected; grouping all query \
+                 sequences and all target sequences as one genome each (pairwise \
+                 assumption). Use PanSN names, or pass separate input files, for \
+                 multi-genome input."
+            );
+        }
 
-        // CRITICAL: Group by (query_genome_prefix, target_genome_prefix) pairs FIRST.
-        // This ensures plane sweep runs independently for each genome pair.
-        // IndexMap: insertion-order iteration, so every per-group plane sweep
-        // sees the same input order across runs (without this, the group-iteration
-        // order drives `idx` assignment in `enumerate()`, breaking tie-breaks).
         let mut genome_pair_groups: IndexMap<(String, String), Vec<usize>> = IndexMap::new();
 
         for (i, (_, q, t)) in plane_sweep_mappings.iter().enumerate() {
-            let query_genome = extract_genome_prefix(q);
-            let target_genome = extract_genome_prefix(t);
+            let query_genome = self.genome_key(q, true);
+            let target_genome = self.genome_key(t, false);
             genome_pair_groups
                 .entry((query_genome, target_genome))
                 .or_default()
@@ -1136,6 +1169,7 @@ impl PafFilter {
             self.config.scaffold_max_per_target,
             self.config.scaffold_overlap_threshold,
             self.config.scoring_function,
+            self.genome_assignment.as_ref(),
         )?;
 
         // Return the filtered chains
