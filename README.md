@@ -73,7 +73,7 @@ settings):
 | Flag | Default | Meaning |
 |---|---|---|
 | `--aligner` | `fastga` | Aligner backend. Use `--wfmash` or `--aligner wfmash` to switch. |
-| `--num-mappings` | `many:many` | Pre-scaffold plane-sweep: keep all mappings per query/target. |
+| `--num-mappings` | `1:1` | Pre-scaffold plane-sweep: keep the best mapping per position within each genome pair. Use `many:many` for repeat/paralog-heavy work. |
 | `--scaffold-jump` | `50k` | Scaffolding **is enabled by default**; chains mappings within a 50kb gap. Pass `--scaffold-jump 0` to disable. |
 | `--scaffold-mass` | `10k` | Drop scaffold chains shorter than 10kb. |
 | `--scaffold-filter` | `many:many` | Keep all non-overlapping scaffolds. Use `1:1` for the aggressive (best-per-chromosome-pair) filter. |
