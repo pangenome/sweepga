@@ -359,6 +359,12 @@ pub struct AlnArgs {
     #[clap(long = "agc-temp-dir", help_heading = "AGC archive options")]
     pub agc_tempdir: Option<String>,
 
+    /// Extract the selected AGC samples to one FASTA per sample in this
+    /// directory, then exit (no alignment). Pairs with --agc-samples,
+    /// --agc-prefix, and --agc-queries/--agc-targets.
+    #[clap(long = "agc-extract-dir", help_heading = "AGC archive options")]
+    pub agc_extract_dir: Option<String>,
+
     // ========================================================================
     // Pair Selection (for incremental/targeted alignment)
     // ========================================================================

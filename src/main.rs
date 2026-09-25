@@ -1426,7 +1426,7 @@ fn process_agc_archive(
     let wfmash_density = orchestrator::resolve_wfmash_density(&args.aln.sparsify, num_genomes);
     let aligner = create_aligner(
         &args.aln.aligner,
-        resolve_fastga_freq(&args, &args.files)?,
+        resolve_agc_fastga_freq(args, samples.len()),
         args.aln.map_pct_identity.clone(),
         args.threads,
         args.aln.block_length,
@@ -1454,6 +1454,30 @@ fn process_agc_archive(
     // But we need to keep it alive until alignment is done, which it is now
 
     Ok(temp_paf)
+}
+
+/// Extract selected AGC samples to one FASTA per sample in `out_dir`.
+fn agc_extract_samples(
+    agc_path: &str,
+    out_dir: &str,
+    args: &Args,
+    timing: &TimingContext,
+) -> Result<()> {
+    let mut agc = agc::AgcSource::open(agc_path)?;
+    let samples = determine_agc_samples(&mut agc, args, timing)?;
+    std::fs::create_dir_all(out_dir)?;
+    for s in &samples {
+        let safe = s.replace('#', "_");
+        let path = std::path::Path::new(out_dir).join(format!("{safe}.fa"));
+        agc.extract_sample_to_fasta(s, &path)?;
+    }
+    if !args.quiet {
+        timing.log(
+            "agc",
+            &format!("Extracted {} samples to {}", samples.len(), out_dir),
+        );
+    }
+    Ok(())
 }
 
 /// Determine which samples to extract from an AGC archive based on CLI args
@@ -1919,7 +1943,7 @@ fn process_agc_pairs(
         orchestrator::resolve_wfmash_density(&args.aln.sparsify, cohort_size);
     let aligner = create_aligner(
         &args.aln.aligner,
-        resolve_fastga_freq(&args, &args.files)?,
+        resolve_agc_fastga_freq(args, cohort_size),
         args.aln.map_pct_identity.clone(),
         args.threads,
         args.aln.block_length,
@@ -1944,7 +1968,7 @@ fn process_agc_pairs(
     // For FastGA pair mode, we also need a FastGA instance for GDB/index operations
     let fastga_for_index = if args.aln.aligner == "fastga" {
         Some(create_fastga_integration(
-            resolve_fastga_freq(&args, &args.files)?,
+            resolve_agc_fastga_freq(args, cohort_size),
             args.threads,
             args.aln.block_length.unwrap_or(0),
             Some(temp_base.to_string_lossy().to_string()),
@@ -2120,7 +2144,7 @@ fn process_agc_batched(
     // Create FastGA integration
     // Use temp_base (not batch_dir) so TMPDIR isn't set to a directory we'll delete
     let fastga = create_fastga_integration(
-        resolve_fastga_freq(&args, &args.files)?,
+        resolve_agc_fastga_freq(args, samples.len()),
         args.threads,
         args.aln.block_length.unwrap_or(0),
         Some(temp_base.to_string_lossy().to_string()),
@@ -2466,6 +2490,19 @@ fn resolve_fastga_freq<P: AsRef<Path>>(args: &Args, fastas: &[P]) -> Result<usiz
         args.aln.fastga_frequency_multiplier,
         fastas,
     )
+}
+
+/// Resolve the FastGA k-mer frequency for AGC input.
+///
+/// `resolve_fastga_freq` counts PanSN haplotypes by opening the input files as
+/// FASTA, which fails for an AGC archive (binary). For AGC the selected sample
+/// list *is* the haplotype set, so derive the frequency from the sample count.
+fn resolve_agc_fastga_freq(args: &Args, num_samples: usize) -> usize {
+    args.aln.frequency.unwrap_or_else(|| {
+        num_samples
+            .max(1)
+            .saturating_mul(args.aln.fastga_frequency_multiplier.max(1))
+    })
 }
 
 /// Construct a `FastGAIntegration` with a fully-resolved k-mer frequency.
@@ -3324,6 +3361,10 @@ fn main() -> Result<()> {
                 (Some(temp_paf), paf_path)
             }
             (1, false) if file_types[0] == FileType::Agc => {
+                if let Some(ref extract_dir) = args.aln.agc_extract_dir {
+                    agc_extract_samples(&args.files[0], extract_dir, &args, &timing)?;
+                    return Ok(());
+                }
                 // AGC archive - extract samples and align
                 let alignment_start = Instant::now();
 
