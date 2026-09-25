@@ -205,10 +205,12 @@ pub struct AlnArgs {
            help_heading = "Basic filtering")]
     pub block_length: Option<u64>,
 
-    /// n:m-best mappings kept in query:target dimensions. 1:1 (orthogonal),
-    /// use ∞/many for unbounded. Default matches impg's historical
-    /// pangenome setting: no mapping-axis filter before scaffolding.
-    #[clap(long = "num-mappings", default_value = "many:many", help_heading = "Basic filtering")]
+    /// n:m-best mappings kept per genome pair, in query:target dimensions.
+    /// Defaults to 1:1 (one best mapping per position within each genome pair),
+    /// which is what pairwise and pangenome-cohort alignments both want: cohort
+    /// breadth comes from processing every pair, not from keeping many mappings
+    /// per pair. Use ∞/many for repeat- and paralog-heavy work.
+    #[clap(long = "num-mappings", default_value = "1:1", help_heading = "Basic filtering")]
     pub num_mappings: String,
 
     /// Maximum overlap ratio for plane sweep filtering
@@ -250,6 +252,18 @@ pub struct AlnArgs {
     #[clap(long = "scaffold-mass", default_value = "10k", value_parser = parse_metric_number,
            help_heading = "Scaffolding and chaining")]
     pub scaffold_mass: u64,
+
+    /// How sequences are grouped into genomes for filtering. Grouping decides
+    /// which sequences' mappings compete during the plane sweep.
+    ///
+    /// `auto` uses only deterministic signals: a PanSN prefix if present, else
+    /// one genome per input file, else no grouping (the historical behavior)
+    /// with a warning. `pairwise` (all queries vs all targets) is explicit
+    /// opt-in for two-genome PAF input without PanSN. `none` disables grouping.
+    #[clap(long = "group-by", default_value = "auto",
+           value_parser = ["auto", "pansn", "file", "pairwise", "none"],
+           help_heading = "Scaffolding and chaining")]
+    pub group_by: String,
 
     /// Scaffold filter mode: "1:1" (best), "M:N" (M per query, N per target), "many" (unbounded)
     #[clap(long = "scaffold-filter", default_value = "many:many",
