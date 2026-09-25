@@ -136,6 +136,7 @@ pub fn filter_by_scaffolds_with_rescue(
             config.scaffold_overlap_threshold,
             ScoringFunction::LogLengthIdentity, // Use standard scoring
             None,
+            crate::filter_types::GenomeGrouping::Auto,
         )?;
 
         let filtered_scaffolds: Vec<ScaffoldChain> = kept_indices

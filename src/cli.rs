@@ -251,6 +251,18 @@ pub struct AlnArgs {
            help_heading = "Scaffolding and chaining")]
     pub scaffold_mass: u64,
 
+    /// How sequences are grouped into genomes for filtering. Grouping decides
+    /// which sequences' mappings compete during the plane sweep.
+    ///
+    /// `auto` uses only deterministic signals: a PanSN prefix if present, else
+    /// one genome per input file, else no grouping (the historical behavior)
+    /// with a warning. `pairwise` (all queries vs all targets) is explicit
+    /// opt-in for two-genome PAF input without PanSN. `none` disables grouping.
+    #[clap(long = "group-by", default_value = "auto",
+           value_parser = ["auto", "pansn", "file", "pairwise", "none"],
+           help_heading = "Scaffolding and chaining")]
+    pub group_by: String,
+
     /// Scaffold filter mode: "1:1" (best), "M:N" (M per query, N per target), "many" (unbounded)
     #[clap(long = "scaffold-filter", default_value = "many:many",
            help_heading = "Scaffolding and chaining")]

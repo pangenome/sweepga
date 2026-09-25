@@ -31,6 +31,7 @@ use anyhow::{Context, Result};
 use clap::Parser;
 
 use crate::cli::{parse_identity_value, parse_metric_number, AlnArgs};
+use crate::filter_types::GenomeGrouping;
 use crate::paf_filter::{FilterConfig, FilterMode, PafFilter, ScoringFunction};
 use std::collections::HashMap;
 use std::fs::File;
@@ -239,6 +240,17 @@ struct Args {
     /// Report disk usage statistics (current, peak, cumulative bytes written) [deprecated: now always shown]
     #[clap(long = "disk-usage", hide = true, help_heading = "General options")]
     disk_usage: bool,
+}
+
+/// Parse `--group-by` into a [`GenomeGrouping`].
+fn parse_genome_grouping(mode: &str) -> GenomeGrouping {
+    match mode.to_lowercase().as_str() {
+        "pansn" | "pan-sn" => GenomeGrouping::PanSn,
+        "file" => GenomeGrouping::File,
+        "pairwise" => GenomeGrouping::Pairwise,
+        "none" => GenomeGrouping::None,
+        _ => GenomeGrouping::Auto,
+    }
 }
 
 fn parse_filter_mode(mode: &str, _filter_type: &str) -> (FilterMode, Option<usize>, Option<usize>) {
@@ -828,14 +840,18 @@ fn read_fasta_names_and_lengths(fasta_path: &Path) -> Result<(Vec<String>, Vec<u
 
 /// Build a sequence-name -> genome-key map for filtering.
 ///
-/// PanSN names use their `#` prefix. Names without PanSN are grouped by input
-/// file, so separate genome FASTAs are treated as separate genomes even when
-/// their contigs share names.
-fn build_genome_assignment(files: &[String]) -> Result<std::collections::HashMap<String, String>> {
+/// With `force_file` (i.e. `--group-by file`) every sequence is keyed by its
+/// input file. Otherwise PanSN names use their `#` prefix and plain names fall
+/// back to the input file, so separate genome FASTAs are treated as separate
+/// genomes even when their contigs share names.
+fn build_genome_assignment(
+    files: &[String],
+    force_file: bool,
+) -> Result<std::collections::HashMap<String, String>> {
     let mut assignment = std::collections::HashMap::new();
     for f in files {
         let (names, _lens) = read_fasta_names_and_lengths(Path::new(f))?;
-        let pansn = names.iter().any(|n| n.contains('#'));
+        let pansn = !force_file && names.iter().any(|n| n.contains('#'));
         for n in names {
             let key = if pansn {
                 extract_genome_prefix(&n).unwrap_or_else(|| f.clone())
@@ -3717,15 +3733,23 @@ fn main() -> Result<()> {
     let filter_input_path = tree_filtered_path.as_ref().unwrap_or(&input_path);
 
     // Note: -f (no_filter) implies --self (keep self-mappings)
+    let genome_grouping = parse_genome_grouping(&args.aln.group_by);
     let filter = PafFilter::new(config)
         .with_keep_self(args.aln.keep_self || args.aln.no_filter)
-        .with_scaffolds_only(args.aln.scaffolds_only);
-    // Group sequences by genome even without PanSN names: when we aligned input
-    // FASTAs, use each file as a genome key (the aligned PAF reuses the header
-    // names). PAF input has no file provenance, so it relies on PanSN or the
-    // pairwise query/target fallback in PafFilter.
-    let filter = if !input_is_paf && !args.files.is_empty() {
-        match build_genome_assignment(&args.files) {
+        .with_scaffolds_only(args.aln.scaffolds_only)
+        .with_genome_grouping(genome_grouping);
+    // Group sequences by genome when we can do so deterministically: use each
+    // input FASTA as a genome key (the aligned PAF reuses the header names).
+    // PAF input has no file provenance, so `auto` there falls back to
+    // per-sequence grouping unless the names carry PanSN.
+    let filter = if !input_is_paf
+        && !args.files.is_empty()
+        && matches!(
+            genome_grouping,
+            GenomeGrouping::Auto | GenomeGrouping::File
+        )
+    {
+        match build_genome_assignment(&args.files, genome_grouping == GenomeGrouping::File) {
             Ok(map) if !map.is_empty() => filter.with_genome_assignment(map),
             _ => filter,
         }

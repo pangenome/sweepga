@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use crate::filter_types::{FilterMode, ScoringFunction};
+use crate::filter_types::{FilterMode, GenomeGrouping, ScoringFunction};
 use crate::plane_sweep_exact::{plane_sweep_both, PlaneSweepMapping};
 /// Plane sweep filtering for scaffold chains
 ///
@@ -19,20 +19,30 @@ fn resolve_genome(
     name: &str,
     assignment: Option<&HashMap<String, String>>,
     is_query: bool,
+    grouping: GenomeGrouping,
 ) -> String {
-    if let Some(map) = assignment {
-        if let Some(key) = map.get(name) {
-            return key.clone();
+    let pansn = || {
+        let parts: Vec<&str> = name.split('#').collect();
+        if parts.len() >= 2 {
+            Some(format!("{}#{}#", parts[0], parts[1]))
+        } else {
+            None
         }
-    }
-    let parts: Vec<&str> = name.split('#').collect();
-    if parts.len() >= 2 {
-        return format!("{}#{}#", parts[0], parts[1]);
-    }
-    if is_query {
-        "\u{0}query".to_string()
-    } else {
-        "\u{0}target".to_string()
+    };
+    let role = || {
+        if is_query {
+            "\u{0}query".to_string()
+        } else {
+            "\u{0}target".to_string()
+        }
+    };
+    let assigned = || assignment.and_then(|m| m.get(name)).cloned();
+    match grouping {
+        GenomeGrouping::None => name.to_string(),
+        GenomeGrouping::Pairwise => role(),
+        GenomeGrouping::PanSn => pansn().unwrap_or_else(|| name.to_string()),
+        GenomeGrouping::File => assigned().unwrap_or_else(|| name.to_string()),
+        GenomeGrouping::Auto => assigned().or_else(pansn).unwrap_or_else(|| name.to_string()),
     }
 }
 
@@ -67,6 +77,7 @@ pub fn plane_sweep_scaffolds<T: ScaffoldLike>(
     overlap_threshold: f64,
     scoring_function: ScoringFunction,
     genome_assignment: Option<&HashMap<String, String>>,
+    genome_grouping: GenomeGrouping,
 ) -> Result<Vec<usize>> {
     if chains.is_empty() || chains.len() <= 1 {
         return Ok((0..chains.len()).collect());
@@ -100,6 +111,7 @@ pub fn plane_sweep_scaffolds<T: ScaffoldLike>(
                 overlap_threshold,
                 scoring_function,
                 genome_assignment,
+                genome_grouping,
             )?
         }
         FilterMode::OneToMany | FilterMode::ManyToMany => apply_many_sweep(
@@ -109,6 +121,7 @@ pub fn plane_sweep_scaffolds<T: ScaffoldLike>(
             overlap_threshold,
             scoring_function,
             genome_assignment,
+            genome_grouping,
         )?,
     };
 
@@ -132,6 +145,7 @@ fn apply_one_to_one_sweep(
     overlap_threshold: f64,
     scoring_function: ScoringFunction,
     genome_assignment: Option<&HashMap<String, String>>,
+    genome_grouping: GenomeGrouping,
 ) -> Result<Vec<usize>> {
     // First, organize by genome pair (for logging/organization).
     // IndexMap preserves PAF-input insertion order so plane-sweep tie-breaks
@@ -140,8 +154,8 @@ fn apply_one_to_one_sweep(
         IndexMap::new();
 
     for (i, (_, q, t)) in plane_sweep_mappings.iter().enumerate() {
-        let q_prefix = resolve_genome(q, genome_assignment, true);
-        let t_prefix = resolve_genome(t, genome_assignment, false);
+        let q_prefix = resolve_genome(q, genome_assignment, true, genome_grouping);
+        let t_prefix = resolve_genome(t, genome_assignment, false, genome_grouping);
         let chr_pair = (q.clone(), t.clone());
 
         genome_pairs
@@ -219,6 +233,7 @@ fn apply_many_sweep(
     overlap_threshold: f64,
     scoring_function: ScoringFunction,
     genome_assignment: Option<&HashMap<String, String>>,
+    genome_grouping: GenomeGrouping,
 ) -> Result<Vec<usize>> {
     let query_limit = max_per_query.unwrap_or(usize::MAX);
     let target_limit = max_per_target.unwrap_or(usize::MAX);
@@ -229,8 +244,8 @@ fn apply_many_sweep(
         IndexMap::new();
 
     for (i, (_, q, t)) in plane_sweep_mappings.iter().enumerate() {
-        let q_prefix = resolve_genome(q, genome_assignment, true);
-        let t_prefix = resolve_genome(t, genome_assignment, false);
+        let q_prefix = resolve_genome(q, genome_assignment, true, genome_grouping);
+        let t_prefix = resolve_genome(t, genome_assignment, false, genome_grouping);
         let chr_pair = (q.clone(), t.clone());
 
         genome_pairs
@@ -344,6 +359,7 @@ mod tests {
             0.5,
             ScoringFunction::LogLengthIdentity,
             None,
+            GenomeGrouping::Auto,
         )
         .unwrap();
 
@@ -382,6 +398,7 @@ mod tests {
             0.95, // Use default wfmash overlap threshold
             ScoringFunction::LogLengthIdentity,
             None,
+            GenomeGrouping::Auto,
         )
         .unwrap();
 
@@ -397,21 +414,21 @@ mod tests {
     }
 
     #[test]
-    fn resolve_genome_prefers_assignment_then_pansn_then_role() {
-        // PanSN prefix when no assignment.
-        assert_eq!(resolve_genome("H99#1#chr1", None, true), "H99#1#");
-        // Explicit file-based assignment wins.
+    fn resolve_genome_modes() {
+        // PanSN prefix, under both Auto and PanSn.
+        assert_eq!(resolve_genome("H99#1#chr1", None, true, GenomeGrouping::Auto), "H99#1#");
+        assert_eq!(resolve_genome("H99#1#chr1", None, true, GenomeGrouping::PanSn), "H99#1#");
+        // Explicit file-based assignment wins under File and Auto.
         let mut map = std::collections::HashMap::new();
         map.insert("chr1".to_string(), "genomeA".to_string());
-        assert_eq!(resolve_genome("chr1", Some(&map), false), "genomeA");
-        // Plain names fall back to one genome per role, not per contig.
-        assert_eq!(resolve_genome("chr1", None, true), "\u{0}query");
-        assert_eq!(resolve_genome("chr1", None, false), "\u{0}target");
-        // Plain names all share one key per role, so different contigs of the
-        // same genome compete (the fix): chr1 and chr2 both map to \0query.
-        assert_eq!(
-            resolve_genome("chr1", None, true),
-            resolve_genome("chr2", None, true)
-        );
+        assert_eq!(resolve_genome("chr1", Some(&map), false, GenomeGrouping::File), "genomeA");
+        assert_eq!(resolve_genome("chr1", Some(&map), false, GenomeGrouping::Auto), "genomeA");
+        // Pairwise groups by role, explicitly.
+        assert_eq!(resolve_genome("chr1", None, true, GenomeGrouping::Pairwise), "\u{0}query");
+        assert_eq!(resolve_genome("chr1", None, false, GenomeGrouping::Pairwise), "\u{0}target");
+        // None and Auto-without-a-signal group per sequence (no guessing).
+        assert_eq!(resolve_genome("chr1", None, true, GenomeGrouping::None), "chr1");
+        assert_eq!(resolve_genome("chr1", None, true, GenomeGrouping::Auto), "chr1");
+        assert_eq!(resolve_genome("chr2", None, true, GenomeGrouping::Auto), "chr2");
     }
 }
