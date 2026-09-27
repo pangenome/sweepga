@@ -206,11 +206,12 @@ pub struct AlnArgs {
     pub block_length: Option<u64>,
 
     /// n:m-best mappings kept per genome pair, in query:target dimensions.
-    /// Defaults to 1:1 (one best mapping per position within each genome pair),
-    /// which is what pairwise and pangenome-cohort alignments both want: cohort
-    /// breadth comes from processing every pair, not from keeping many mappings
-    /// per pair. Use ∞/many for repeat- and paralog-heavy work.
-    #[clap(long = "num-mappings", default_value = "1:1", help_heading = "Basic filtering")]
+    /// Defaults to 1:many (best mapping per query position, unbounded per
+    /// target). The query-axis 1 removes cross-chromosome noise while leaving
+    /// the target axis open, so fragmented queries (many contigs per
+    /// chromosome) do not lose orthologous alignments. Use `1:1` for
+    /// chromosome-level input, or `many:many` for repeat/paralog-heavy work.
+    #[clap(long = "num-mappings", default_value = "1:many", help_heading = "Basic filtering")]
     pub num_mappings: String,
 
     /// Maximum overlap ratio for plane sweep filtering
