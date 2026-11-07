@@ -145,15 +145,17 @@ pub fn count_haplotypes<P: AsRef<Path>>(fasta_paths: &[P]) -> Result<usize> {
     Ok(haplotypes.len().max(1))
 }
 
+/// Floor for the haplotype-derived frequency: FastGA's own default.
+pub const MIN_FASTGA_FREQUENCY: usize = 10;
+
 /// Resolve the effective FastGA k-mer frequency threshold.
 ///
 /// - If `explicit` is `Some(n)`, returns `n` (user override wins).
 /// - Otherwise counts PanSN haplotypes across `fasta_paths` and returns
-///   `num_haplotypes * multiplier` (no lower bound). This matches impg's
-///   historical behavior of using the raw haplotype count for small
-///   pangenomes — FastGA's internal floor of 10 is not reimposed here
-///   because users explicitly requesting `multiplier * num_haplotypes`
-///   may want a tight threshold on small inputs.
+///   `max(num_haplotypes * multiplier, MIN_FASTGA_FREQUENCY)`. FastGA drops
+///   seeds with frequency >= -f, so -f equal to the haplotype count drops
+///   every k-mer shared by all haplotypes: two near-identical haplotypes
+///   gave 0 alignments with -f2. Pass `explicit` for a tighter threshold.
 ///
 /// Callers that already have a haplotype count should pass `explicit`
 /// rather than re-counting.
@@ -166,7 +168,9 @@ pub fn resolve_fastga_frequency<P: AsRef<Path>>(
         return Ok(n);
     }
     let num_haplotypes = count_haplotypes(fasta_paths)?;
-    Ok(num_haplotypes.saturating_mul(multiplier.max(1)))
+    Ok(num_haplotypes
+        .saturating_mul(multiplier.max(1))
+        .max(MIN_FASTGA_FREQUENCY))
 }
 
 /// Round a value to a "nice" multiple based on its magnitude:
@@ -300,6 +304,15 @@ mod tests {
         let empty: [&Path; 0] = [];
         let f = resolve_fastga_frequency(Some(42), 99, &empty).unwrap();
         assert_eq!(f, 42);
+    }
+
+    #[test]
+    fn resolve_frequency_floors_derived_value_at_ten() {
+        let empty: [&Path; 0] = [];
+        // No files: 1 haplotype.
+        assert_eq!(resolve_fastga_frequency(None, 3, &empty).unwrap(), 10);
+        assert_eq!(resolve_fastga_frequency(None, 20, &empty).unwrap(), 20);
+        assert_eq!(resolve_fastga_frequency(Some(2), 1, &empty).unwrap(), 2);
     }
 
     #[test]
