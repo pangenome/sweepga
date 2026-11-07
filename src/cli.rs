@@ -157,8 +157,8 @@ pub struct AlnArgs {
 
     /// FastGA k-mer frequency multiplier: when --fastga-frequency is unset,
     /// the effective frequency = `num_pansn_haplotypes * multiplier`
-    /// (clamped to at least 10). Default 1 reproduces FastGA's historical
-    /// behavior of one k-mer hit per haplotype.
+    /// (clamped to at least 10, FastGA's default: FastGA drops seeds with
+    /// frequency >= the threshold). Default 1 gives one k-mer hit per haplotype.
     #[clap(long = "fastga-frequency-multiplier", default_value = "1",
            help_heading = "Alignment options")]
     pub fastga_frequency_multiplier: usize,
