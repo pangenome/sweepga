@@ -2013,7 +2013,7 @@ dependencies = [
 [[package]]
 name = "wfmash-rs"
 version = "0.1.0"
-source = "git+https://github.com/pangenome/wfmash-rs?rev=bd04a3365beca9d7ae551b4d5c04fb61d66c60e8#bd04a3365beca9d7ae551b4d5c04fb61d66c60e8"
+source = "git+https://github.com/pangenome/wfmash-rs?rev=07ed9a3f608e88ee2de0d60f5285e624073979c1#07ed9a3f608e88ee2de0d60f5285e624073979c1"
 dependencies = [
  "anyhow",
  "num_cpus",
