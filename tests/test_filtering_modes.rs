@@ -345,24 +345,22 @@ fn test_filter_no_filtering() -> Result<()> {
     let output1 = temp_dir.path().join("output1.paf");
     let output2 = temp_dir.path().join("output2.paf");
 
-    // Generate twice with N:N
-    Command::new("cargo")
-        .args([
-            "run",
-            "--release",
-            "--quiet",
-            "--bin",
-            "sweepga",
-            "--",
-            temp_input.to_str().unwrap(),
-            "--paf",
-            "--num-mappings",
-            "N:N",
-        ])
-        .stdout(fs::File::create(&output1)?)
-        .status()?;
-
-    filter_paf(&output1, &output2, "N:N")?;
+    // Scaffolding is off: scaffold rescue sees the raw alignments in the
+    // first pass but only its output in the second, so with scaffolding
+    // re-filtering drops mappings (18307 -> 18302 on this input).
+    let run = |input: &Path, output: &Path, extra: &[&str]| -> Result<()> {
+        let status = Command::new("cargo")
+            .args(["run", "--release", "--quiet", "--bin", "sweepga", "--"])
+            .arg(input)
+            .args(extra)
+            .args(["--num-mappings", "N:N", "--scaffold-jump", "0"])
+            .stdout(fs::File::create(output)?)
+            .status()?;
+        anyhow::ensure!(status.success(), "sweepga failed on {}", input.display());
+        Ok(())
+    };
+    run(&temp_input, &output1, &["--paf"])?;
+    run(&output1, &output2, &[])?;
 
     let stats1 = analyze_paf(&output1)?;
     let stats2 = analyze_paf(&output2)?;
@@ -377,7 +375,7 @@ fn test_filter_no_filtering() -> Result<()> {
         "N:N filtering should be idempotent"
     );
 
-    eprintln!("✓ N:N filtering is idempotent (no filtering applied)");
+    eprintln!("N:N filtering without scaffolding is idempotent");
     Ok(())
 }
 
