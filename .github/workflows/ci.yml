@@ -55,6 +55,45 @@ jobs:
           export TMPDIR="${{ runner.temp }}"
           cargo test --release --test test_ci_integration -- --test-threads=1
 
+      - name: Fast integration tests
+        run: |
+          export TMPDIR="${{ runner.temp }}"
+          cargo test --release \
+            --test synthetic_genomes \
+            --test test_1aln_output \
+            --test test_1aln_roundtrip \
+            --test test_binary_installation \
+            --test test_binary_search_optimization \
+            --test test_centromere_plane_sweep \
+            --test test_chain_monotonicity \
+            --test test_coordinate_properties \
+            --test test_error_handling \
+            --test test_format_equivalence \
+            --test test_format_reading \
+            --test test_genome_pair_grouping \
+            --test test_grouping_bug \
+            --test test_integration \
+            --test test_inter_chromosome_plane_sweep \
+            --test test_mapping_plane_sweep \
+            --test test_multi_contig_coords \
+            --test test_plane_sweep \
+            --test test_plane_sweep_symmetry \
+            --test test_scaffold_length_filter \
+            --test test_scaffold_plane_sweep_filtering \
+            --test test_scoring_ranking \
+            --test test_synthetic_simple \
+            --test test_working_integration \
+            --test unit_tests \
+            -- --test-threads=1
+
+      - name: Golden output tests
+        if: runner.os == 'Linux'
+        run: |
+          export TMPDIR="${{ runner.temp }}"
+          # The .1aln checksums depend on the machine: FastGA output changes with the thread count
+          cargo test --release --test test_golden_checksums -- --test-threads=1 \
+            --skip test_golden_1aln_output --skip test_golden_filtered_1to1
+
       - name: Check for forbidden files
         run: |
           if git ls-tree -r HEAD --name-only | grep -E '\.(fa|fasta|paf|gdb|ktab|bps)$' | grep -v 'data/scerevisiae8.fa.gz' | grep -v 'data/B-3106.fa'; then
