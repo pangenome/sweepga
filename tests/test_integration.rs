@@ -104,7 +104,7 @@ chr1\t10000\t1000\t2000\t+\tchr1_ref\t10000\t9000\t10000\t1000\t1000\t60\tcg:Z:1
             temp_path,
             "--output-file",
             output_path,
-            "-n=3", // Keep 3 mappings total
+            "--num-mappings=3", // Keep 3 mappings total
             "--scaffold-jump",
             "0",
         ]) // -j 0 disables scaffolding
@@ -152,7 +152,7 @@ read1\t5000\t3000\t3400\t+\tref1\t10000\t5000\t5400\t400\t400\t60\tcg:Z:400M
             temp_path,
             "--output-file",
             output_path,
-            "-n=-1", // Keep all non-overlapping
+            "--num-mappings=-1", // Keep all non-overlapping
             "--scaffold-jump",
             "0",
         ]) // -j 0 disables scaffolding
@@ -204,7 +204,7 @@ contig1\t8000\t4000\t5000\t+\tref1\t10000\t4000\t5000\t1000\t1000\t60\tcg:Z:1000
             temp_path,
             "--output-file",
             output_path,
-            "-n=1", // Keep only best
+            "--num-mappings=1", // Keep only best
             "--overlap",
             "0.5", // 50% overlap threshold
             "--scaffold-jump",
