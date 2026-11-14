@@ -2,13 +2,14 @@
 //!
 //! Search order:
 //! 1. ~/.cache/sweepga/{cache_key}/  (installed by build.rs)
-//! 2. target/{profile}/build/{dep}-*/out/  (development fallback)
+//! 2. target/{profile}/build/{dep}-{hash}/out/ or .../build/{dep}/{hash}/out/
+//!    (development fallback, both cargo build-directory layouts)
 //! 3. <exe_dir>/../libexec/<exe_stem>/  (packaged installs, e.g. conda)
 //! 4. PATH  (system fallback)
 
 use anyhow::{anyhow, Result};
 use std::env;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 /// Cache key baked in at compile time by build.rs.
 /// `None` only if build.rs didn't run (shouldn't happen in normal builds).
@@ -136,20 +137,35 @@ fn scan_build_tree(binary_name: &str) -> Option<PathBuf> {
     }
 
     for profile in &["release", "debug"] {
-        let build_dir = target_dir.join(profile).join("build");
-        if let Ok(entries) = std::fs::read_dir(&build_dir) {
-            for entry in entries.flatten() {
-                let path = entry.path();
-                if path.is_dir() {
-                    let binary_path = path.join("out").join(binary_name);
-                    if binary_path.exists() {
-                        return Some(binary_path.canonicalize().unwrap_or(binary_path));
-                    }
-                }
-            }
+        if let Some(p) = newest_in_build(&target_dir.join(profile).join("build"), binary_name) {
+            return Some(p.canonicalize().unwrap_or(p));
         }
     }
     None
+}
+
+/// Newest `binary_name` in any `out` dir of `build_dir`.
+/// Layouts: `{dep}-{hash}/out` and `{dep}/{hash}/out`.
+fn newest_in_build(build_dir: &Path, binary_name: &str) -> Option<PathBuf> {
+    let dirs = |d: &Path| {
+        std::fs::read_dir(d)
+            .into_iter()
+            .flatten()
+            .flatten()
+            .map(|e| e.path())
+            .collect::<Vec<_>>()
+    };
+    dirs(build_dir)
+        .into_iter()
+        .flat_map(|d| {
+            let mut v = dirs(&d);
+            v.push(d);
+            v
+        })
+        .map(|d| d.join("out").join(binary_name))
+        .filter_map(|p| Some((p.metadata().ok()?.modified().ok()?, p)))
+        .max_by_key(|(t, _)| *t)
+        .map(|(_, p)| p)
 }
 
 #[cfg(test)]
@@ -177,5 +193,30 @@ mod tests {
                 }
             }
         }
+    }
+
+    #[test]
+    fn test_newest_in_build_both_layouts() {
+        let tmp = tempfile::tempdir().unwrap();
+        let build = tmp.path().join("build");
+        let put = |rel: &str, age: u64| {
+            let p = build.join(rel).join("out").join("FastGA");
+            std::fs::create_dir_all(p.parent().unwrap()).unwrap();
+            let f = std::fs::File::create(&p).unwrap();
+            let t = std::time::SystemTime::now() - std::time::Duration::from_secs(age);
+            f.set_modified(t).unwrap();
+            p
+        };
+        assert_eq!(newest_in_build(&build, "FastGA"), None);
+        let old = put("fastga-rs-aaaa", 300);
+        assert_eq!(newest_in_build(&build, "FastGA"), Some(old.clone()));
+        let new = put("fastga-rs/bbbb", 200);
+        assert_eq!(newest_in_build(&build, "FastGA"), Some(new));
+        std::fs::remove_dir_all(build.join("fastga-rs-aaaa")).unwrap();
+        let stale = put("fastga-rs/cccc", 400);
+        assert_ne!(newest_in_build(&build, "FastGA"), Some(stale));
+        let old2 = put("fastga-rs-dddd", 100);
+        assert_eq!(newest_in_build(&build, "FastGA"), Some(old2));
+        assert_eq!(newest_in_build(&build, "wfmash"), None);
     }
 }
