@@ -31,7 +31,7 @@ byteorder = "1.5"
 tempfile = "3.8"
 ordered-float = "4.0"
 fastga-rs = { git = "https://github.com/pangenome/fastga-rs", rev = "a6911d5ec3d203eebb6fda287226d52e7bc3b7d8" }
-wfmash-rs = { git = "https://github.com/pangenome/wfmash-rs", rev = "07ed9a3f608e88ee2de0d60f5285e624073979c1" }
+wfmash-rs = { git = "https://github.com/pangenome/wfmash-rs", rev = "06e1cb923028b41ec99d292905b1458a93a293c1" }
 rust-htslib = { version = "1.0.0", default-features = false, features = ["libdeflate"] }
 ragc-core = { git = "https://github.com/ekg/ragc", rev = "40e5cad11cab7d4df07a72d6b16d68c2d60b0742" }
 onecode = { git = "https://github.com/pangenome/onecode-rs", rev = "5fa1e9333f18b311580f1346751c630c626d8342" }
