@@ -35,10 +35,7 @@ pub fn extract_1aln_metadata<P: AsRef<Path>>(
     // See: https://github.com/pangenome/onecode-rs/issues/XXX (TODO: file bug)
     if let Err(e) = reader.file.goto('A', 1) {
         // If goto fails (e.g., no alignments), that's OK - read_alignment will return None
-        log::warn!(
-            "[unified_filter] could not seek to first alignment: {}",
-            e
-        );
+        log::warn!("[unified_filter] could not seek to first alignment: {}", e);
     }
 
     // Build reverse mapping for writing
@@ -113,10 +110,12 @@ pub fn extract_1aln_metadata<P: AsRef<Path>>(
         // Use matches from fastga-rs (calculated using X records)
         let matches = aln.matches as u64;
 
-        // ALNtoPAF writes dv = 1 - matches / query_span, and the PAF path
-        // reads identity = 1 - dv
+        // The PAF path reads identity = 1 - dv, and ALNtoPAF prints dv with
+        // 4 decimals, truncated (ALNtoPAF.c). Use the same value here, so a
+        // file gives the same filter decisions as .1aln and as PAF.
         let identity = if query_span > 0 {
-            matches as f64 / query_span as f64
+            let dv = 10_000 * query_span.saturating_sub(matches) / query_span;
+            1.0 - dv as f64 / 10_000.0
         } else {
             0.0
         };
