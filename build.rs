@@ -1,9 +1,9 @@
 /// Build script for sweepga — caches FastGA and wfmash binaries so that
 /// `cargo install sweepga` produces a self-contained installation.
 ///
-/// At build time the dependency crates (fastga-rs, wfmash-rs) compile their
-/// helper binaries into target/{profile}/build/{dep}-{hash}/out/ (cargo up to
-/// 1.99) or target/{profile}/build/{dep}/{hash}/out/ (cargo 1.100).  We copy those
+/// The dependency crates (fastga-rs, wfmash-rs) build their helper binaries
+/// and export the directory as `links` metadata (DEP_FASTGA_BINDIR,
+/// DEP_WFMASH_BINDIR).  We copy those binaries
 /// into  ~/.cache/sweepga/{cache_key}/  and remove any stale version dirs.
 ///
 /// At runtime binary_paths.rs checks the cache first, so the binaries are
@@ -14,22 +14,6 @@ use std::path::{Path, PathBuf};
 fn main() {
     println!("cargo:rerun-if-changed=build.rs");
     println!("cargo:rerun-if-changed=Cargo.lock");
-
-    // OUT_DIR is below target/{profile}/build
-    let out_dir = PathBuf::from(env::var("OUT_DIR").unwrap());
-
-    let build_dir = out_dir
-        .ancestors()
-        .find(|p| p.file_name().map(|n| n == "build").unwrap_or(false))
-        .map(|p| p.to_path_buf());
-
-    let build_dir = match build_dir {
-        Some(d) => d,
-        None => {
-            println!("cargo:warning=Could not locate build directory");
-            return;
-        }
-    };
 
     // ── cache key ──────────────────────────────────────────────────────
     let cache_key = cache_key();
@@ -50,24 +34,10 @@ fn main() {
     let fastga_bins = [
         "FastGA", "FAtoGDB", "GIXmake", "GIXrm", "ALNtoPAF", "PAFtoALN", "ONEview",
     ];
-    if let Some(dir) = find_dep_out(&build_dir, "fastga-rs", "FastGA") {
-        installed += copy_binaries(&dir, &cache_dir, &fastga_bins);
-    } else {
-        println!(
-            "cargo:warning=FastGA not found: no fastga-rs out dir under {}",
-            build_dir.display()
-        );
-    }
+    installed += copy_binaries(&dep_bindir("FASTGA"), &cache_dir, &fastga_bins);
 
     // wfmash
-    if let Some(dir) = find_dep_out(&build_dir, "wfmash-rs", "wfmash") {
-        installed += copy_binaries(&dir, &cache_dir, &["wfmash"]);
-    } else {
-        println!(
-            "cargo:warning=wfmash not found: no wfmash-rs out dir under {}",
-            build_dir.display()
-        );
-    }
+    installed += copy_binaries(&dep_bindir("WFMASH"), &cache_dir, &["wfmash"]);
 
     if installed > 0 {
         println!(
@@ -132,25 +102,12 @@ fn cache_base() -> PathBuf {
         .join("sweepga")
 }
 
-/// Newest dependency `out` dir holding `marker_bin`.
-/// Layouts: `{prefix}-{hash}/out` and `{prefix}/{hash}/out`.
-fn find_dep_out(build_dir: &Path, prefix: &str, marker_bin: &str) -> Option<PathBuf> {
-    let pat = format!("{prefix}-");
-    let mut outs = Vec::new();
-    let entries = std::fs::read_dir(build_dir).ok()?;
-    for path in entries.flatten().map(|e| e.path()) {
-        let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
-        if name.starts_with(&pat) {
-            outs.push(path.join("out"));
-        } else if name == prefix {
-            let subs = std::fs::read_dir(&path).into_iter().flatten();
-            outs.extend(subs.flatten().map(|e| e.path().join("out")));
-        }
-    }
-    outs.into_iter()
-        .filter_map(|o| Some((o.join(marker_bin).metadata().ok()?.modified().ok()?, o)))
-        .max_by_key(|(t, _)| *t)
-        .map(|(_, o)| o)
+/// Binary directory a `links` dependency exported.
+///
+/// cargo sets `DEP_<LINKS>_BINDIR` after that dependency's build script ran.
+fn dep_bindir(links: &str) -> PathBuf {
+    let var = format!("DEP_{links}_BINDIR");
+    PathBuf::from(env::var(&var).unwrap_or_else(|_| panic!("{var} is not set")))
 }
 
 /// Copy listed binaries from `src` to `dst`.  Returns number of successes.
