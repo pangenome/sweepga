@@ -14,36 +14,9 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 use tempfile::TempDir;
 
-/// Find ONEview binary from fastga-rs build output
+/// ONEview, found the way sweepga finds it
 fn find_oneview() -> Result<PathBuf> {
-    // ONEview is built by fastga-rs and placed in its OUT_DIR
-    // The path pattern is: target/{profile}/build/fastga-rs-{hash}/out/ONEview
-    let target_dir = Path::new("target");
-
-    for profile in &["release", "debug"] {
-        let build_dir = target_dir.join(profile).join("build");
-        if !build_dir.exists() {
-            continue;
-        }
-
-        for entry in fs::read_dir(&build_dir)? {
-            let entry = entry?;
-            let path = entry.path();
-            if path.is_dir()
-                && entry
-                    .file_name()
-                    .to_string_lossy()
-                    .starts_with("fastga-rs-")
-            {
-                let oneview = path.join("out").join("ONEview");
-                if oneview.exists() {
-                    return Ok(oneview);
-                }
-            }
-        }
-    }
-
-    anyhow::bail!("ONEview not found in fastga-rs build output. Run: cargo build --release")
+    sweepga::binary_paths::get_embedded_binary_path("ONEview")
 }
 
 /// Compute SHA256 checksum of a file

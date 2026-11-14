@@ -262,27 +262,9 @@ fn read_1aln_to_records(aln_path: &Path) -> Vec<sweepga::paf_filter::RecordMeta>
     metadata
 }
 
-/// Find a binary in target/debug or target/release build directories
+/// A bundled binary, found the way sweepga finds it
 fn find_binary(name: &str) -> Option<String> {
-    use std::env;
-    use std::fs;
-
-    // Get absolute path to project root
-    let project_root = env::current_dir().ok()?;
-
-    // Try both debug and release
-    for build_type in &["debug", "release"] {
-        let build_dir = project_root.join(format!("target/{}/build", build_type));
-        if let Ok(entries) = fs::read_dir(&build_dir) {
-            for entry in entries.flatten() {
-                let out_dir = entry.path().join("out");
-                let binary_path = out_dir.join(name);
-                if binary_path.exists() {
-                    return Some(binary_path.to_string_lossy().to_string());
-                }
-            }
-        }
-    }
-
-    None
+    sweepga::binary_paths::get_embedded_binary_path(name)
+        .ok()
+        .map(|p| p.to_string_lossy().into_owned())
 }

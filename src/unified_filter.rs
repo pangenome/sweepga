@@ -107,15 +107,14 @@ pub fn extract_1aln_metadata<P: AsRef<Path>>(
         let query_span = (aln.query_end - aln.query_start) as u64;
         let target_span = (aln.target_end - aln.target_start) as u64;
 
-        // PAF format column 10: alignment block length (query_span + target_span)
-        // This matches ALNtoPAF output format
-        let block_length = query_span + target_span;
+        // ALNtoPAF column 11: (query_span + target_span) / 2
+        let block_length = (query_span + target_span) / 2;
 
         // Use matches from fastga-rs (calculated using X records)
         let matches = aln.matches as u64;
 
-        // Derive identity from matches: identity = matches / query_span
-        // This preserves the ALNtoPAF-compatible identity calculation
+        // ALNtoPAF writes dv = 1 - matches / query_span, and the PAF path
+        // reads identity = 1 - dv
         let identity = if query_span > 0 {
             matches as f64 / query_span as f64
         } else {
@@ -171,101 +170,14 @@ pub fn write_1aln_filtered<P1: AsRef<Path>, P2: AsRef<Path>>(
         true, // binary
     )?;
 
-    // WORKAROUND: Instead of using the low-level copy function which seems to have a bug
-    // with the last alignment, read all alignments using read_alignment() and write them
-    // using write_alignment(). This is less efficient but more reliable.
-
-    // Re-open reader to start from beginning
-    let mut reader = fastga_rs::AlnReader::open(path_str)?;
-
-    let mut rank = 0;
-
-    while let Some(aln) = reader.read_alignment()? {
-        if passing_ranks.contains_key(&rank) {
-            writer.write_alignment(&aln)?;
-        }
-        rank += 1;
-    }
-
-    /* OLD CODE using low-level copy - has a bug with last alignment
-    let mut rank = 0;
-    let mut written = 0;
-
-    let input_file = &mut reader.file;
-
-    // Cache for lookahead when skipping records
-    let mut cached_line_type: Option<char> = None;
-
-    // Read through input file, looking for 'A' records
-    loop {
-        // Use cached line type if available, otherwise read next
-        let line_type = cached_line_type.take().unwrap_or_else(|| input_file.read_line());
-
-        if line_type == '\0' {
-            break; // EOF
-        }
-
-        if line_type == 'A' {
-            // Found an alignment record
-            log::info!("[DEBUG] Processing alignment rank {}, line_type before = {}", rank, line_type);
-            if passing_ranks.contains_key(&rank) {
-                // This record passed filtering - copy it directly with trace data
-                log::info!("[DEBUG] Rank {} PASSED filtering, copying...", rank);
-                match writer.copy_alignment_record_from_file(input_file) {
-                    Ok(()) => {
-                        written += 1;
-                        log::info!("[DEBUG] Successfully copied rank {}, written count = {}", rank, written);
-                    }
-                    Err(e) => {
-                        log::info!("[ERROR] Failed to copy rank {}: {:?}", rank, e);
-                        return Err(e);
-                    }
-                }
-            } else {
-                log::info!("[DEBUG] Rank {} SKIPPED (not in passing_ranks)", rank);
-                // Skip this alignment - read past all its associated records
-                loop {
-                    let next_type = input_file.read_line();
-                    if next_type == '\0' {
-                        break; // EOF
-                    }
-                    if next_type == 'T' {
-                        // Read past X record too
-                        input_file.read_line();
-                        break;
-                    }
-                    if next_type == 'A' {
-                        // Hit next alignment without trace data
-                        // CRITICAL: Cache this 'A' for the next outer loop iteration
-                        // Otherwise we lose this alignment record!
-                        cached_line_type = Some('A');
-                        break;
-                    }
-                }
-            }
-
-            // CRITICAL: Check if copy_alignment_record_from_file() or skip loop
-            // already read the next 'A' record (happens when alignment has no trace data)
-            // If so, that 'A' is cached in the file state and we should NOT increment rank
-            // because the next iteration needs to process it with the current rank+1
-            let current_line_type = input_file.line_type();
-            log::info!("[DEBUG] After processing rank {}: line_type={}, cached={:?}",
-                     rank, current_line_type, cached_line_type);
-
-            if current_line_type == 'A' && cached_line_type.is_none() {
-                // The copy or skip operation left us positioned at the next 'A'
-                // Cache it so next iteration uses it
-                log::info!("[DEBUG] Caching 'A' found after copy/skip, NOT incrementing rank");
-                cached_line_type = Some('A');
-            } else {
-                // Normal case: increment rank
-                log::info!("[DEBUG] Incrementing rank from {} to {}", rank, rank + 1);
-                rank += 1;
-            }
-        }
-    }
-    */
-    // END OLD CODE
+    // Copy the passing records unchanged, trace points included
+    let written =
+        writer.copy_alignments_from(path_str, |rank| passing_ranks.contains_key(&rank))?;
+    anyhow::ensure!(
+        written == passing_ranks.len(),
+        "wrote {written} .1aln records, expected {}",
+        passing_ranks.len()
+    );
 
     // Finalize the output file
     writer.finalize();
