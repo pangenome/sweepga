@@ -614,7 +614,7 @@ dependencies = [
 [[package]]
 name = "fastga-rs"
 version = "0.1.2"
-source = "git+https://github.com/pangenome/fastga-rs?rev=a6911d5ec3d203eebb6fda287226d52e7bc3b7d8#a6911d5ec3d203eebb6fda287226d52e7bc3b7d8"
+source = "git+https://github.com/pangenome/fastga-rs?rev=f884bbbdcc29a79eb6cc7ebf302534a0dadc3628#f884bbbdcc29a79eb6cc7ebf302534a0dadc3628"
 dependencies = [
  "anyhow",
  "cc",
@@ -2013,7 +2013,7 @@ dependencies = [
 [[package]]
 name = "wfmash-rs"
 version = "0.1.0"
-source = "git+https://github.com/pangenome/wfmash-rs?rev=06e1cb923028b41ec99d292905b1458a93a293c1#06e1cb923028b41ec99d292905b1458a93a293c1"
+source = "git+https://github.com/pangenome/wfmash-rs?rev=2ddd695aa8bc60156a160d1ce1310f20c6767cf0#2ddd695aa8bc60156a160d1ce1310f20c6767cf0"
 dependencies = [
  "anyhow",
  "num_cpus",
