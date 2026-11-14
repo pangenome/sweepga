@@ -709,10 +709,19 @@ fn aln_to_paf_native(aln_path: &str) -> Result<tempfile::NamedTempFile> {
     // Open native reader
     let mut reader = AlnReader::open(aln_path)?;
 
+    // Names first: a lookup inside the loop moves the file position back
+    let names = reader.get_all_seq_names();
+    reader.file.goto('A', 1)?;
+    let name = |id: i64| {
+        names
+            .get(&id)
+            .with_context(|| format!("no name for sequence {id} in {aln_path}"))
+    };
+
     // Convert each record to PAF format
     while let Some(rec) = reader.read_record()? {
-        let qname = reader.get_seq_name(rec.query_id, 0)?;
-        let tname = reader.get_seq_name(rec.target_id, 1)?;
+        let qname = name(rec.query_id)?;
+        let tname = name(rec.target_id)?;
 
         let aln_len = (rec.query_end - rec.query_start) as usize;
         let matches = aln_len.saturating_sub(rec.diffs as usize);
