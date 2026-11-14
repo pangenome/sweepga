@@ -66,16 +66,6 @@ PYTHON
     cp /tmp/test_input_golden.fa "$TEMP_DIR/test_input.fa"
 fi
 
-# Generate .1aln output (use binary directly to match test environment)
-echo "Generating .1aln golden file..."
-"$PROJECT_ROOT/target/release/sweepga" "$TEMP_DIR/test_input.fa" --1aln > "$GOLDEN_DIR/golden_output.1aln"
-
-# Generate filtered .1aln (1:1 mode)
-echo "Generating filtered .1aln golden file..."
-if [ -f "$GOLDEN_DIR/golden_output.1aln" ]; then
-    "$PROJECT_ROOT/target/release/sweepga" "$GOLDEN_DIR/golden_output.1aln" --num-mappings 1:1 --1aln > "$GOLDEN_DIR/golden_filtered_1to1.1aln"
-fi
-
 # Generate PAF output
 echo "Generating PAF golden file..."
 "$PROJECT_ROOT/target/release/sweepga" "$TEMP_DIR/test_input.fa" --paf > "$GOLDEN_DIR/golden_output.paf"
@@ -84,17 +74,6 @@ echo "Generating PAF golden file..."
 echo "Generating checksums..."
 cd "$GOLDEN_DIR"
 rm -f checksums.txt
-
-# For .1aln files: use normalized checksums (ONEview + filter path-dependent lines + sort)
-# This removes non-deterministic provenance records ('!' lines) and path-containing headers ('<' lines)
-# and sorts output to handle non-deterministic record ordering from FastGA multithreading
-for file in golden_*.1aln; do
-    if [ -f "$file" ]; then
-        echo "Computing normalized checksum for $file..."
-        CHECKSUM=$(ONEview "$file" | grep -v '^[!<]' | sort | sha256sum | awk '{print $1}')
-        echo "$CHECKSUM  $file" >> checksums.txt
-    fi
-done
 
 # For PAF files: use regular checksums (deterministic)
 for file in golden_*.paf; do

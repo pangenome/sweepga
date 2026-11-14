@@ -65,3 +65,37 @@ fn coords(line: &str) -> String {
     let f: Vec<&str> = line.split('\t').collect();
     [f[0], f[2], f[3], f[4], f[5], f[7], f[8]].join("\t")
 }
+
+/// The `.1aln` output depends on the machine, so this checks properties that
+/// hold on every machine instead of a checksum.
+#[test]
+fn yeast_1to1_filter_keeps_unchanged_records_and_is_stable() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::copy("data/scerevisiae8.fa.gz", dir.path().join("in.fa.gz")).unwrap();
+    let gunzip = Command::new("gunzip").arg(dir.path().join("in.fa.gz")).status().unwrap();
+    assert!(gunzip.success());
+    let path = |name: &str| dir.path().join(name);
+    let run = |input: &str, extra: &[&str], output: &str| {
+        let input = path(input);
+        let mut args = vec![input.to_str().unwrap()];
+        args.extend(extra);
+        args.push("--1aln");
+        std::fs::write(path(output), sweepga(&args)).unwrap();
+        paf_lines(&path(output))
+    };
+    let one_to_one = ["--num-mappings", "1:1"];
+
+    let all: HashSet<String> = run("in.fa", &[], "all.1aln").into_iter().collect();
+    let first = run("all.1aln", &one_to_one, "first.1aln");
+    let second = run("first.1aln", &one_to_one, "second.1aln");
+
+    assert!(all.len() > 1000, "alignments: {}", all.len());
+    // The filter removes records
+    assert!(first.len() < all.len(), "{} of {}", first.len(), all.len());
+    // Kept records are unchanged
+    assert!(first.iter().all(|line| all.contains(line)));
+    // A second pass keeps the same records
+    let first: HashSet<String> = first.into_iter().collect();
+    let second: HashSet<String> = second.into_iter().collect();
+    assert_eq!(first, second);
+}

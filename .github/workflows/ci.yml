@@ -90,9 +90,7 @@ jobs:
         if: runner.os == 'Linux'
         run: |
           export TMPDIR="${{ runner.temp }}"
-          # The .1aln checksums depend on the machine: FastGA output changes with the thread count
-          cargo test --release --test test_golden_checksums -- --test-threads=1 \
-            --skip test_golden_1aln_output --skip test_golden_filtered_1to1
+          cargo test --release --test test_golden_checksums -- --test-threads=1
 
       - name: Check for forbidden files
         run: |
