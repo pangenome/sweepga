@@ -2,7 +2,8 @@
 /// `cargo install sweepga` produces a self-contained installation.
 ///
 /// At build time the dependency crates (fastga-rs, wfmash-rs) compile their
-/// helper binaries into target/{profile}/build/{dep}-*/out/.  We copy those
+/// helper binaries into target/{profile}/build/{dep}-{hash}/out/ (cargo up to
+/// 1.99) or target/{profile}/build/{dep}/{hash}/out/ (cargo 1.100).  We copy those
 /// into  ~/.cache/sweepga/{cache_key}/  and remove any stale version dirs.
 ///
 /// At runtime binary_paths.rs checks the cache first, so the binaries are
@@ -14,7 +15,7 @@ fn main() {
     println!("cargo:rerun-if-changed=build.rs");
     println!("cargo:rerun-if-changed=Cargo.lock");
 
-    // OUT_DIR = target/{profile}/build/sweepga-{hash}/out
+    // OUT_DIR is below target/{profile}/build
     let out_dir = PathBuf::from(env::var("OUT_DIR").unwrap());
 
     let build_dir = out_dir
@@ -52,14 +53,20 @@ fn main() {
     if let Some(dir) = find_dep_out(&build_dir, "fastga-rs", "FastGA") {
         installed += copy_binaries(&dir, &cache_dir, &fastga_bins);
     } else {
-        println!("cargo:warning=fastga-rs build output not found");
+        println!(
+            "cargo:warning=FastGA not found: no fastga-rs out dir under {}",
+            build_dir.display()
+        );
     }
 
     // wfmash
     if let Some(dir) = find_dep_out(&build_dir, "wfmash-rs", "wfmash") {
         installed += copy_binaries(&dir, &cache_dir, &["wfmash"]);
     } else {
-        println!("cargo:warning=wfmash-rs build output not found (may not be built yet)");
+        println!(
+            "cargo:warning=wfmash not found: no wfmash-rs out dir under {}",
+            build_dir.display()
+        );
     }
 
     if installed > 0 {
@@ -125,23 +132,25 @@ fn cache_base() -> PathBuf {
         .join("sweepga")
 }
 
-/// Scan `build_dir` for `{prefix}-*/out/` containing `marker_bin`.
+/// Newest dependency `out` dir holding `marker_bin`.
+/// Layouts: `{prefix}-{hash}/out` and `{prefix}/{hash}/out`.
 fn find_dep_out(build_dir: &Path, prefix: &str, marker_bin: &str) -> Option<PathBuf> {
     let pat = format!("{prefix}-");
-    for entry in std::fs::read_dir(build_dir).ok()?.flatten() {
-        let path = entry.path();
-        if path.is_dir() {
-            if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
-                if name.starts_with(&pat) {
-                    let out = path.join("out");
-                    if out.join(marker_bin).exists() {
-                        return Some(out);
-                    }
-                }
-            }
+    let mut outs = Vec::new();
+    let entries = std::fs::read_dir(build_dir).ok()?;
+    for path in entries.flatten().map(|e| e.path()) {
+        let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
+        if name.starts_with(&pat) {
+            outs.push(path.join("out"));
+        } else if name == prefix {
+            let subs = std::fs::read_dir(&path).into_iter().flatten();
+            outs.extend(subs.flatten().map(|e| e.path().join("out")));
         }
     }
-    None
+    outs.into_iter()
+        .filter_map(|o| Some((o.join(marker_bin).metadata().ok()?.modified().ok()?, o)))
+        .max_by_key(|(t, _)| *t)
+        .map(|(_, o)| o)
 }
 
 /// Copy listed binaries from `src` to `dst`.  Returns number of successes.
@@ -153,6 +162,7 @@ fn copy_binaries(src: &Path, dst: &Path, names: &[&str]) -> usize {
     for name in names {
         let s = src.join(name);
         if !s.exists() {
+            println!("cargo:warning={name} not found in {}", src.display());
             continue;
         }
         let d = dst.join(name);

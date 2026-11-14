@@ -2675,7 +2675,7 @@ fn main() -> Result<()> {
                         }
 
                         let path_str = path.to_string_lossy();
-                        if path_str.contains("/build/fastga-rs-") {
+                        if path_str.contains("/build/fastga-rs") {
                             println!("  Location: Embedded (development build)");
                         } else if path_str.contains("/.cargo/lib/") {
                             println!("  Location: Installed (cargo install)");
