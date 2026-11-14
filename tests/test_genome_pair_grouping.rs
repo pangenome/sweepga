@@ -85,6 +85,8 @@ A#1#chr2\t1000\t0\t500\t+\tB#1#chr1\t1000\t0\t500\t350\t500\t60\tcg:Z:500M
         .args(["run", "--release", "--bin", "sweepga", "--quiet", "--"])
         .arg("--scaffold-jump")
         .arg("0") // Disable scaffolding to avoid filtering small test alignments
+        .arg("--num-mappings")
+        .arg("1:1") // Default is now 1:many
         .arg(&input_paf)
         .output()
         .expect("Failed to run sweepga");
