@@ -24,16 +24,18 @@ Ships two binaries: **`sweepga`** (the aligner/filter) and **`alnstats`**
 ## Install
 
 ```bash
-# From crates.io
-cargo install sweepga
+# From GitHub (the crates.io release, 0.1.1, is from 2025-11 and out of date)
+cargo install --git https://github.com/pangenome/sweepga.git
 
-# From source
+# From a clone
 git clone https://github.com/pangenome/sweepga.git
 cd sweepga
 cargo install --force --path .
 ```
 
-Requires Rust ≥ 1.70.
+Requires Rust ≥ 1.70, a C11 compiler and a C++17 compiler (sweepga builds
+FastGA and wfmash), cmake, make, pkg-config, libclang, and the zlib, zstd,
+bzip2, xz, libcurl, htslib, gsl and jemalloc development files.
 
 On mixed-glibc systems (e.g. Debian + Guix) a plain `cargo build` may fail
 with `__pthread_barrier_wait@GLIBC_PRIVATE` link errors. Use
