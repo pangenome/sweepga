@@ -410,3 +410,17 @@ fn test_permission_denied() -> Result<()> {
 
     Ok(())
 }
+
+#[test]
+fn test_unknown_ani_method_is_an_error() -> Result<()> {
+    let temp_dir = TempDir::new()?;
+    let paf = temp_dir.path().join("in.paf");
+    fs::write(&paf, "q\t5000\t0\t5000\t+\tt\t5000\t0\t5000\t4900\t5000\t60\n")?;
+    let output = Command::new(env!("CARGO_BIN_EXE_sweepga"))
+        .args([paf.to_str().unwrap(), "--ani-method", "bogus"])
+        .output()?;
+    assert!(!output.status.success());
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("unknown --ani-method 'bogus'"), "{stderr}");
+    Ok(())
+}
