@@ -147,3 +147,64 @@ fn yeast_1to1_filter_keeps_unchanged_records_and_is_stable() {
     let second: HashSet<String> = second.into_iter().collect();
     assert_eq!(first, second);
 }
+
+/// A .1aln input and its ALNtoPAF output give the same filter results.
+#[test]
+fn aln_and_paf_inputs_agree() {
+    let dir = tempfile::tempdir().unwrap();
+    let fasta = dir.path().join("in.fa");
+    std::fs::copy("data/B-3106.fa", &fasta).unwrap();
+    let produced = fastga_rs::runner::Orchestrator::new_simple(1)
+        .align(&fasta, &fasta)
+        .unwrap();
+    let aln = dir.path().join("raw.1aln");
+    std::fs::copy(produced.trim(), &aln).unwrap();
+    let paf = dir.path().join("raw.paf");
+    std::fs::write(&paf, paf_lines(&aln).join("\n") + "\n").unwrap();
+    let run = |input: &Path, extra: &[&str]| {
+        let mut args = vec![input.to_str().unwrap()];
+        args.extend(extra);
+        let mut lines: Vec<String> = String::from_utf8(sweepga(&args))
+            .unwrap()
+            .lines()
+            .map(str::to_string)
+            .collect();
+        lines.sort();
+        lines
+    };
+
+    // Native conversion writes the ALNtoPAF columns
+    let unfiltered = run(&aln, &["--no-filter"]);
+    assert!(unfiltered.len() > 10, "{}", unfiltered.len());
+    assert_eq!(unfiltered, run(&paf, &["--no-filter"]));
+
+    // Sequences of 3.3 kb: the scaffold mass follows their length
+    let default = run(&paf, &[]);
+    assert!(!default.is_empty());
+    assert_eq!(default, run(&aln, &[]));
+
+    // The .1aln workflow applies the identity threshold
+    let out = dir.path().join("strict.1aln");
+    sweepga(&[
+        aln.to_str().unwrap(),
+        "--num-mappings",
+        "many:many",
+        "--self",
+        "--scaffold-jump",
+        "0",
+        "--min-aln-identity",
+        "0.995",
+        "--output-file",
+        out.to_str().unwrap(),
+    ]);
+    let strict = paf_lines(&out);
+    let expected = paf_lines(&aln)
+        .iter()
+        .filter(|l| {
+            let dv: f64 = l.split("dv:f:").nth(1).unwrap()[..6].parse().unwrap();
+            1.0 - dv >= 0.995
+        })
+        .count();
+    assert!(expected < unfiltered.len(), "{expected}");
+    assert_eq!(strict.len(), expected);
+}

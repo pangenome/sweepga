@@ -343,6 +343,59 @@ fn parse_ani_method(method_str: &str) -> Option<AniMethod> {
 }
 
 /// Calculate ANI statistics between genome pairs using specified method
+/// Mapping and scaffold identity thresholds from the CLI.
+///
+/// `ani_paf` is the PAF used when a threshold names an ANI percentile.
+fn identity_thresholds(args: &Args, ani_paf: &str, timing: &TimingContext) -> Result<(f64, f64)> {
+    // Parse ANI calculation method
+    let ani_method = parse_ani_method(&args.aln.ani_method);
+    if ani_method.is_none() {
+        // log::info!(
+        //     "[sweepga] WARNING: Unknown ANI method '{}', using 'n50-identity'",
+        //     args.aln.ani_method
+        // );
+    }
+    let ani_method = ani_method.unwrap_or(AniMethod::NPercentile(50.0, NSort::Identity));
+
+    // Now calculate ANI if needed for identity thresholds
+    let ani_percentile = if args.aln.min_identity.to_lowercase().contains("ani")
+        || args.aln.min_scaffold_identity.to_lowercase().contains("ani")
+    {
+        Some(calculate_ani_stats(ani_paf, ani_method, args.quiet)?)
+    } else {
+        None
+    };
+
+    // Parse identity thresholds
+    let min_identity = parse_identity_value(&args.aln.min_identity, ani_percentile)?;
+    let min_scaffold_identity = if args.aln.min_scaffold_identity.is_empty() {
+        min_identity // If empty string, use min_identity
+    } else {
+        parse_identity_value(&args.aln.min_scaffold_identity, ani_percentile)?
+    };
+
+    // Only report thresholds if they're non-zero
+    if !args.quiet && (min_identity > 0.0 || min_scaffold_identity > 0.0) {
+        if min_identity > 0.0 {
+            timing.log(
+                "config",
+                &format!("Mapping identity threshold: {:.1}%", min_identity * 100.0),
+            );
+        }
+        if min_scaffold_identity > 0.0 && min_scaffold_identity != min_identity {
+            timing.log(
+                "config",
+                &format!(
+                    "Scaffold identity threshold: {:.1}%",
+                    min_scaffold_identity * 100.0
+                ),
+            );
+        }
+    }
+
+    Ok((min_identity, min_scaffold_identity))
+}
+
 fn calculate_ani_stats(input_path: &str, method: AniMethod, quiet: bool) -> Result<f64> {
     use crate::paf_filter::{FilterConfig, FilterMode, PafFilter, ScoringFunction};
     use tempfile::NamedTempFile;
@@ -718,35 +771,30 @@ fn aln_to_paf_native(aln_path: &str) -> Result<tempfile::NamedTempFile> {
             .with_context(|| format!("no name for sequence {id} in {aln_path}"))
     };
 
-    // Convert each record to PAF format
-    while let Some(rec) = reader.read_record()? {
-        let qname = name(rec.query_id)?;
-        let tname = name(rec.target_id)?;
-
-        let aln_len = (rec.query_end - rec.query_start) as usize;
-        let matches = aln_len.saturating_sub(rec.diffs as usize);
-        let identity = if aln_len > 0 {
-            100.0 * (matches as f64) / (aln_len as f64)
-        } else {
-            0.0
-        };
-
-        // PAF format: qname qlen qstart qend strand tname tlen tstart tend matches alen mapq [tags...]
+    // Same columns and tags as ALNtoPAF
+    while let Some(a) = reader.read_alignment()? {
+        let qname = name(a.query_name.parse()?)?;
+        let tname = name(a.target_name.parse()?)?;
+        let q_span = a.query_end - a.query_start;
+        let t_span = a.target_end - a.target_start;
+        anyhow::ensure!(q_span > 0, "empty query span in {aln_path}: {qname} {}", a.query_start);
+        let dv = 10_000 * q_span.saturating_sub(a.matches) / q_span;
         writeln!(
             temp_paf,
-            "{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t60\tid:f:{:.4}",
+            "{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t255\tdv:f:{:.4}\tdf:i:{}",
             qname,
-            rec.query_len,
-            rec.query_start,
-            rec.query_end,
-            if rec.reverse != 0 { '-' } else { '+' },
+            a.query_len,
+            a.query_start,
+            a.query_end,
+            a.strand,
             tname,
-            rec.target_len,
-            rec.target_start,
-            rec.target_end,
-            matches,
-            aln_len,
-            identity
+            a.target_len,
+            a.target_start,
+            a.target_end,
+            a.matches,
+            (q_span + t_span) / 2,
+            dv as f64 / 10_000.0,
+            a.mismatches
         )?;
     }
 
@@ -2602,6 +2650,44 @@ fn create_fastga_integration(
 /// Create an aligner backend based on the --aligner flag.
 /// Compute average sequence length from a FASTA index (.fai).
 /// Auto-creates the `.fai` on first call.
+/// Average sequence length of a FASTA, PAF or .1aln input.
+fn avg_seq_len(path: &Path, file_type: FileType) -> Result<Option<u64>> {
+    let mut lens: HashMap<String, u64> = HashMap::new();
+    match file_type {
+        FileType::Fasta => return avg_seq_len_from_fai(path).map(Some),
+        FileType::Agc => return Ok(None),
+        FileType::Paf => {
+            for line in crate::paf::open_paf_input(path)?.lines() {
+                let line = line?;
+                // Same skip rule as the PAF filter
+                let f: Vec<&str> = line.split('\t').collect();
+                if f.len() < 11 {
+                    continue;
+                }
+                for (name, len) in [(f[0], f[1]), (f[5], f[6])] {
+                    let len = len
+                        .parse()
+                        .with_context(|| format!("bad length '{len}' in {}: {line}", path.display()))?;
+                    lens.insert(name.to_string(), len);
+                }
+            }
+        }
+        FileType::Aln => {
+            let mut reader = fastga_rs::AlnReader::open(path)?;
+            let names = reader.get_all_seq_names();
+            let contig_lens = reader.file.get_all_sequence_lengths();
+            for (id, name) in names {
+                let len = contig_lens
+                    .get(&id)
+                    .with_context(|| format!("no length for contig {id} in {}", path.display()))?;
+                lens.insert(name, *len as u64);
+            }
+        }
+    }
+    anyhow::ensure!(!lens.is_empty(), "no sequences in {}", path.display());
+    Ok(Some(lens.values().sum::<u64>() / lens.len() as u64))
+}
+
 fn avg_seq_len_from_fai(path: &Path) -> Result<u64> {
     rust_htslib::faidx::Reader::from_path(path).map_err(|e| {
         anyhow::anyhow!("Failed to read/create FASTA index for {}: {e}", path.display())
@@ -2999,9 +3085,10 @@ fn main() -> Result<()> {
         // sequence-length scale. For .1aln-only input we have no FASTA to
         // inspect, so clamping is a no-op.
         let avg_seq_len_for_adaptive: Option<u64> = if !args.aln.no_adaptive_scaffolds {
-            args.files
-                .first()
-                .and_then(|p| avg_seq_len_from_fai(Path::new(p)).ok())
+            match (args.files.first(), input_file_types.first()) {
+                (Some(p), Some(&ft)) => avg_seq_len(Path::new(p), ft)?,
+                _ => None,
+            }
         } else {
             None
         };
@@ -3028,6 +3115,22 @@ fn main() -> Result<()> {
             );
         }
 
+        // ANI thresholds need the records as PAF
+        let wants_ani = format!("{}{}", args.aln.min_identity, args.aln.min_scaffold_identity)
+            .to_lowercase()
+            .contains("ani");
+        let ani_paf = if wants_ani {
+            Some(aln_to_paf(&aln_input_path, args.threads)?)
+        } else {
+            None
+        };
+        let ani_paf_path = ani_paf
+            .as_ref()
+            .map(|f| f.path().to_string_lossy().into_owned())
+            .unwrap_or_default();
+        let (min_identity, min_scaffold_identity) =
+            identity_thresholds(&args, &ani_paf_path, &timing)?;
+
         let filter_config = FilterConfig {
             chain_gap: effective_scaffold_jump,
             min_block_length: args.aln.block_length.unwrap_or(0),
@@ -3048,8 +3151,8 @@ fn main() -> Result<()> {
             prefix_delimiter: '#',
             skip_prefix: false,
             scoring_function,
-            min_identity: 0.0,
-            min_scaffold_identity: 0.0,
+            min_identity,
+            min_scaffold_identity,
         };
 
         // Step 2.6: Apply tree filtering if requested (natively on .1aln format)
@@ -3632,9 +3735,10 @@ fn main() -> Result<()> {
     // best-effort probe reads the first input if it happens to be a FASTA
     // with a .fai sidecar (common for --paf runs over the same assembly).
     let avg_seq_len_for_adaptive: Option<u64> = if !args.aln.no_adaptive_scaffolds {
-        args.files
-            .first()
-            .and_then(|p| avg_seq_len_from_fai(Path::new(p)).ok())
+        match (args.files.first(), input_file_types.first()) {
+            (Some(p), Some(&ft)) => avg_seq_len(Path::new(p), ft)?,
+            _ => None,
+        }
     } else {
         None
     };
@@ -3686,51 +3790,8 @@ fn main() -> Result<()> {
         min_scaffold_identity: 0.0, // Will be set later
     };
 
-    // Parse ANI calculation method
-    let ani_method = parse_ani_method(&args.aln.ani_method);
-    if ani_method.is_none() {
-        // log::info!(
-        //     "[sweepga] WARNING: Unknown ANI method '{}', using 'n50-identity'",
-        //     args.aln.ani_method
-        // );
-    }
-    let ani_method = ani_method.unwrap_or(AniMethod::NPercentile(50.0, NSort::Identity));
-
-    // Now calculate ANI if needed for identity thresholds
-    let ani_percentile = if args.aln.min_identity.to_lowercase().contains("ani")
-        || args.aln.min_scaffold_identity.to_lowercase().contains("ani")
-    {
-        Some(calculate_ani_stats(&input_path, ani_method, args.quiet)?)
-    } else {
-        None
-    };
-
-    // Parse identity thresholds
-    let min_identity = parse_identity_value(&args.aln.min_identity, ani_percentile)?;
-    let min_scaffold_identity = if args.aln.min_scaffold_identity.is_empty() {
-        min_identity // If empty string, use min_identity
-    } else {
-        parse_identity_value(&args.aln.min_scaffold_identity, ani_percentile)?
-    };
-
-    // Only report thresholds if they're non-zero
-    if !args.quiet && (min_identity > 0.0 || min_scaffold_identity > 0.0) {
-        if min_identity > 0.0 {
-            timing.log(
-                "config",
-                &format!("Mapping identity threshold: {:.1}%", min_identity * 100.0),
-            );
-        }
-        if min_scaffold_identity > 0.0 && min_scaffold_identity != min_identity {
-            timing.log(
-                "config",
-                &format!(
-                    "Scaffold identity threshold: {:.1}%",
-                    min_scaffold_identity * 100.0
-                ),
-            );
-        }
-    }
+    let (min_identity, min_scaffold_identity) =
+        identity_thresholds(&args, &input_path, &timing)?;
 
     // Create final config with calculated identity values
     let mut config = temp_config;
