@@ -347,15 +347,12 @@ fn parse_ani_method(method_str: &str) -> Option<AniMethod> {
 ///
 /// `ani_paf` is the PAF used when a threshold names an ANI percentile.
 fn identity_thresholds(args: &Args, ani_paf: &str, timing: &TimingContext) -> Result<(f64, f64)> {
-    // Parse ANI calculation method
-    let ani_method = parse_ani_method(&args.aln.ani_method);
-    if ani_method.is_none() {
-        // log::info!(
-        //     "[sweepga] WARNING: Unknown ANI method '{}', using 'n50-identity'",
-        //     args.aln.ani_method
-        // );
-    }
-    let ani_method = ani_method.unwrap_or(AniMethod::NPercentile(50.0, NSort::Identity));
+    let ani_method = parse_ani_method(&args.aln.ani_method).with_context(|| {
+        format!(
+            "unknown --ani-method '{}': use all, orthogonal or nX[-length|-identity|-score]",
+            args.aln.ani_method
+        )
+    })?;
 
     // Now calculate ANI if needed for identity thresholds
     let ani_percentile = if args.aln.min_identity.to_lowercase().contains("ani")
@@ -802,40 +799,9 @@ fn aln_to_paf_native(aln_path: &str) -> Result<tempfile::NamedTempFile> {
     Ok(temp_paf)
 }
 
-/// Convert .1aln file to PAF using ALNtoPAF (fallback) or native reader (fast)
-fn aln_to_paf(aln_path: &str, threads: usize) -> Result<tempfile::NamedTempFile> {
-    // Try native reader first (2.3x faster)
-    if let Ok(temp_paf) = aln_to_paf_native(aln_path) {
-        return Ok(temp_paf);
-    }
-
-    // Fallback to ALNtoPAF (use embedded binary)
-    let alnto_paf_bin = sweepga::binary_paths::get_embedded_binary_path("ALNtoPAF")?;
-
-    // Create temp file for PAF output
-    let temp_paf = tempfile::NamedTempFile::with_suffix(".paf")?;
-    let paf_path = temp_paf.path();
-
-    // Run ALNtoPAF: ALNtoPAF [-mxsS] [-T<threads>] <alignment.1aln>
-    // -x: output CIGAR with X's (required if we want to convert back to .1aln later)
-    // It writes PAF to stdout
-    let output = std::process::Command::new(&alnto_paf_bin)
-        .arg("-x") // Generate CIGAR with X's
-        .arg(format!("-T{threads}"))
-        .arg(aln_path)
-        .output()?;
-
-    if !output.status.success() {
-        anyhow::bail!(
-            "ALNtoPAF conversion failed: {}",
-            String::from_utf8_lossy(&output.stderr)
-        );
-    }
-
-    // Write stdout to temp file
-    std::fs::write(paf_path, &output.stdout)?;
-
-    Ok(temp_paf)
+/// Convert a .1aln file to PAF with the native reader
+fn aln_to_paf(aln_path: &str) -> Result<tempfile::NamedTempFile> {
+    aln_to_paf_native(aln_path).with_context(|| format!("converting {aln_path} to PAF"))
 }
 
 // Note: Native .1aln writing is available via fastga-rs::AlnWriter
@@ -3120,7 +3086,7 @@ fn main() -> Result<()> {
             .to_lowercase()
             .contains("ani");
         let ani_paf = if wants_ani {
-            Some(aln_to_paf(&aln_input_path, args.threads)?)
+            Some(aln_to_paf(&aln_input_path)?)
         } else {
             None
         };
@@ -3532,7 +3498,7 @@ fn main() -> Result<()> {
                     );
                 }
 
-                let temp_paf = aln_to_paf(&args.files[0], args.threads)?;
+                let temp_paf = aln_to_paf(&args.files[0])?;
                 let paf_path = temp_paf.path().to_str().unwrap().to_string();
 
                 if !args.quiet {
@@ -3656,7 +3622,7 @@ fn main() -> Result<()> {
                     timing.log("convert", "Converting .1aln from stdin to PAF");
                 }
 
-                let temp_paf = aln_to_paf(&temp_path, args.threads)?;
+                let temp_paf = aln_to_paf(&temp_path)?;
                 let paf_path = temp_paf.path().to_str().unwrap().to_string();
 
                 if !args.quiet {
