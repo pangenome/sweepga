@@ -847,6 +847,28 @@ fn read_fasta_names_and_lengths(fasta_path: &Path) -> Result<(Vec<String>, Vec<u
     Ok((names, lengths))
 }
 
+/// Filter with the CLI grouping, self and scaffold flags.
+///
+/// FASTA inputs give each sequence its file (or PanSN prefix) as genome.
+/// PAF and .1aln inputs have no file provenance.
+fn build_filter(config: FilterConfig, args: &Args, fasta_inputs: bool) -> Result<PafFilter> {
+    let grouping = parse_genome_grouping(&args.aln.group_by);
+    // -f (no_filter) implies --self
+    let filter = PafFilter::new(config)
+        .with_keep_self(args.aln.keep_self || args.aln.no_filter)
+        .with_scaffolds_only(args.aln.scaffolds_only)
+        .with_genome_grouping(grouping);
+    if !fasta_inputs || !matches!(grouping, GenomeGrouping::Auto | GenomeGrouping::File) {
+        return Ok(filter);
+    }
+    let map = build_genome_assignment(&args.files, grouping == GenomeGrouping::File)?;
+    Ok(if map.is_empty() {
+        filter
+    } else {
+        filter.with_genome_assignment(map)
+    })
+}
+
 /// Build a sequence-name -> genome-key map for filtering.
 ///
 /// With `force_file` (i.e. `--group-by file`) every sequence is keyed by its
@@ -3064,24 +3086,24 @@ fn main() -> Result<()> {
         };
 
         // Step 3: Filter .1aln directly using unified_filter (format-preserving)
-        use crate::unified_filter::filter_file;
+        use crate::unified_filter::filter_file_with;
+        let fasta_inputs = input_file_types[0] == FileType::Fasta;
+        let filter = build_filter(filter_config, &args, fasta_inputs)?;
         if let Some(ref output_file) = args.output_file {
-            filter_file(
+            filter_file_with(
                 final_filter_input,
                 output_file,
-                &filter_config,
+                &filter,
                 false,
-                args.aln.keep_self,
             )?;
         } else {
             // Write to temp file then copy to stdout
             let temp_output = tempfile::NamedTempFile::with_suffix(".1aln")?;
-            filter_file(
+            filter_file_with(
                 final_filter_input,
                 temp_output.path(),
-                &filter_config,
+                &filter,
                 false,
-                args.aln.keep_self,
             )?;
 
             // Copy binary to stdout
@@ -3782,30 +3804,9 @@ fn main() -> Result<()> {
     // Use tree-filtered PAF if available, otherwise use original input
     let filter_input_path = tree_filtered_path.as_ref().unwrap_or(&input_path);
 
-    // Note: -f (no_filter) implies --self (keep self-mappings)
-    let genome_grouping = parse_genome_grouping(&args.aln.group_by);
-    let filter = PafFilter::new(config)
-        .with_keep_self(args.aln.keep_self || args.aln.no_filter)
-        .with_scaffolds_only(args.aln.scaffolds_only)
-        .with_genome_grouping(genome_grouping);
-    // Group sequences by genome when we can do so deterministically: use each
-    // input FASTA as a genome key (the aligned PAF reuses the header names).
-    // PAF input has no file provenance, so `auto` there falls back to
-    // per-sequence grouping unless the names carry PanSN.
-    let filter = if !input_is_paf
-        && !args.files.is_empty()
-        && matches!(
-            genome_grouping,
-            GenomeGrouping::Auto | GenomeGrouping::File
-        )
-    {
-        match build_genome_assignment(&args.files, genome_grouping == GenomeGrouping::File) {
-            Ok(map) if !map.is_empty() => filter.with_genome_assignment(map),
-            _ => filter,
-        }
-    } else {
-        filter
-    };
+    let fasta_inputs = !input_file_types.is_empty()
+        && input_file_types.iter().all(|ft| *ft == FileType::Fasta);
+    let filter = build_filter(config, &args, fasta_inputs)?;
     filter.filter_paf(filter_input_path, &output_path)?;
 
     // Convert output format if requested

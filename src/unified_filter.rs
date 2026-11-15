@@ -195,6 +195,17 @@ pub fn filter_file<P1: AsRef<Path>, P2: AsRef<Path>>(
     force_paf_output: bool,
     keep_self: bool,
 ) -> Result<()> {
+    let filter = PafFilter::new(config.clone()).with_keep_self(keep_self);
+    filter_file_with(input_path, output_path, &filter, force_paf_output)
+}
+
+/// Same as `filter_file`, with a filter built by the caller.
+pub fn filter_file_with<P1: AsRef<Path>, P2: AsRef<Path>>(
+    input_path: P1,
+    output_path: P2,
+    filter: &PafFilter,
+    force_paf_output: bool,
+) -> Result<()> {
     let input_str = input_path.as_ref().to_str().context("Invalid input path")?;
 
     // Determine input format by checking file content
@@ -223,7 +234,6 @@ pub fn filter_file<P1: AsRef<Path>, P2: AsRef<Path>>(
 
         // Use SAME filtering logic as PAF!
         // log::info!("[unified_filter] Applying filters...");
-        let filter = PafFilter::new(config.clone()).with_keep_self(keep_self);
         let passing_ranks = filter.apply_filters(metadata)?;
 
         // log::info!(
@@ -248,7 +258,6 @@ pub fn filter_file<P1: AsRef<Path>, P2: AsRef<Path>>(
         }
     } else {
         // PAF input workflow - use existing PAF filter directly
-        let filter = PafFilter::new(config.clone()).with_keep_self(keep_self);
         let input_str = input_path.as_ref();
         let output_str = output_path.as_ref();
         filter.filter_paf(input_str, output_str)?;

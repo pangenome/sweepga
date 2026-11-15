@@ -52,6 +52,14 @@ fn fasta_to_1aln_output_converts_back() {
         assert!(f.len() >= 12, "{line}");
         assert_ne!(f[0], f[5], "self mapping kept: {line}");
     }
+    // One genome per FASTA, as for PAF output: one record per query
+    let queries: HashSet<&str> = lines
+        .iter()
+        .map(|l| l.split('\t').next().unwrap())
+        .collect();
+    assert_eq!(queries.len(), lines.len(), "{lines:#?}");
+    let paf = String::from_utf8(sweepga(&[fasta.to_str().unwrap()])).unwrap();
+    assert_eq!(paf.lines().count(), lines.len());
 }
 
 #[test]
